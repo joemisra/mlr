@@ -1,0 +1,6 @@
+# macOS
+.DS_Store
+Icon?
+
+# Max/MSP generated
+*.mxf
