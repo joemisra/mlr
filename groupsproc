@@ -1,0 +1,12 @@
+inlets = 2;
+outlets = 1;
+var kmod = 0;
+
+function msg_int(a) {
+    post("kmod = " + kmod);  
+    post(inlet + " " + a);
+
+	if(a == 1) {
+		kmod = a;
+	}
+}

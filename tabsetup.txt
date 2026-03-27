@@ -1,0 +1,40 @@
+{
+    "tabs": [
+        {
+            "tab": "_mlr",
+            "patcher": "_mlr"
+        },
+        {
+            "tab": "kick",
+            "patcher": "kick"
+        },
+        {
+            "tab": "mixer",
+            "patcher": "ourmixer"
+        },
+        {
+            "tab": "waveforms",
+            "patcher": "waveforms"
+        },
+        {
+            "tab": "presetswitchez",
+            "patcher": "presetswitchez"
+        },
+        {
+            "tab": "grid_metronome",
+            "patcher": "grid_metronome"
+        },
+        {
+            "tab": "grid_drawing",
+            "patcher": "grid_drawing"
+        },
+        {
+            "tab": "box",
+            "patcher": "box"
+        },
+        {
+            "tab": "debug",
+            "patcher": "debug"
+        }
+    ]
+}

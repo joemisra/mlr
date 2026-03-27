@@ -1,0 +1,484 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/maxpat-jsonschema/maxpat.schema.json",
+  "title": "Max Patcher",
+  "description": "JSON Schema for Cycling '74 Max/MSP patcher files (.maxpat, .maxhelp)",
+  "type": "object",
+  "required": ["patcher"],
+  "additionalProperties": false,
+  "properties": {
+    "patcher": { "$ref": "#/definitions/patcher" }
+  },
+
+  "definitions": {
+
+    "color4": {
+      "description": "RGBA color as [r, g, b, a] with values 0.0–1.0",
+      "type": "array",
+      "items": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+      "minItems": 4,
+      "maxItems": 4
+    },
+
+    "rect": {
+      "description": "Rectangle as [x, y, width, height]",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 4,
+      "maxItems": 4
+    },
+
+    "gridsize": {
+      "description": "Grid spacing as [x, y]",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+
+    "offset2": {
+      "description": "2D offset as [x, y]",
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+
+    "appversion": {
+      "type": "object",
+      "description": "Max application version that saved this patch",
+      "properties": {
+        "major": { "type": "integer" },
+        "minor": { "type": "integer" },
+        "revision": { "type": "integer" },
+        "architecture": { "type": "string", "examples": ["x64", "arm64"] },
+        "modernui": { "type": "integer", "enum": [0, 1] }
+      },
+      "required": ["major", "minor", "revision", "architecture", "modernui"],
+      "additionalProperties": false
+    },
+
+    "bgfillcolor": {
+      "type": "object",
+      "description": "Background fill color specification (gradient or solid)",
+      "properties": {
+        "type": { "type": "string", "enum": ["color", "gradient"] },
+        "color": { "$ref": "#/definitions/color4" },
+        "color1": { "$ref": "#/definitions/color4" },
+        "color2": { "$ref": "#/definitions/color4" },
+        "angle": { "type": "number" },
+        "proportion": { "type": "number" },
+        "autogradient": { "type": "integer", "enum": [0, 1] }
+      },
+      "additionalProperties": false
+    },
+
+    "style_definition": {
+      "type": "object",
+      "description": "Named style definition",
+      "properties": {
+        "name": { "type": "string" },
+        "default": {
+          "type": "object",
+          "description": "Style properties applied by default",
+          "properties": {
+            "accentcolor": { "$ref": "#/definitions/color4" },
+            "bgcolor": { "$ref": "#/definitions/color4" },
+            "bgfillcolor": { "$ref": "#/definitions/bgfillcolor" },
+            "color": { "$ref": "#/definitions/color4" },
+            "elementcolor": { "$ref": "#/definitions/color4" },
+            "selectioncolor": { "$ref": "#/definitions/color4" },
+            "textcolor": { "$ref": "#/definitions/color4" },
+            "textcolor_inverse": { "$ref": "#/definitions/color4" }
+          },
+          "additionalProperties": true
+        },
+        "parentstyle": { "type": "string" },
+        "multi": { "type": "integer", "enum": [0, 1] }
+      },
+      "required": ["name"],
+      "additionalProperties": true
+    },
+
+    "dependency_cache_entry": {
+      "type": "object",
+      "description": "An external file dependency",
+      "properties": {
+        "name": { "type": "string", "description": "Filename of the dependency" },
+        "bootpath": { "type": "string", "description": "Absolute or C74-relative path where the file was found" },
+        "patcherrelativepath": { "type": "string", "description": "Path relative to the patcher file" },
+        "type": {
+          "type": "string",
+          "description": "File type identifier",
+          "examples": ["JSON", "TEXT", "maxb", "PNG", "AIFF", "iLaF"]
+        },
+        "implicit": { "type": "integer", "enum": [0, 1] }
+      },
+      "required": ["name"],
+      "additionalProperties": true
+    },
+
+    "textfile": {
+      "type": "object",
+      "description": "Embedded or referenced text file (used by js/node.script objects)",
+      "properties": {
+        "filename": { "type": "string" },
+        "flags": { "type": "integer" },
+        "embed": { "type": "integer", "enum": [0, 1] },
+        "autowatch": { "type": "integer", "enum": [0, 1] }
+      },
+      "additionalProperties": true
+    },
+
+    "saved_object_attributes": {
+      "type": "object",
+      "description": "Persistent attributes saved with the object (varies per maxclass)",
+      "properties": {
+        "description": { "type": "string" },
+        "digest": { "type": "string" },
+        "globalpatchername": { "type": "string" },
+        "tags": { "type": "string" },
+        "filename": { "type": "string" },
+        "parameter_enable": { "type": "integer" },
+        "node_bin_path": { "type": "string" },
+        "npm_bin_path": { "type": "string" },
+        "watch": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+
+    "patchline": {
+      "type": "object",
+      "description": "A connection (patch cord) between two objects",
+      "properties": {
+        "destination": {
+          "type": "array",
+          "description": "Target [object_id, inlet_index]",
+          "items": [
+            { "type": "string", "description": "Destination object ID" },
+            { "type": "integer", "description": "Destination inlet index", "minimum": 0 }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "source": {
+          "type": "array",
+          "description": "Origin [object_id, outlet_index]",
+          "items": [
+            { "type": "string", "description": "Source object ID" },
+            { "type": "integer", "description": "Source outlet index", "minimum": 0 }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "hidden": { "type": "integer", "enum": [0, 1], "description": "Whether the cord is hidden" },
+        "color": { "$ref": "#/definitions/color4" },
+        "midpoints": {
+          "type": "array",
+          "description": "Manual routing waypoints as [x1, y1, x2, y2, ...]",
+          "items": { "type": "number" }
+        },
+        "order": {
+          "type": "integer",
+          "description": "Execution order when multiple cords share the same source outlet (right-to-left, 0 = rightmost)"
+        }
+      },
+      "required": ["source", "destination"],
+      "additionalProperties": true
+    },
+
+    "line_wrapper": {
+      "type": "object",
+      "properties": {
+        "patchline": { "$ref": "#/definitions/patchline" }
+      },
+      "required": ["patchline"],
+      "additionalProperties": false
+    },
+
+    "box": {
+      "type": "object",
+      "description": "A Max object (box) in the patcher",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier within the patcher, e.g. 'obj-42'",
+          "pattern": "^obj-[0-9]+$"
+        },
+        "maxclass": {
+          "type": "string",
+          "description": "The object class name",
+          "examples": [
+            "newobj", "message", "comment", "inlet", "outlet",
+            "number", "flonum", "toggle", "button", "bang",
+            "slider", "dial", "multislider", "matrixctrl",
+            "umenu", "radiogroup", "textbutton", "ubutton",
+            "panel", "bpatcher", "fpic", "lcd",
+            "gain~", "meter~", "ezdac~", "ezadc~",
+            "live.dial", "live.toggle", "live.menu", "live.numbox",
+            "gswitch", "gswitch2", "dropfile",
+            "jit.pwindow", "jit.matrix"
+          ]
+        },
+        "numinlets": { "type": "integer", "minimum": 0, "description": "Number of inlets" },
+        "numoutlets": { "type": "integer", "minimum": 0, "description": "Number of outlets" },
+        "outlettype": {
+          "type": "array",
+          "description": "Data types for each outlet",
+          "items": {
+            "type": "string",
+            "examples": ["", "int", "float", "bang", "signal", "list", "multichannelsignal", "jit_matrix"]
+          }
+        },
+        "patching_rect": { "$ref": "#/definitions/rect" },
+        "text": { "type": "string", "description": "The object text (class name and arguments)" },
+
+        "varname": { "type": "string", "description": "Scripting name for the object" },
+        "comment": { "type": "string", "description": "Comment text (for comment objects)" },
+        "hidden": { "type": "integer", "enum": [0, 1] },
+        "background": { "type": "integer", "enum": [0, 1] },
+        "ignoreclick": { "type": "integer", "enum": [0, 1] },
+        "parameter_enable": { "type": "integer", "enum": [0, 1] },
+
+        "fontname": { "type": "string", "examples": ["Arial", "Helvetica Neue", "Lato"] },
+        "fontsize": { "type": "number" },
+        "fontface": { "type": "integer", "description": "0=regular, 1=bold, 2=italic, 3=bold-italic" },
+        "textjustification": { "type": "integer", "description": "0=left, 1=center, 2=right" },
+
+        "color": { "$ref": "#/definitions/color4" },
+        "bgcolor": { "$ref": "#/definitions/color4" },
+        "bgcolor2": { "$ref": "#/definitions/color4" },
+        "textcolor": { "$ref": "#/definitions/color4" },
+        "textcolor2": { "$ref": "#/definitions/color4" },
+        "bordercolor": { "$ref": "#/definitions/color4" },
+        "bgfillcolor": { "$ref": "#/definitions/bgfillcolor" },
+
+        "presentation": { "type": "integer", "enum": [0, 1], "description": "Show in presentation mode" },
+        "presentation_rect": { "$ref": "#/definitions/rect" },
+        "presentation_linecount": { "type": "integer" },
+
+        "patcher": {
+          "$ref": "#/definitions/patcher",
+          "description": "Embedded subpatcher (for p, patcher, poly~, pfft~, gen~, etc.)"
+        },
+        "saved_object_attributes": { "$ref": "#/definitions/saved_object_attributes" },
+        "textfile": { "$ref": "#/definitions/textfile" },
+
+        "name": { "type": "string", "description": "Referenced patcher name (bpatcher, poly~)" },
+        "args": {
+          "type": "array",
+          "description": "Arguments passed to the referenced patcher",
+          "items": {}
+        },
+        "filename": { "type": "string", "description": "Referenced script filename (js, jsui, v8)" },
+
+        "index": { "type": "integer" },
+        "linecount": { "type": "integer" },
+
+        "minimum": { "type": "number" },
+        "maximum": { "type": "number" },
+        "mode": { "type": "integer" },
+        "orientation": { "type": "integer", "description": "0=vertical, 1=horizontal" },
+        "size": { "type": "integer" },
+        "values": { "type": "array", "items": {} },
+        "interval": { "type": "integer" },
+
+        "bgmode": { "type": "integer" },
+        "border": { "type": "integer" },
+        "clickthrough": { "type": "integer", "enum": [0, 1] },
+        "enablehscroll": { "type": "integer", "enum": [0, 1] },
+        "enablevscroll": { "type": "integer", "enum": [0, 1] },
+        "enablesprites": { "type": "integer", "enum": [0, 1] },
+        "lockeddragscroll": { "type": "integer", "enum": [0, 1] },
+        "offset": { "$ref": "#/definitions/offset2" },
+        "viewvisibility": { "type": "integer", "enum": [0, 1] },
+
+        "angle": { "type": "number" },
+        "shadow": { "type": "integer" },
+        "rounded": { "type": "number" },
+        "thickness": { "type": "number" },
+        "arrow": { "type": "integer", "enum": [0, 1] },
+        "triangle": { "type": "integer", "enum": [0, 1] },
+
+        "align": { "type": "integer" },
+        "allowdrag": { "type": "integer", "enum": [0, 1] },
+        "cantchange": { "type": "integer", "enum": [0, 1] },
+        "disabled": {
+          "oneOf": [
+            { "type": "integer", "enum": [0, 1] },
+            { "type": "array", "items": { "type": "integer" } }
+          ]
+        },
+        "dragtrack": { "type": "integer", "enum": [0, 1] },
+        "handoff": { "type": "string" },
+        "hilite": { "type": "integer", "enum": [0, 1] },
+        "local": { "type": "integer", "enum": [0, 1] },
+        "mousefilter": { "type": "integer", "enum": [0, 1] },
+        "save": { "type": "array", "items": {} },
+
+        "columns": { "type": "integer" },
+        "rows": { "type": "integer" },
+        "menumode": { "type": "integer" },
+        "items": {
+          "oneOf": [
+            { "type": "array", "items": { "type": ["string", "integer", "number"] } },
+            { "type": "string" },
+            { "type": "integer" }
+          ],
+          "description": "Menu items (umenu) — array of values or a single value"
+        },
+        "outputmode": { "type": "integer" },
+        "pattrmode": { "type": "integer" },
+
+        "format": { "type": "integer" },
+        "interpinlet": { "type": "integer" },
+        "setminmax": { "type": "array", "items": { "type": "number" } },
+        "setstyle": { "type": "integer" },
+        "settype": { "type": "integer" },
+        "contdata": { "type": "integer" },
+        "ghostbar": { "type": "integer" },
+        "slidercolor": { "$ref": "#/definitions/color4" },
+        "candicane2": { "$ref": "#/definitions/color4" },
+        "candicane3": { "$ref": "#/definitions/color4" },
+        "candicane4": { "$ref": "#/definitions/color4" },
+        "candicane5": { "$ref": "#/definitions/color4" },
+        "candicane6": { "$ref": "#/definitions/color4" },
+        "candicane7": { "$ref": "#/definitions/color4" },
+        "candicane8": { "$ref": "#/definitions/color4" },
+
+        "togcolor": { "$ref": "#/definitions/color4" },
+        "bgoncolor": { "$ref": "#/definitions/color4" },
+        "usebgoncolor": { "type": "integer", "enum": [0, 1] },
+
+        "texton": { "type": "string" },
+        "textoncolor": { "$ref": "#/definitions/color4" },
+        "textovercolor": { "$ref": "#/definitions/color4" },
+        "usetextovercolor": { "type": "integer", "enum": [0, 1] },
+
+        "coldcolor": { "$ref": "#/definitions/color4" },
+        "tepidcolor": { "$ref": "#/definitions/color4" },
+        "warmcolor": { "$ref": "#/definitions/color4" },
+        "hotcolor": { "$ref": "#/definitions/color4" },
+        "overloadcolor": { "$ref": "#/definitions/color4" },
+        "peakcolor": { "$ref": "#/definitions/color4" },
+
+        "discolor": { "$ref": "#/definitions/color4" },
+        "framecolor": { "$ref": "#/definitions/color4" },
+        "hltcolor": { "$ref": "#/definitions/color4" },
+        "htextcolor": { "$ref": "#/definitions/color4" },
+        "htricolor": { "$ref": "#/definitions/color4" },
+        "tricolor": { "$ref": "#/definitions/color4" },
+        "triscale": { "type": "number" },
+        "legacytextcolor": { "type": "integer", "enum": [0, 1] },
+        "frgb": { "$ref": "#/definitions/color4" },
+
+        "pic": { "type": "string" },
+        "multichannelvariant": { "type": ["string", "integer"] },
+        "itemtype": { "type": "integer" },
+        "types": { "type": "array", "items": {} },
+
+        "bubble": { "type": "integer", "enum": [0, 1] },
+        "bubbleside": { "type": "integer", "description": "0=left, 1=top, 2=right, 3=bottom" },
+        "bubblepoint": { "type": "number" },
+        "disablefind": { "type": "integer", "enum": [0, 1] },
+
+        "rendermode": { "type": "integer" },
+        "url": { "type": "string" },
+
+        "style": { "type": "string", "description": "Named style reference" }
+      },
+      "required": ["id", "maxclass"],
+      "additionalProperties": true
+    },
+
+    "box_wrapper": {
+      "type": "object",
+      "properties": {
+        "box": { "$ref": "#/definitions/box" }
+      },
+      "required": ["box"],
+      "additionalProperties": false
+    },
+
+    "patcher": {
+      "type": "object",
+      "description": "A Max patcher (canvas) containing objects and connections",
+      "properties": {
+        "fileversion": { "type": "integer", "description": "Patch file format version (typically 1)" },
+        "appversion": { "$ref": "#/definitions/appversion" },
+        "classnamespace": { "type": "string", "enum": ["box", "rnbo"], "description": "Object namespace" },
+
+        "rect": { "$ref": "#/definitions/rect" },
+        "openrect": { "$ref": "#/definitions/rect" },
+        "defrect": { "$ref": "#/definitions/rect" },
+        "gridsize": { "$ref": "#/definitions/gridsize" },
+
+        "boxes": {
+          "type": "array",
+          "description": "Objects in this patcher",
+          "items": { "$ref": "#/definitions/box_wrapper" }
+        },
+        "lines": {
+          "type": "array",
+          "description": "Patch cords connecting objects",
+          "items": { "$ref": "#/definitions/line_wrapper" }
+        },
+
+        "bglocked": { "type": "integer", "enum": [0, 1], "description": "Background layer locked" },
+        "openinpresentation": { "type": "integer", "enum": [0, 1], "description": "Open in presentation mode" },
+        "showontab": { "type": "integer", "description": "Tab index to display on" },
+        "showrootpatcherontab": { "type": "integer", "enum": [0, 1] },
+
+        "default_fontsize": { "type": "number" },
+        "default_fontface": { "type": "integer" },
+        "default_fontname": { "type": "string" },
+
+        "gridonopen": { "type": "integer", "enum": [0, 1] },
+        "gridsnaponopen": { "type": "integer", "enum": [0, 1] },
+        "objectsnaponopen": { "type": "integer", "enum": [0, 1] },
+
+        "statusbarvisible": { "type": "integer" },
+        "toolbarvisible": { "type": "integer", "enum": [0, 1] },
+        "lefttoolbarpinned": { "type": "integer", "enum": [0, 1] },
+        "toptoolbarpinned": { "type": "integer", "enum": [0, 1] },
+        "righttoolbarpinned": { "type": "integer", "enum": [0, 1] },
+        "bottomtoolbarpinned": { "type": "integer", "enum": [0, 1] },
+        "toolbars_unpinned_last_save": { "type": "integer", "enum": [0, 1] },
+
+        "tallnewobj": { "type": "integer", "enum": [0, 1] },
+        "boxanimatetime": { "type": "integer" },
+        "enablehscroll": { "type": "integer", "enum": [0, 1] },
+        "enablevscroll": { "type": "integer", "enum": [0, 1] },
+        "devicewidth": { "type": "number" },
+
+        "description": { "type": "string" },
+        "digest": { "type": "string" },
+        "tags": { "type": "string" },
+        "style": { "type": "string" },
+        "subpatcher_template": { "type": "string" },
+        "assistshowspatchername": { "type": "integer", "enum": [0, 1] },
+        "imprint": { "type": "integer", "enum": [0, 1] },
+
+        "bgcolor": { "$ref": "#/definitions/color4" },
+
+        "originid": { "type": "string", "description": "Unique patcher identity (Max 9+)" },
+
+        "styles": {
+          "type": "array",
+          "description": "Named style definitions",
+          "items": { "$ref": "#/definitions/style_definition" }
+        },
+
+        "dependency_cache": {
+          "type": "array",
+          "description": "External files referenced by this patch",
+          "items": { "$ref": "#/definitions/dependency_cache_entry" }
+        },
+
+        "autosave": { "type": "integer", "enum": [0, 1] }
+      },
+      "required": ["fileversion", "boxes", "lines"],
+      "additionalProperties": true
+    }
+  }
+}

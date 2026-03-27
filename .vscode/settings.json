@@ -1,0 +1,12 @@
+{
+  "json.schemas": [
+    {
+      "fileMatch": ["*.maxpat", "*.maxhelp"],
+      "url": "./maxpat-jsonschema/maxpat.schema.json"
+    }
+  ],
+  "files.associations": {
+    "*.maxpat": "json",
+    "*.maxhelp": "json"
+  }
+}
