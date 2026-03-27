@@ -36,6 +36,7 @@ var edition = 256;
 var NUM_CHANNELS = 8;
 var NUM_TRACKS = 15; // rows 1-15
 
+
 var muted = [0, 0, 0, 0, 0, 0, 0, 0];
 var volumes = [100, 100, 100, 100, 100, 100, 100, 100]; // 0-158
 var reverse_toggles = new Array(16).fill(0);
