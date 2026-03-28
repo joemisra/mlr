@@ -1,3 +1,14 @@
+/**
+ * @deprecated — Superseded by grid_router.js (2026-03-28).
+ *
+ * This file used row-major order (row, col, state) which is incompatible
+ * with grid_router.js (col, row, state — matching serialosc convention).
+ * All routing, drawing, kmod handling, and automation are now consolidated
+ * in grid_router.js inside grid_router_io.maxpat.
+ *
+ * Retained for reference only. Do not load via [js] or [v8].
+ */
+
 inlets = 2;
 outlets = 3;
 

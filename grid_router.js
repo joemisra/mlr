@@ -5,18 +5,29 @@ outlets = 3;
 /**
  * Central grid routing hub for mlr.
  *
- * Inlet 0: grid press events — list (col row state), 0-indexed monome coords
+ * Inlet 0: grid press events — list (col row state), 0-indexed monome coords.
  *          Receives from [r box/press] which carries raw serialosc (x y s).
+ *          Also receives messages via [r gridrouter]:
+ *            - boxled col row level          (playback head LED from [p chnls])
+ *            - boxledrow row lev0 lev1 ...   (full row LED update)
+ *            - volumeUpdate ch val           (sync from output.maxpat)
+ *            - muteUpdate ch val             (sync from output.maxpat)
+ *            - handleOldPatternOut ch col row (pattern replay LED)
+ *            - edition 64|128|256            (grid size)
+ *            - clear_automation              (reset automation state)
  * Inlet 1: kmod value — int from [r kmod]
  * Inlet 2: clock tick — bang from [r tr_pulse] for automation sync
  *
  * Outlet 0: raw grid triple (col, row, state) — same order as [r box/press] into
- *          [p box] unpack, so [s grid_router_playback] can replace the old receive.
+ *           [p box] unpack, so [s grid_router_playback] can replace the old receive.
  * Outlet 1: LED setcell commands for grid_matrix_io (setcell x y level)
  * Outlet 2: status / automation events
  *
  * kmod values: 1 = normal (cut/pattern), 2 = mod page, 3 = groups page,
  *              4 = reserved (step sequencer)
+ *
+ * Normal mode (kmod 1): playback head LEDs from box/led are forwarded as setcell.
+ *   This replaces the old [p switcher] path (r mlrpageled → constrain → setcell).
  *
  * Mod page (kmod 2), cols 0–7: row 0 mutes, rows 1–2 vol up/down (brightness = level),
  * rows 4–15 = insert-FX placeholders (no audio wiring yet).
@@ -32,9 +43,14 @@ outlets = 3;
 
 var kmod = 1;
 var edition = 256;
+var gridWidth = 16;
+var gridHeight = 16;
 
 var NUM_CHANNELS = 8;
 var NUM_TRACKS = 15; // rows 1-15
+
+/** Guard flag: true while automation playback is dispatching events. */
+var playbackDispatching = false;
 
 
 var muted = [0, 0, 0, 0, 0, 0, 0, 0];
@@ -86,13 +102,13 @@ function led(x, y, level) {
 }
 
 function ledRow(y, level) {
-	for (var x = 0; x < 16; x++) {
+	for (var x = 0; x < gridWidth; x++) {
 		led(x, y, level);
 	}
 }
 
 function ledCol(x, level) {
-	for (var y = 0; y < 16; y++) {
+	for (var y = 0; y < gridHeight; y++) {
 		led(x, y, level);
 	}
 }
@@ -215,11 +231,12 @@ function onKmodChange(prev, next) {
 
 function dispatch(col, row, state) {
 	if (isNaN(col) || isNaN(row) || isNaN(state)) return;
-	col = clamp(col, 0, 15);
-	row = clamp(row, 0, 15);
+	col = clamp(col, 0, gridWidth - 1);
+	row = clamp(row, 0, gridHeight - 1);
 	state = state ? 1 : 0;
 
-	if (automation.recording && state === 1) {
+	// Don't re-record events dispatched during automation playback
+	if (automation.recording && state === 1 && !playbackDispatching) {
 		recordEvent(col, row, state);
 	}
 
@@ -489,7 +506,7 @@ function drawInsertFxBlock() {
 	var x;
 	var y;
 	for (x = 0; x < 8; x++) {
-		for (y = 4; y < 16; y++) {
+		for (y = 4; y < gridHeight; y++) {
 			led(x, y, insert_fx[insertFxIndex(x, y)] ? 12 : 0);
 		}
 	}
@@ -498,7 +515,7 @@ function drawInsertFxBlock() {
 function drawRandomizeColumn() {
 	var y;
 	led(8, 0, 6);
-	for (y = 1; y < 16; y++) {
+	for (y = 1; y < gridHeight; y++) {
 		led(8, y, 2);
 	}
 }
@@ -544,7 +561,7 @@ function drawBufferColumn() {
 
 function drawOctaveColumns() {
 	var y;
-	for (y = 1; y < 16; y++) {
+	for (y = 1; y < gridHeight; y++) {
 		drawOctaveCell(y);
 	}
 }
@@ -561,7 +578,7 @@ function drawOctaveCell(row) {
 }
 
 function drawReverseColumn() {
-	for (var y = 1; y < 16; y++) {
+	for (var y = 1; y < gridHeight; y++) {
 		led(15, y, reverse_toggles[y] ? 15 : 0);
 	}
 }
@@ -609,6 +626,51 @@ function handleOldPatternOut() {
 	led(ch, 0, 15); // highlight the active
 	// flush
 }
+
+// ─── Normal-mode LED bridge (replaces [p switcher]) ────────────────────
+// These handlers receive LED data from [p chnls] / channel playback heads
+// and forward as setcell commands to grid_matrix_bridge, but only in
+// normal mode (kmod 1). On overlay pages (kmod 2/3/4) the grid shows
+// the overlay UI instead, so playback LEDs are suppressed.
+
+/**
+ * boxled col row level — single LED cell from s box/led.
+ * Replaces the old [p switcher] path: r mlrpageled → constrain → prepend setcell → s togridmatrixio.
+ */
+function boxled() {
+	if (kmod !== 1) return;
+	var col = clamp(parseInt(arguments[0], 10) | 0, 0, gridWidth - 1);
+	var row = clamp(parseInt(arguments[1], 10) | 0, 0, gridHeight - 1);
+	var level = clamp(parseInt(arguments[2], 10) | 0, 0, 15);
+	led(col, row, level);
+}
+
+/**
+ * boxledrow row col0_level col1_level ... — full row LED update from s box/led_row.
+ * First arg is the row, remaining args are brightness values for each column.
+ */
+function boxledrow() {
+	if (kmod !== 1) return;
+	var row = clamp(parseInt(arguments[0], 10) | 0, 0, gridHeight - 1);
+	for (var x = 1; x < arguments.length && (x - 1) < gridWidth; x++) {
+		var level = clamp(parseInt(arguments[x], 10) | 0, 0, 15);
+		led(x - 1, row, level);
+	}
+}
+
+/**
+ * boxledcol col row0_level row1_level ... — full column LED update from s box/led_col.
+ * First arg is the column, remaining args are brightness values for each row.
+ */
+function boxledcol() {
+	if (kmod !== 1) return;
+	var col = clamp(parseInt(arguments[0], 10) | 0, 0, gridWidth - 1);
+	for (var y = 1; y < arguments.length && (y - 1) < gridHeight; y++) {
+		var level = clamp(parseInt(arguments[y], 10) | 0, 0, 15);
+		led(col, y - 1, level);
+	}
+}
+
 // ─── Automation Recording (Phase 3) ────────────────────────────────────
 
 function handleAutomationArm(row) {
@@ -710,12 +772,14 @@ function clockTick() {
 	if (!automation.playing || automation.events.length === 0) return;
 
 	var tickInLoop = automation.playHead % automation.length;
+	playbackDispatching = true;
 	for (var i = 0; i < automation.events.length; i++) {
 		var ev = automation.events[i];
 		if (ev.tick === tickInLoop) {
 			dispatch(ev.col, ev.row, ev.state);
 		}
 	}
+	playbackDispatching = false;
 
 	automation.playHead++;
 	if (automation.playHead >= automation.length) {
@@ -733,7 +797,7 @@ function animateLeds() {
 	animBrightness = (animBrightness >= 15) ? 5 : animBrightness + 1;
 
 	if (automation.recording && kmod === 2) {
-		for (var y = 2; y < 16; y++) {
+		for (var y = 2; y < gridHeight; y++) {
 			led(8, y, animBrightness);
 		}
 	}
@@ -757,17 +821,27 @@ function anything() {
 	var args = arrayfromargs(arguments);
 
 	if (name === "edition" && args.length) {
-		edition = parseInt(args[0], 10) || 256;
+		var e = parseInt(args[0], 10);
+		if (e === 64 || e === 128 || e === 256) {
+			edition = e;
+			var dims = { 64: [8, 8], 128: [16, 8], 256: [16, 16] };
+			gridWidth = dims[edition][0];
+			gridHeight = dims[edition][1];
+			post("[grid_router] edition=" + edition + " grid=" + gridWidth + "x" + gridHeight + "\n");
+		}
 	} else if (name === "volumeUpdate" && args.length >= 2) {
 		volumeUpdate.apply(this, args);
 	} else if (name === "muteUpdate" && args.length >= 2) {
 		muteUpdate.apply(this, args);
-	}
-	else if (name === "handleOldPatternOut" && args.length >= 3) {
+	} else if (name === "handleOldPatternOut" && args.length >= 3) {
 		handleOldPatternOut.apply(this, args);
-
-	}
-	else if (name === "/grid/key" && args.length >= 3) {
+	} else if (name === "boxled" && args.length >= 3) {
+		boxled.apply(this, args);
+	} else if (name === "boxledrow" && args.length >= 2) {
+		boxledrow.apply(this, args);
+	} else if (name === "boxledcol" && args.length >= 2) {
+		boxledcol.apply(this, args);
+	} else if (name === "/grid/key" && args.length >= 3) {
 		dispatch(parseInt(args[0], 10), parseInt(args[1], 10), parseInt(args[2], 10));
 	} else if (name === "key" && args.length >= 3) {
 		dispatch(parseInt(args[0], 10), parseInt(args[1], 10), parseInt(args[2], 10));
