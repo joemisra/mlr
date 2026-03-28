@@ -1,3 +1,14 @@
+/**
+ * @deprecated — Superseded by grid_router.js (2026-03-28).
+ *
+ * This file had a bug: line 32 treated `muted` (an array) as a scalar,
+ * replacing the entire array with 0 or 1 on first toggle.
+ * Group/channel stop and mute logic is now in grid_router.js
+ * (handleRow0Channel, handleModMute).
+ *
+ * Retained for reference only. Do not load via [js] or [v8].
+ */
+
 inlets = 2;
 outlets = 3;
 var kmod = 2;
