@@ -18,7 +18,7 @@ outlets = 3;
  * kmod values: 1 = normal (cut/pattern), 2 = mod page, 3 = groups page,
  *              4 = reserved (step sequencer)
  *
- * Mod page (kmod 2), cols 0–7: row1 mutes, row2/3 vol up/down (brightness = level),
+ * Mod page (kmod 2), cols 0–7: row 0 mutes, rows 1–2 vol up/down (brightness = level),
  * rows 4–15 = insert-FX placeholders (no audio wiring yet).
  * Col 8: row1 randomize all channels ([mlr]randomfun); rows 2–15 per-track (#[box]rnd).
  * Col 9: automation (play r1, loop r2, length r3–6, arm r7); recording anim col 8 r2–15;
@@ -81,6 +81,7 @@ function clamp(v, lo, hi) {
 }
 
 function led(x, y, level) {
+	// this output connects to [s gridmatrixio] which goes to 1st inlet of [p grid_matrix_io]
 	outlet(1, "setcell", x, y, clamp(level | 0, 0, 15));
 }
 
@@ -107,6 +108,10 @@ function volBrightnessUp(col) {
 
 function volBrightnessDown(col) {
 	return clamp(Math.round(volBrightnessUp(col) * 0.45), 0, 15);
+}
+function setVolume(col, vol) {
+	volumes[col] = vol;
+	updateVolumeDisplay(col);
 }
 
 // ─── Entry Points ───────────────────────────────────────────────────────
@@ -161,29 +166,49 @@ function setKmod(val) {
 }
 
 function onKmodChange(prev, next) {
-	// Clear rows 1-15 when entering an overlay page
-	if (next === 2 || next === 3) {
-		for (var y = 1; y < 16; y++) {
-			ledRow(y, 0);
-		}
+	// Log kmod state change
+	post("[grid_router] kmod " + prev + " -> " + next + " (" + kmod + ")\n");
+
+	// Always clear the grid when changing modes
+	messnamed("togridmatrixio", "clear");
+	messnamed("togridmatrixio", "flush");
+
+	// Kmod page indicators: [col, brightness]
+	var kmodIndicators = [
+		[15, 0],   // kmod 1 - no indicator
+		[15, 15],  // kmod 2 - mod overlay indicator
+		[14, 10],  // kmod 3 - group/channel assign overlay
+		[14, 15]   // kmod 4 - step sequencer overlay
+	];
+
+	// Show indicator for the current kmod (if next is valid)
+	if (next >= 1 && next <= kmodIndicators.length) {
+		var idx = next - 1;
+		led(kmodIndicators[idx][0], 0, kmodIndicators[idx][1]);
 	}
 
-	if (next === 2) {
-		led(15, 0, 15);
-		drawModPage();
-		animTask.repeat();
-	} else if (next === 3) {
-		led(14, 0, 15);
-		// channel assignment overlay drawn by p channelMod via r kmod
+	// Kmod-specific setup/teardown
+	switch (next) {
+		case 1:
+			// Return to normal mode: clear overlay indicators, stop anim
+			led(14, 0, 0);
+			led(15, 0, 0);
+			animTask.cancel();
+			break;
+		case 2:
+			// Enter Mod Page overlay: draw UI, start anim
+			drawModPage();
+			animTask.repeat();
+			break;
+		case 3:
+			// Enter Groups/Channel Assign overlay:
+			// UI is handled elsewhere
+			break;
+		case 4:
+			// Enter Step Sequencer overlay:
+			// UI is handled elsewhere
+			break;
 	}
-
-	if (next === 1) {
-		led(14, 0, 0);
-		led(15, 0, 0);
-		animTask.cancel();
-	}
-
-	post("[grid_router] kmod " + prev + " -> " + next + "\n");
 }
 
 // ─── Main Dispatch ──────────────────────────────────────────────────────
@@ -251,8 +276,11 @@ function handleRow0Channel(col) {
 	if (kmod === 1) {
 		messnamed(ch + "[pl]stop", 1);
 		outlet(0, col, 0, 1);
+	} else if (kmod === 2) {
+		handleModMute(col);
+		// kmod 2: mutes on mod page row 1 (Phase 2)
+		post("[grid_router] handleRow0Channel " + col + " " + kmod + "\n");
 	}
-	// kmod 2: mutes on mod page row 1 (Phase 2)
 }
 
 function handlePatternRecorder(idx) {
@@ -321,7 +349,7 @@ function handleModRandomize(row) {
 		led(8, row, 15);
 		var t2 = new Task(
 			(function (rr) {
-				return function () { led(8, rr, 0); };
+				return function () { led(8, rr, 2); };
 			})(row),
 			this
 		);
@@ -340,7 +368,9 @@ function handleModMute(col) {
 	var ch = col + 1;
 	muted[col] = muted[col] ? 0 : 1;
 	messnamed(ch + "[box]mute", muted[col]);
-	led(col, 1, muted[col] ? 0 : 15);
+	if (kmod === 2) {
+		drawMuteRow();
+	}
 }
 
 function handleModVolume(col, row) {
@@ -469,7 +499,7 @@ function drawRandomizeColumn() {
 	var y;
 	led(8, 0, 6);
 	for (y = 1; y < 16; y++) {
-		led(8, y, 6);
+		led(8, y, 2);
 	}
 }
 
@@ -551,6 +581,34 @@ function volumeUpdate() {
 	}
 }
 
+/**
+ * Sync muted[] from the output patch mute button / [box]mute.
+ * val matches pl: 1 = muted, 0 = unmuted (LED bright = unmuted).
+ */
+function muteUpdate() {
+	var ch = parseInt(arguments[0], 10);
+	var val = parseInt(arguments[1], 10);
+	if (ch >= 1 && ch <= 8) {
+		muted[ch - 1] = val ? 1 : 0;
+	}
+	if (kmod === 2) {
+		drawMuteRow();
+	}
+}
+
+function handleOldPatternOut() {
+	var ch = parseInt(arguments[0], 10) - 1;
+	var col = parseInt(arguments[1], 10);
+	var row = parseInt(arguments[2], 10) - 1;
+
+	post("handleOldPatternOut: channel " + (ch + 1) + " row " + row + " col " + col + "\n");
+	if (kmod !== 1) return;
+
+	ledRow(row, 0); // clear the row for this looper
+	led(col, row, 15); // light up the button played
+	led(ch, 0, 15); // highlight the active
+	// flush
+}
 // ─── Automation Recording (Phase 3) ────────────────────────────────────
 
 function handleAutomationArm(row) {
@@ -702,7 +760,14 @@ function anything() {
 		edition = parseInt(args[0], 10) || 256;
 	} else if (name === "volumeUpdate" && args.length >= 2) {
 		volumeUpdate.apply(this, args);
-	} else if (name === "/grid/key" && args.length >= 3) {
+	} else if (name === "muteUpdate" && args.length >= 2) {
+		muteUpdate.apply(this, args);
+	}
+	else if (name === "handleOldPatternOut" && args.length >= 3) {
+		handleOldPatternOut.apply(this, args);
+
+	}
+	else if (name === "/grid/key" && args.length >= 3) {
 		dispatch(parseInt(args[0], 10), parseInt(args[1], 10), parseInt(args[2], 10));
 	} else if (name === "key" && args.length >= 3) {
 		dispatch(parseInt(args[0], 10), parseInt(args[1], 10), parseInt(args[2], 10));

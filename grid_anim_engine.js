@@ -128,7 +128,7 @@ function applyKf(x, y, numList) {
 	var c = ensureCell(key);
 	c.q = parsePairs(numList);
 	c.seg = null;
-	post("[grid_anim_engine] kf replace " + key + " segments=" + c.q.length + "\n");
+	//post("[grid_anim_engine] kf replace " + key + " segments=" + c.q.length + "\n");
 }
 
 function line() {

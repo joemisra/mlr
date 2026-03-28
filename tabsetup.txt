@@ -33,6 +33,10 @@
             "patcher": "box"
         },
         {
+            "tab": "chnls",
+            "patcher": "chnls"
+        },
+        {
             "tab": "debug",
             "patcher": "debug"
         }
