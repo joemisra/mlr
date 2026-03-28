@@ -33,7 +33,7 @@ function swapMonomeToBox(full) {
 	}
 	var h = pathStr(full[0]);
 	if (h.indexOf("/monome/") === 0) {
-		var out = ["/box" + h.slice(8)];
+		var out = ["/box/" + h.slice(8)];
 		var i;
 		for (i = 1; i < full.length; i++) {
 			out.push(full[i]);
