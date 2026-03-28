@@ -3,206 +3,109 @@ inlets = 3;
 outlets = 3;
 
 /**
- * Virtual composite Monome: two 128s stacked as one logical 256 for mlr.
- * No monome-device bpatcher — uses raw UDP to serialosc (two ports).
+ * Two Monome 128s stacked as one logical 256 for mlr.
+ * Replaces monome-device -- uses raw UDP to serialosc (two device ports).
  *
- * Inlet 0: same combined stream that normally goes to [monome-device] inlet
- *          (e.g. [r box_out] + [grid_matrix_io] merged) — LED OSC is split;
- *          other OSC passes through outlet 2 only.
- * Inlet 1: [udpreceive] from top grid’s serialosc port.
- * Inlet 2: [udpreceive] from bottom grid’s serialosc port.
+ * Inlet 0: LED data from grid_matrix_bridge via [r fromgridmatrixio].
+ *          Bridge must use dual128 0, edition 256, prefix /box.
+ *          Only /grid/led/level/map and /grid/led/all are expected.
+ * Inlet 1: [udpreceive 58901] -- top grid serialosc key events.
+ * Inlet 2: [udpreceive 58902] -- bottom grid serialosc key events.
  *
- * Outlet 0 → [udpsend 127.0.0.1 topPort]   (LED top half, rows 0–7)
- * Outlet 1 → [udpsend 127.0.0.1 bottomPort] (LED bottom half, logical 8–15 → phys 0–7)
- * Outlet 2 → parent OSC fan-in (was monome outlet): keys merged, non-LED passthrough from top.
- *
- * Use with [grid_matrix_bridge] dual128 0 and edition 256 — one LED stream, split here.
+ * Outlet 0 -> [udpsend] top grid serialosc port (LEDs rows 0-7)
+ * Outlet 1 -> [udpsend] bottom grid serialosc port (LEDs rows 8-15 -> phys 0-7)
+ * Outlet 2 -> key events (/prefix/grid/key x y s, bottom y += 8)
+ *             -> p oscreceiveroute -> s rawpress + s box/press_a
  */
 
-function pathStr(p) {
-	if (p === undefined || p === null) {
-		return "";
-	}
-	return p.toString();
-}
+// --- LED Dispatch (inlet 0) ------------------------------------------------
 
-/** grid_matrix_bridge defaults to /monome; mlr oscreceiveroute expects /box. */
-function swapMonomeToBox(full) {
-	if (!full || !full.length) {
-		return full;
-	}
-	var h = pathStr(full[0]);
-	if (h.indexOf("/monome/") === 0) {
-		var out = ["/box/" + h.slice(8)];
-		var i;
-		for (i = 1; i < full.length; i++) {
-			out.push(full[i]);
-		}
-		return out;
-	}
-	return full;
-}
+function ledDispatch(args) {
+	if (!args.length) return;
+	var path = args[0].toString();
 
-function emit(outn, full) {
-	if (!full || !full.length) {
+	// /grid/led/all or /grid/led/level/all -> send to both grids
+	if (path.indexOf("grid/led/all") >= 0 || path.indexOf("grid/led/level/all") >= 0) {
+		emit(0, args);
+		emit(1, args);
 		return;
 	}
-	var args = [outn];
-	var i;
-	for (i = 0; i < full.length; i++) {
-		args.push(full[i]);
-	}
-	outlet.apply(this, args);
-}
 
-function emitLed(outn, full) {
-	emit(outn, swapMonomeToBox(full));
-}
-
-function isLedPath(ps) {
-	return ps.indexOf("grid/led") >= 0;
-}
-
-function ledDispatch(full) {
-	var ps = pathStr(full[0]);
-	if (ps.indexOf("/grid/led/all") >= 0 || ps.indexOf("grid/led/all") >= 0) {
-		emitLed(0, full);
-		emitLed(1, full);
-		return;
-	}
-	if (ps.indexOf("/grid/led/level/all") >= 0 || ps.indexOf("grid/led/level/all") >= 0) {
-		emitLed(0, full);
-		emitLed(1, full);
-		return;
-	}
-	if (ps.indexOf("/grid/led/level/map") >= 0 || ps.indexOf("grid/led/level/map") >= 0) {
-		var ox = full[1] | 0;
-		var oy = full[2] | 0;
-		var tail = [];
-		var i;
-		for (i = 3; i < full.length; i++) {
-			tail.push(full[i]);
-		}
+	// /grid/led/level/map ox oy data... -> split by oy
+	if (path.indexOf("grid/led/level/map") >= 0) {
+		var ox = args[1] | 0;
+		var oy = args[2] | 0;
 		if (oy < 8) {
-			emitLed(0, [full[0], ox, oy].concat(tail));
+			emit(0, args);
 		} else {
-			emitLed(1, [full[0], ox, oy - 8].concat(tail));
+			var remapped = [args[0], ox, oy - 8];
+			for (var i = 3; i < args.length; i++) {
+				remapped.push(args[i]);
+			}
+			emit(1, remapped);
 		}
 		return;
 	}
-	if (ps.indexOf("/grid/led/level/set") >= 0 || ps.indexOf("grid/led/level/set") >= 0) {
-		var x = full[1] | 0;
-		var y = full[2] | 0;
-		var rest = [];
-		var j;
-		for (j = 3; j < full.length; j++) {
-			rest.push(full[j]);
-		}
-		if (y < 8) {
-			emitLed(0, [full[0], x, y].concat(rest));
-		} else {
-			emitLed(1, [full[0], x, y - 8].concat(rest));
-		}
-		return;
-	}
-	if (ps.indexOf("/grid/led/set") >= 0 || ps.indexOf("grid/led/set") >= 0) {
-		var x2 = full[1] | 0;
-		var y2 = full[2] | 0;
-		var rest2 = [];
-		var k;
-		for (k = 3; k < full.length; k++) {
-			rest2.push(full[k]);
-		}
-		if (y2 < 8) {
-			emitLed(0, [full[0], x2, y2].concat(rest2));
-		} else {
-			emitLed(1, [full[0], x2, y2 - 8].concat(rest2));
-		}
-		return;
-	}
-	if (ps.indexOf("/grid/led/row") >= 0 || ps.indexOf("grid/led/row") >= 0) {
-		var row = full[1] | 0;
-		var tailR = [];
-		var r;
-		for (r = 2; r < full.length; r++) {
-			tailR.push(full[r]);
-		}
-		if (row < 8) {
-			emitLed(0, [full[0], row].concat(tailR));
-		} else {
-			emitLed(1, [full[0], row - 8].concat(tailR));
-		}
-		return;
-	}
-	emitLed(0, full);
-	emitLed(1, full);
+
+	// Unknown LED message -> send to both (safety fallback)
+	emit(0, args);
+	emit(1, args);
 }
 
-function parentInbound(full) {
-	if (!full.length) {
+// --- Key Dispatch (inlets 1-2) ----------------------------------------------
+
+function keyDispatch(args, isBottom) {
+	if (!args.length) return;
+	var path = args[0].toString();
+
+	if (path.indexOf("grid/key") >= 0) {
+		var x = args[1] | 0;
+		var y = args[2] | 0;
+		var s = args[3] | 0;
+		if (isBottom) {
+			y = Math.min(y + 8, 15);
+		}
+		emit(2, [args[0], x, y, s]);
 		return;
 	}
-	var ps = pathStr(full[0]);
-	if (isLedPath(ps)) {
-		ledDispatch(full);
-	} else {
-		emit(2, swapMonomeToBox(full));
+
+	// Non-key messages from top grid pass through (e.g. /sys/id)
+	if (!isBottom) {
+		emit(2, args);
 	}
 }
 
-function keyDispatch(full, isBottom) {
-	if (!full.length) {
-		return;
-	}
-	var ps = pathStr(full[0]);
-	if (ps.indexOf("grid/key") < 0) {
-		if (!isBottom) {
-			emit(2, swapMonomeToBox(full));
-		}
-		return;
-	}
-	var x = full[1] | 0;
-	var y = full[2] | 0;
-	var s = full[3] | 0;
-	if (isBottom) {
-		y += 8;
-		if (y > 15) {
-			y = 15;
-		}
-	}
-	emit(2, swapMonomeToBox([full[0], x, y, s]));
-}
-
-function udpInbound(full, isBottom) {
-	if (!full.length) {
-		return;
-	}
-	var ps = pathStr(full[0]);
-	if (ps.indexOf("grid/key") >= 0) {
-		keyDispatch(full, isBottom);
-	} else if (!isBottom) {
-		emit(2, swapMonomeToBox(full));
-	}
-}
-
-function routeInbound(full) {
-	if (inlet === 0) {
-		parentInbound(full);
-	} else if (inlet === 1) {
-		udpInbound(full, false);
-	} else {
-		udpInbound(full, true);
-	}
-}
+// --- Inlet Routing ----------------------------------------------------------
 
 function list() {
-	routeInbound(arrayfromargs(arguments));
+	var args = arrayfromargs(arguments);
+	if (inlet === 0) {
+		ledDispatch(args);
+	} else {
+		keyDispatch(args, inlet === 2);
+	}
 }
 
 function anything() {
-	routeInbound([messagename].concat(arrayfromargs(arguments)));
+	var args = [messagename].concat(arrayfromargs(arguments));
+	if (inlet === 0) {
+		ledDispatch(args);
+	} else {
+		keyDispatch(args, inlet === 2);
+	}
+}
+
+// --- Helpers ----------------------------------------------------------------
+
+function emit(outn, args) {
+	if (!args || !args.length) return;
+	var out = [outn];
+	for (var i = 0; i < args.length; i++) {
+		out.push(args[i]);
+	}
+	outlet.apply(this, out);
 }
 
 function loadbang() {
-	post("[grid_composite_2x128] #1 #2 = device UDP (LED). Keys → local udpreceive 58901 / 58902 (see patch init /sys/port).\n");
+	post("[grid_composite_2x128] ready\n");
 }

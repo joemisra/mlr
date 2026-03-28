@@ -59,16 +59,17 @@ Audio Engine (p chnls / playback heads)
   │
        ▼
   grid_composite_2x128.maxpat  (contains grid_composite_2x128.js)
-  │  Inlet 0: r fromgridmatrixio + r box_out + p animations
-  │            (box_out and animations are currently dead/inactive paths)
+  │  Inlet 0: r fromgridmatrixio (LED data only)
   │
   │  Internal:
   │    JS splits /grid/led/level/map by oy offset:
   │      oy <  8  → outlet 0 → [udpsend 127.0.0.1 #1]  (top grid serialosc port)
   │      oy >= 8  → outlet 1 → [udpsend 127.0.0.1 #2]  (bottom grid serialosc port)
   │    /grid/led/all and /grid/led/level/all → sent to BOTH outlets
+  │    Key events: internal [udpreceive 58901/58902] → JS merges (bottom y+=8)
   │
-  │  Outlet 0 (maxpat): merged key events → p oscreceiveroute
+  │  Outlet (maxpat): merged key events → p oscreceiveroute
+  │    → OSC-route /box/grid/key → s rawpress (animation) + s box/press_a (playback)
 ```
 
 ---
@@ -88,13 +89,14 @@ Physical Grid(s)
   │
        ▼
   grid_composite_2x128 maxpat outlet → p oscreceiveroute
-  │  OSC-route /box/grid/key → outlet + s rawpress
+  │  OSC-route /box/grid/key → s rawpress + s box/press_a
   │  OSC-route /box/mute     → s raw_mute
   │  OSC-route /box/volume   → s raw_volume
   │
        ▼
-  (key events flow into grid_router_io via r box/press_mlr
-   after passing through grid_dual128_merge)
+  s box/press_a → grid_dual128_hub (r box/press_a)
+  → grid_dual128_merge.js (dual=0, passthrough) → s box/press_mlr
+  → grid_router_io (r box/press_mlr) → grid_router.js
 ```
 
 ---
@@ -144,7 +146,7 @@ grid_matrix_io inlet 2.
 | `grid_router_playback` | s/r | Normal-mode presses from grid_router → p box |
 | `kmod` | s/r | Current kmod value (1–4) |
 | `tr_pulse` | r | Transport clock pulse |
-| `box_out` | r | ⚠️ Dead — no active senders (legacy path) |
+| `box_out` | r | ⚠️ Dead — no active senders (legacy intra-patch UDP path) |
 | `pattern_out` | r | Pattern recorder output |
 | `box_clear` | r | |
 | `dacgo` | r | DAC on/off |
@@ -195,19 +197,26 @@ grid_matrix_io inlet 2.
 
 | Bus | Direction | Purpose |
 |-----|-----------|---------|
-| `rawled` | r | ⚠️ Dead — no senders (legacy single-cell LED) |
-| `rawledrow` | r | ⚠️ Dead — no senders (legacy row LED) |
-| `box_out` | s | ⚠️ Dead — sends to r box_out but sources are dead |
+| `rawpress` | s | Raw key presses from grid → animation trigger |
 | `raw_mute` | s | Mute state from grid OSC |
 | `raw_volume` | s | Volume state from grid OSC |
-| `rawpress` | s | Raw key presses from grid |
+| `box/press_a` | s | Key events (col row state) → grid_dual128_hub merge |
 
 ### p animations
 
 | Bus | Direction | Purpose |
 |-----|-----------|---------|
 | `[time]phase` | r~ | Audio-rate phase signal |
-| `box_out` | s | ⚠️ Dead — s box_out obj not connected to any source |
+| `box_out` | s | ⚠️ Dead — not connected to composite (legacy path removed) |
+
+### p debug
+
+| Bus | Direction | Purpose |
+|-----|-----------|---------|
+| `kmod` | r | Mode value display |
+| `[time]bpm` | r | BPM display |
+| `[time]ms` | r | ms display |
+| `64sync-out` | r | Sync activity indicator |
 
 ### grid_router_io.maxpat (internal)
 
@@ -230,10 +239,9 @@ grid_matrix_io inlet 2.
 
 ## Known Issues / Technical Debt
 
-1. **Dead data paths**: `r box_out`, `r rawled`, `r rawledrow` have no active
-   senders. The connections from `r box_out` and `p animations` to
-   `grid_composite_2x128` are vestigial from the pre-bridge architecture.
-   Consider removing them to reduce confusion.
+1. **Dead data paths**: `r box_out` has no active senders — vestigial from
+   pre-bridge architecture. The `p animations` subpatcher sends to `s box_out`
+   but is no longer connected to the composite. Consider removing both.
 
 2. **Animation engine tick undriven**: `grid_matrix_io` inlet 2 is connected to
    a manual `[button]` in `_mlr.maxpat`. The `p grid_drawing` key-press
@@ -244,11 +252,3 @@ grid_matrix_io inlet 2.
    bottom-half LED data is sent to outlet 1 which has no patchcord in
    `_mlr.maxpat`. This is correct when using `grid_composite_2x128` (which
    expects `dual128 0`), but would need wiring for the alt two-grid path.
-
-4. **`p animations` bypasses bridge**: Sends `/monome/grid/led/level/set`
-   directly to the composite. Currently non-functional due to disconnected
-   internal wiring, but the architecture is confusing.
-
-5. **Composite may be unnecessary**: With the matrix bridge now handling all LED
-   state, the composite's row-splitting could be moved into the bridge itself
-   (or into a simpler UDP router), eliminating the dual-outlet complexity.
