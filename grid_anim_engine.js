@@ -68,7 +68,7 @@ function tick() {
 		}
 	}
 	if (dirty) {
-		outlet(1, "flush");
+		outlet(0, "flush");
 	}
 }
 
