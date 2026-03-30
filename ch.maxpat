@@ -9,8 +9,30 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 2256.0, 583.0, 843.0, 455.0 ],
+        "rect": [ 563.0, 411.0, 843.0, 455.0 ],
         "boxes": [
+            {
+                "box": {
+                    "id": "obj-68",
+                    "maxclass": "toggle",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [ "int" ],
+                    "parameter_enable": 0,
+                    "patching_rect": [ 262.0, 73.0, 24.0, 24.0 ]
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-50",
+                    "maxclass": "newobj",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 262.0, 39.5, 88.0, 22.0 ],
+                    "text": "r #1[box]rndOff"
+                }
+            },
             {
                 "box": {
                     "id": "obj-66",
@@ -1293,7 +1315,7 @@
                     "fontname": "Arial",
                     "fontsize": 9.0,
                     "id": "obj-24",
-                    "items": [ "input_1", ",", "input_2", ",", "input_3", ",", "input_4", ",", "input_5", ",", "input_6", ",", "input_7", ",", "input_8", ",", "SO_PERC_PRO_BRASS_TUBE_loop_134_B_01.wav", ",", "SO_PERC_PRO_drum_loop_122_01.wav", ",", "SO_PERC_PRO_drum_loop_122_02.wav", ",", "SO_PERC_PRO_drum_loop_122_03.wav", ",", "SO_PERC_PRO_drum_loop_122_04.wav", ",", "SO_PERC_PRO_drum_loop_122_05.wav", ",", "SO_PERC_PRO_drum_loop_122_06.wav", ",", "SO_PERC_PRO_drum_loop_128_01.wav", ",", "SO_PERC_PRO_drum_loop_128_02.wav", ",", "SO_PERC_PRO_drum_loop_128_03.wav", ",", "SO_PERC_PRO_drum_loop_128_04.wav", ",", "SO_PERC_PRO_drum_loop_128_05.wav", ",", "SO_PERC_PRO_drum_loop_128_06.wav", ",", "SO_PERC_PRO_drum_loop_144_02.wav", ",", "SO_PERC_PRO_drum_loop_150_01.wav", ",", "SO_PERC_PRO_drum_loop_150_02.wav", ",", "SO_PERC_PRO_drum_loop_150_03.wav", ",", "SO_PERC_PRO_FENCE_POST_loop_122_01.wav", ",", "SO_PERC_PRO_gong_texture_loop_144_01.wav", ",", "SO_PERC_PRO_GREEK_TILE_loop_122_01.wav", ",", "SO_PERC_PRO_GREEK_TILE_loop_122_02.wav", ",", "SO_PERC_PRO_GUTTER_BEND_loop_140_01.wav", ",", "SO_PERC_PRO_GUTTER_loop_128_01.wav", ",", "SO_PERC_PRO_kick_loop_150_02.wav", ",", "SO_PERC_PRO_kick_loop_161_01.wav", ",", "SO_PERC_PRO_lecroix_loop_123_01.wav", ",", "SO_PERC_PRO_metal_perc_loop_112_01.wav", ",", "SO_PERC_PRO_metal_perc_loop_112_012.wav", ",", "SO_PERC_PRO_metal_perc_loop_128_01.wav", ",", "SO_PERC_PRO_metal_perc_loop_128_02.wav", ",", "SO_PERC_PRO_metal_perc_loop_128_03.wav", ",", "SO_PERC_PRO_metal_perc_loop_128_04.wav", ",", "SO_PERC_PRO_metal_perc_loop_130_01.wav", ",", "SO_PERC_PRO_metal_perc_loop_130_02.wav", ",", "SO_PERC_PRO_metal_perc_loop_130_03.wav", ",", "SO_PERC_PRO_metal_perc_loop_130_04.wav", ",", "SO_PERC_PRO_metal_perc_loop_144_01.wav", ",", "SO_PERC_PRO_metal_perc_loop_144_02.wav", ",", "SO_PERC_PRO_metal_perc_loop_144_04.wav", ",", "SO_PERC_PRO_metal_perc_loop_144_07.wav", ",", "SO_PERC_PRO_metal_perc_loop_144_08.wav", ",", "SO_PERC_PRO_metal_perc_loop_150_01.wav", ",", "SO_PERC_PRO_metal_perc_loop_150_03.wav", ",", "SO_PERC_PRO_metal_perc_loop_150_012.wav", ",", "SO_PERC_PRO_metal_perc_loop_161_01.wav", ",", "SO_PERC_PRO_metal_perc_loop_161_02.wav", ",", "SO_PERC_PRO_percussion_buildup_loop_122_05.wav", ",", "SO_PERC_PRO_percussion_loop_122_04.wav", ",", "SO_PERC_PRO_percussion_loop_122_05.wav", ",", "SO_PERC_PRO_percussion_loop_122_06.wav", ",", "SO_PERC_PRO_percussion_loop_122_07.wav", ",", "SO_PERC_PRO_percussion_loop_128_01.wav", ",", "SO_PERC_PRO_percussion_loop_128_02.wav", ",", "SO_PERC_PRO_percussion_loop_128_03.wav", ",", "SO_PERC_PRO_percussion_loop_128_04.wav", ",", "SO_PERC_PRO_percussion_loop_150_01.wav", ",", "SO_PERC_PRO_PVC_perc_loop_128_02.wav", ",", "SO_PERC_PRO_PVC_TOM_loop_128_02.wav", ",", "SO_PERC_PRO_small_metal_sheet_buildup_loop_128_01.wav", ",", "SO_PERC_PRO_small_metal_sheet_buildup_loop_128_02.wav", ",", "SO_PERC_PRO_small_metal_sheet_loop_122_01.wav", ",", "SO_PERC_PRO_small_metal_sheet_loop_122_02.wav", ",", "SO_PERC_PRO_small_metal_sheet_loop_128_01.wav", ",", "SO_PERC_PRO_small_metal_sheet_loop_128_02.wav", ",", "SO_PERC_PRO_small_metal_sheet_loop_128_03.wav", ",", "SO_PERC_PRO_small_metal_sheet_loop_128_04.wav", ",", "SO_PERC_PRO_small_metal_sheet_loop_128_05.wav", ",", "SO_PERC_PRO_small_metal_sheet_loop_128_06.wav", ",", "SO_PERC_PRO_small_metal_sheet_loop_128_07.wav", ",", "SO_PERC_PVC_kick_loop_128_01.wav" ],
+                    "items": [ "input_1", ",", "input_2", ",", "input_3", ",", "input_4", ",", "input_5", ",", "input_6", ",", "input_7", ",", "input_8" ],
                     "maxclass": "umenu",
                     "numinlets": 1,
                     "numoutlets": 3,
@@ -3329,7 +3351,7 @@
                                                     "numoutlets": 1,
                                                     "outlettype": [ "" ],
                                                     "patching_rect": [ 49.0, 241.0, 100.0, 25.0 ],
-                                                    "text": ";\r8[mlr]pl-trig $1 #1"
+                                                    "text": ";\r8[mlr]pl-trig $1 2"
                                                 }
                                             },
                                             {
@@ -7307,11 +7329,11 @@
                     "fontsize": 9.0,
                     "id": "obj-46",
                     "maxclass": "newobj",
-                    "numinlets": 8,
+                    "numinlets": 9,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 379.0, 346.0, 105.0, 19.0 ],
-                    "text": "pak #1 0 0 0 0. 0 0 0"
+                    "patching_rect": [ 382.0, 348.0, 103.0, 19.0 ],
+                    "text": "pak #1 0 0 0 0. 0 0 0 0"
                 }
             },
             {
@@ -7864,6 +7886,12 @@
             },
             {
                 "patchline": {
+                    "destination": [ "obj-68", 0 ],
+                    "source": [ "obj-50", 0 ]
+                }
+            },
+            {
+                "patchline": {
                     "destination": [ "obj-35", 0 ],
                     "hidden": 1,
                     "source": [ "obj-52", 1 ]
@@ -7944,6 +7972,12 @@
             },
             {
                 "patchline": {
+                    "destination": [ "obj-46", 8 ],
+                    "source": [ "obj-68", 0 ]
+                }
+            },
+            {
+                "patchline": {
                     "destination": [ "obj-43", 1 ],
                     "hidden": 1,
                     "source": [ "obj-7", 1 ]
@@ -7976,7 +8010,6 @@
                     "source": [ "obj-9", 0 ]
                 }
             }
-        ],
-        "autosave": 0
+        ]
     }
 }

@@ -9,7 +9,7 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 134.0, 164.0, 920.0, 520.0 ],
+        "rect": [ 134.0, 164.0, 911.0, 520.0 ],
         "boxes": [
             {
                 "box": {
@@ -18,7 +18,7 @@
                     "numinlets": 2,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 198.0, 337.0, 35.0, 22.0 ],
+                    "patching_rect": [ 112.0, 287.0, 35.0, 22.0 ],
                     "text": "clear"
                 }
             },
@@ -132,7 +132,7 @@
                     "numinlets": 1,
                     "numoutlets": 2,
                     "outlettype": [ "jit_matrix", "" ],
-                    "patching_rect": [ 439.0, 84.0, 382.0, 22.0 ],
+                    "patching_rect": [ 514.0, 65.0, 382.0, 22.0 ],
                     "text": "jit.matrix grid_matrix_io_state @planecount 1 @type char @dim 16 16"
                 }
             },
@@ -199,17 +199,6 @@
                     "numoutlets": 0,
                     "patching_rect": [ 135.0, 142.0, 200.0, 33.0 ],
                     "text": "demo: toggle qmetro -> fade_step then flush"
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-flush",
-                    "maxclass": "message",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [ "" ],
-                    "patching_rect": [ 130.0, 321.0, 38.0, 22.0 ],
-                    "text": "flush"
                 }
             },
             {
@@ -358,12 +347,6 @@
             {
                 "patchline": {
                     "destination": [ "obj-bridge", 0 ],
-                    "source": [ "obj-flush", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-bridge", 0 ],
                     "source": [ "obj-in", 0 ]
                 }
             },
@@ -383,13 +366,6 @@
                 "patchline": {
                     "destination": [ "obj-anim", 0 ],
                     "source": [ "obj-msgtick", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-flush", 0 ],
-                    "midpoints": [ 83.5, 316.65234375, 139.5, 316.65234375 ],
-                    "source": [ "obj-tb", 1 ]
                 }
             },
             {

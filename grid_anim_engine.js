@@ -221,6 +221,19 @@ function advanceCell(key, c, jm) {
 	return dirty;
 }
 
+function setcell(x, y, v) {
+	x = x | 0;
+	y = y | 0;
+	v = clamp(Math.floor(v), 0, 15);
+	var jm = bind_matrix();
+	var wh = jm.dim;
+	if (x < 0 || y < 0 || x >= wh[0] || y >= wh[1]) {
+		post("[grid_anim_engine] setcell out of range\n");
+		return;
+	}
+	jm.setcell2d(x, y, v);
+}
+
 function anything() {
 	var a = arrayfromargs(messagename, arguments);
 	if (messagename === "edition") {

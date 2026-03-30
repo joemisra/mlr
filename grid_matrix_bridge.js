@@ -68,10 +68,11 @@ function flush() {
 function clear() {
 	var jm = bind_matrix();
 	jm.clear();
-	outlet(0, prefix + "/grid/led/all", 0);
-	if (dual128Mode) {
-		outlet(1, prefix + "/grid/led/all", 0);
-	}
+	flush();
+	//outlet(0, prefix + "/grid/led/all", 0);
+	//if (dual128Mode) {
+	//	outlet(1, prefix + "/grid/led/all", 0);
+	//}
 }
 
 function setcell(x, y, v) {

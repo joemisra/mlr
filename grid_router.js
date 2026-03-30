@@ -45,25 +45,6 @@ outlets = 4;
 /* this is to set up a global state using the max api*/
 /* more or less a singleton object */
 
-var s = new Global("mlr");
-
-s.muted = [0, 0, 0, 0, 0, 0, 0, 0];
-s.volumes = [100, 100, 100, 100, 100, 100, 100, 100]; // 0–158
-s.reverse_toggles = new Array(16).fill(0);
-s.dual128Mode = 0;
-s.gridports = [0, 0];
-s.prefix = "/box";
-s.kmod = 1;
-s.edition = 256;
-s.gridWidth = 16;
-s.gridHeight = 16;
-s.NUM_CHANNELS = 8;
-s.NUM_TRACKS = 15; // rows 1-15
-s.MAX_SAMPLES = 128;
-
-/** Guard flag: true while automation playback is dispatching events. */
-var playbackDispatching = false;
-
 class Sequencer {
 	constructor(channel) {
 		this.channel = channel;
@@ -74,13 +55,12 @@ class Sequencer {
 
 	update(state) {
 		if (state !== this.last) {
-			this.last = state;
+			this.last = this.on;
 			this.on = state;
+			this.dirty = 1;
 		}
 	}
 }
-
-if (!s.sequencers) s.sequencers = new Array(8).fill(null).map((_, i) => new Sequencer(i));
 
 // SamplePlayer class for managing the pl subpatcher for each channel
 class SamplePlayer {
@@ -89,46 +69,96 @@ class SamplePlayer {
 		this.sampleIndex = 0;
 		this.offset = 0;
 		this.offset_state = 0;
+		//post(`SamplePlayer constructor ${channel}\n`);
 	}
 }
 
-// there are 8 of these shared across 15 tracks
-if (!s.samplers) s.samplers = new Array(8).fill(null).map((_, i) => new SamplePlayer(i));
 
 class mlrChannel {
 	constructor(channel) {
 		this.channel = channel;
+		this.sampler = new SamplePlayer(channel);
 		this.muted = 0;
 		this.volume = 100;
-		this.reverse = 0;
 		this.pattern = 0;
-		this.randomOffset = 0;
 		this.quantize = 0;
-		this.session = 0;
-		this.buffer = 0;
-		this.halfTime = 0;
 		this.timestretch = 0;
 		this.doubleTime = 0;
+		this.halfTime = 0;
 		this.on = 0;
+		//post(`mlrChannel constructor ${channel}\n`);
 	}
 }
 
-// we have 15 to work with not 16 as only 15 rows are usable on a 256 grid
-if (!s.channels) s.channels = new Array(15).fill(null).map((_, i) => new mlrChannel(i));
+class mlrTrack {
+	constructor(track) {
+		this.track = track;
+		this.channel = 8; // which sample player
+		this.randomOffset = 0;
+		this.session = 0;
+		this.buffer = 0;
+		this.octave = 0;
+		this.reverse = 0;
+		//post(`mlrTrack constructor ${track}\n`);
+	}
+}
 
-s.patternout = function (patnum, ch, pos, track) {
+var s = new Global("mlr");
+
+if (!s.initialized) {
+	s.muted = [0, 0, 0, 0, 0, 0, 0, 0];
+	s.volumes = [100, 100, 100, 100, 100, 100, 100, 100]; // 0–158
+	s.reverse_toggles = new Array(16).fill(0);
+	s.dual128Mode = 0;
+	s.gridports = [0, 0];
+	s.prefix = "/box";
+	s.kmod = 1;
+	s.edition = 256;
+	s.gridWidth = 16;
+	s.gridHeight = 16;
+	s.NUM_CHANNELS = 8;
+	s.NUM_TRACKS = 15; // rows 1-15
+	s.MAX_SAMPLES = 128;
+	const sequencers = Array.from({ length: 8 }, (_, i) => new Sequencer(i));
+	s.sequencers = sequencers;
+	// there are 8 of these shared across 15 tracks
+	const channels = Array.from({ length: 8 }, (_, i) => new mlrChannel(i));
+	// we have 15 to work with not 16 as only 15 rows are usable on a 256 grid
+	const tracks = Array.from({ length: 15 }, (_, i) => new mlrTrack(i));
+	s.channels = channels;
+	s.tracks = tracks;
+	s.initialized = true;
+
+	//s.patternout = function (patnum, ch, pos, track) {
 	//Max.outlet("patternout", JSON.stringify({patnum, patout}));
-	post(`patternout ${patnum} ${ch} ${pos} ${track}`); //${patout[1]} ${patout[2]} ${patout[3]}`, "\n");//, patout[0], patout[1], patout[2], patout[3], "\n");
-};
+	//post(`patternout ${patnum} ${ch} ${pos} ${track}\n`); //${patout[1]} ${patout[2]} ${patout[3]}`, "\n");//, patout[0], patout[1], patout[2], patout[3], "\n");
+	//};
+	// Automation recorder
+	const automation = {
+		armed: false,
+		recording: false,
+		playing: false,
+		looping: false,
+		events: [],
+		tick: 0,
+		startTick: 0,
+		length: 128, // clock ticks (default ~4 bars at 32 ticks/bar)
+		playHead: 0
+	};
+	s.automation = automation;
+}
+
+/** Guard flag: true while automation playback is dispatching events. */
+var playbackDispatching = false;
 
 //var s = new Global("mlr"); // shared global state — mlr.js initialises primitives
 
 //var s = new Global("mlr");
 
-var randomOffset_states = [0, 0, 0, 0, 0, 0, 0, 0]; // 8 random offset toggles on cols 12-15
+//var randomOffset_states = [0, 0, 0, 0, 0, 0, 0, 0]; // 8 random offset toggles on cols 12-15
 
 // states of the 4 pattern recorders
-var pattern_states = [0, 0, 0, 0];
+//var pattern_states = [0, 0, 0, 0];
 
 /** Insert FX placeholder: cols 0–7 × rows 4–15 (96 cells). */
 var insert_fx = new Array(8 * 12).fill(0);
@@ -145,18 +175,6 @@ var modQuantizeRow = 0;
 var modSessionRow = 0;
 var modBufferRow = 0;
 
-// Automation recorder
-var automation = {
-	armed: false,
-	recording: false,
-	playing: false,
-	looping: false,
-	events: [],
-	tick: 0,
-	startTick: 0,
-	length: 128, // clock ticks (default ~4 bars at 32 ticks/bar)
-	playHead: 0
-};
 
 var animBrightness = 0;
 var animTask = new Task(animateLeds, this);
@@ -180,6 +198,11 @@ function led(x, y, level) {
 // set up a simple keyframe command, sent out of outlet 3 to anim engine
 function kfping(x, y, level) {
 	outlet(3, "kf", x, y, level, 1, 0, 20);
+}
+
+function clear() {
+	messnamed("togridmatrixio", "clear");
+	messnamed("togridmatrixanim", "clear_anim");
 }
 
 function ledRow(y, level) {
@@ -255,11 +278,10 @@ function key() {
 
 // ─── kmod ───────────────────────────────────────────────────────────────
 
-function setKmod(val) {
+function setKmod(val, col = 0) {
 	if (val !== s.kmod) {
 		prev = s.kmod;
 		s.kmod = val;
-		post("[grid_router] setKmod " + val + "\n");
 		onKmodChange(prev, s.kmod);
 	}
 }
@@ -270,7 +292,6 @@ function onKmodChange(prev, next) {
 
 	// Always clear the grid when changing modes
 	messnamed("togridmatrixio", "clear");
-	messnamed("togridmatrixio", "flush");
 
 	messnamed("kmod", s.kmod);
 
@@ -293,22 +314,24 @@ function onKmodChange(prev, next) {
 		case 1:
 			// Return to normal mode: clear overlay indicators, stop anim
 			drawMainPage();
-			//led(14, 0, 0);
 			//led(15, 0, 0);
-			animTask.cancel();
+			//animTask.cancel();
 			break;
 		case 2:
 			// Enter Mod Page overlay: draw UI, start anim
 			drawModPage();
-			animTask.repeat();
+			//animTask.repeat();
 			break;
 		case 3:
 			// Enter Groups/Channel Assign overlay:
 			// UI is handled elsewhere
+			drawGroupsPage();
+			led(14, 0, 10);
 			break;
 		case 4:
 			// Enter Step Sequencer overlay:
 			// UI is handled elsewhere
+			led(14, 0, 15);
 			break;
 	}
 }
@@ -322,7 +345,7 @@ function dispatch(col, row, state) {
 	state = state ? 1 : 0; // key pressed or released
 
 	// Don't re-record events dispatched during automation playback
-	if (automation.recording && state === 1 && !playbackDispatching) {
+	if (s.automation.recording && state === 1 && !playbackDispatching) {
 		recordEvent(col, row, state);
 	}
 
@@ -365,11 +388,12 @@ function handleRow0(col, state) {
 		*/
 		if (state === 1) {
 			//messnamed("kmod", s.kmod === 3 ? 1 : 3);
+			setKmod(s.kmod !== 3 ? 3 : 4);
 		}
 	} else if (col === 15) {
 		// Mod page — toggle between 1 and 2
 		if (state === 1) {
-			setKmod(s.kmod === 2 ? 1 : 2);
+			setKmod(s.kmod !== 1 ? 1 : 2);
 		}
 	}
 }
@@ -387,10 +411,13 @@ function handleRow0Channel(col) {
 }
 
 function handlePatternRecorder(idx) {
-	pattern_states[idx] = 1 - pattern_states[idx];
-	messnamed(idx + "pp", pattern_states[idx]);
-	led(idx + 8, 0, pattern_states[idx] ? 15 : 0);
-	outlet(2, "pattern", idx, pattern_states[idx]);
+	if (s.kmod !== 1) return;
+	// sends look like 0pp
+	idx = parseInt(idx, 10);
+	s.sequencers[idx].update(1 - s.sequencers[idx].on);
+	messnamed(idx + "pp", s.sequencers[idx].on);
+	led(idx + 8, 0, s.sequencers[idx].on ? 15 : 0);
+	outlet(2, "pattern", idx, s.sequencers[idx].on);
 }
 
 // ─── Normal Mode (kmod 1) ──────────────────────────────────────────────
@@ -413,39 +440,39 @@ function handleTimestretchToggle(col, state) {
 }
 
 function handleModPage(col, row, state) {
-	if (state !== 1) return;
+	if (state !== 1) //only button on
 
-	if (col < 8) {
-		if (row === 0) {
-			handleModMute(col);
-			return;
+		if (col < 8) {
+			if (row === 0) {
+				handleModMute(col);
+				return;
+			}
+			if (row === 1 || row === 2) {
+				handleModVolume(col, row);
+				return;
+			}
+			if (row === 3) {
+				//post("[grid_router] handleTimestretchToggle " + col + " " + row + " " + state + "\n");
+				handleTimestretchToggle(col, state);
+				return;
+			}
+		} else if (col === 8) {
+			handleModRandomize(row);
+		} else if (col === 9) {
+			handleAutomationControl(row);
+		} else if (col === 10 && row >= 1 && row <= 5) {
+			handleQuantize(row);
+		} else if (col === 11 && row >= 1 && row <= 8) {
+			handleSessionLoad(row);
+		} else if (col === 12 && row >= 1) {
+			handleModRandomOffset(row);
+		} else if (col === 13 && row >= 1) {
+			handleHalfTime(row);
+		} else if (col === 14 && row >= 1) {
+			handleDoubleTime(row);
+		} else if (col === 15 && row >= 1) {
+			handleReverse(row);
 		}
-		if (row === 1 || row === 2) {
-			handleModVolume(col, row);
-			return;
-		}
-		if (row === 3) {
-			//post("[grid_router] handleTimestretchToggle " + col + " " + row + " " + state + "\n");
-			handleTimestretchToggle(col, state);
-			return;
-		}
-	} else if (col === 8) {
-		handleModRandomize(row);
-	} else if (col === 9) {
-		handleAutomationControl(row);
-	} else if (col === 10 && row >= 1 && row <= 5) {
-		handleQuantize(row);
-	} else if (col === 11 && row >= 1 && row <= 8) {
-		handleSessionLoad(row);
-	} else if (col === 12 && row >= 1 && row <= 8) {
-		handleModRandomOffset(row);
-	} else if (col === 13 && row >= 1) {
-		handleHalfTime(row);
-	} else if (col === 14 && row >= 1) {
-		handleDoubleTime(row);
-	} else if (col === 15 && row >= 1) {
-		handleReverse(row);
-	}
 }
 
 /** Col 8 mod page: row 1 = all channels; rows 2–15 = track (row+1) only. */
@@ -455,22 +482,24 @@ function handleModRandomize(row) {
 	var randRow = 0
 	if (row === randRow) {
 		messnamed("[mlr]randomfun", "bang");
-		led(8, 1, 15);
-		var t = new Task(function () { led(8, 1, 6); }, this);
-		t.schedule(120);
+		kfping(8, 0, 6);
+		//led(8, 1, 15);
+		//var t = new Task(function () { led(8, 1, 6); }, this);
+		//t.schedule(120);
 		return;
 	}
 	if (row >= randRow + 1) {
 		var trackId = row + 1;
 		messnamed(trackId + "[box]rnd", 1);
 		led(8, row, 15);
-		var t2 = new Task(
-			(function (rr) {
-				return function () { led(8, rr, 2); };
-			})(row),
-			this
-		);
-		t2.schedule(120);
+		kfping(8, row, 6);
+		//var t2 = new Task(
+		//	(function (rr) {
+		//		return function () { led(8, rr, 2); };
+		//	})(row),
+		//	this
+		//);
+		//t2.schedule(120);
 	}
 }
 
@@ -486,10 +515,10 @@ function handleModMute(col) {
 	if (s.kmod !== 2) return;
 	// toggle
 	s.channels[col].muted = s.channels[col].muted ? 0 : 1;
-	s.muted[col] = s.channels[col].muted;
+	//s.muted[col] = s.channels[col].muted;
 
 	var ch = col + 1; // the name of the receive
-	messnamed(ch + "[box]mute", s.muted[col]);
+	messnamed(ch + "[box]mute", s.channels[col].muted);
 	drawMuteRow();
 }
 
@@ -533,47 +562,58 @@ function handleSessionLoad(row) {
 
 function handleModRandomOffset(row) {
 	if (s.kmod !== 2) return;
-	// TODO: kero wants this columnto toggle random offsets
-	messnamed("buffSel", row);
-	modBufferRow = row;
-	drawBufferColumn();
+	var track = row - 1;
+	s.tracks[track].randomOffset = 1 - s.tracks[track].randomOffset;
+	messnamed(row + 1 + "[box]rndOff", s.tracks[track].randomOffset);
+	drawModPage();
+}
+function drawRandomOffsetColumn() {
+	for (var y = 1; y < 16; y++) {
+		var track = y - 1;
+		led(12, y, s.tracks[track].randomOffset ? 15 : 0);
+	}
 }
 
 function handleHalfTime(row) {
 	if (s.kmod !== 2) return;
-	var trackId = row + 1;
+	var trackId = row + 1; // old patch starts at 2 in names
+	var track = row - 1; // new patch starts at 0
 	messnamed(trackId + "[box]dwnOct", 1);
-	s.octave_hint[row]--;
+	s.tracks[track].octave--;
 	drawOctaveCell(row);
 }
 
 function handleDoubleTime(row) {
 	if (s.kmod !== 2) return;
 	var trackId = row + 1;
+	var track = row - 1; // new patch starts at 0
+
 	messnamed(trackId + "[box]upOct", 1);
-	s.octave_hint[row]++;
+	s.tracks[track].octave++;
 	drawOctaveCell(row);
 }
 
 function handleReverse(row) {
 	if (s.kmod !== 2) return;
 	var trackId = row + 1;
-	s.reverse_toggles[row] = 1 - s.reverse_toggles[row];
-	messnamed(trackId + "[box]rev", s.reverse_toggles[row]);
-	led(15, row, s.reverse_toggles[row] ? 15 : 0);
+	var track = row - 1; // new patch starts at 0
+	s.tracks[track].reverse = 1 - s.tracks[track].reverse;
+	//s.reverse_toggles[row] = s.tracks[row].reverse;
+	messnamed(trackId + "[box]rev", s.tracks[track].reverse);
+	//led(15, row, s.tracks[row].reverse ? 15 : 0);
+	drawModPage();
 }
 
 // ─── Groups Page (kmod 3) ──────────────────────────────────────────────
 
 function handleGroupsPage(col, row, state) {
 	if (state !== 1 || col > 7 || row < 1) return;
-	var trackId = row + 1;
+	var trackId = row + 1; // old patch starts at 2 in names
+	var track = row - 1; // new patch starts at 0
 	var channelId = col + 1;
 	messnamed(trackId + "chn", channelId);
-	// LED feedback: highlight selected channel on the right half
-	for (var x = 0; x < 8; x++) {
-		led(x + 8, row, x === col ? 15 : 0);
-	}
+	s.tracks[track].channel = channelId;
+	drawGroupsPage();
 }
 
 // ─── Step Sequencer Page (kmod 4, reserved) ─────────────────────────────
@@ -592,20 +632,38 @@ function drawModPage() {
 	drawAutomationColumn();
 	drawQuantizeColumn();
 	drawSessionColumn();
-	drawBufferColumn();
+	//drawBufferColumn();
+	drawRandomOffsetColumn();
 	drawOctaveColumns();
 	drawReverseColumn();
+	drawTimestretchRow()
+}
+
+function drawTimestretchRow() {
+	for (var x = 0; x < 8; x++) {
+		led(x, 3, s.channels[x].timestretch ? 15 : 0);
+	}
 }
 
 function drawMainPage() {
+	clear
 	drawChannelsPlaying();
+	drawSequencers();
 	// draw active active recorders
+}
+
+function drawSequencers() {
+	if (s.kmod !== 1) return;
+
+	for (var x = 0; x < 4; x++) {
+		led(x + 8, 0, s.sequencers[x].on ? 10 : 0);
+	}
 }
 
 function drawMuteRow() {
 	if (s.kmod === 2) {
 		for (var x = 0; x < 8; x++) {
-			led(x, 0, s.muted[x] ? 0 : 15);
+			led(x, 0, s.channels[x].muted ? 0 : 15);
 		}
 	}
 	else if (s.kmod === 1) {
@@ -643,21 +701,29 @@ function drawRandomizeColumn() {
 	}
 }
 
+function drawGroupsPage() {
+	for (var y = 1; y < 15; y++) {
+		var track = y - 1;
+		var channel = s.tracks[track].channel;
+		led(8 + channel, y, 15);
+	}
+}
+
 function drawAutomationColumn() {
-	led(9, 1, automation.playing ? 15 : 0);
-	led(9, 2, automation.looping ? 15 : 0);
+	led(9, 1, s.automation.playing ? 15 : 0);
+	led(9, 2, s.automation.looping ? 15 : 0);
 	var lenToRow = { 32: 3, 64: 4, 128: 5, 256: 6 };
-	var selRow = lenToRow[automation.length] || 5;
+	var selRow = lenToRow[s.automation.length] || 5;
 	var yy;
 	for (yy = 3; yy <= 6; yy++) {
 		led(9, yy, yy === selRow ? 15 : 0);
 	}
-	if (automation.recording) {
+	if (s.automation.recording) {
 		led(9, 7, 15);
-	} else if (automation.armed) {
+	} else if (s.automation.armed) {
 		led(9, 7, 8);
 	} else {
-		led(9, 7, automation.events.length > 0 ? 4 : 0);
+		led(9, 7, s.automation.events.length > 0 ? 4 : 0);
 	}
 }
 
@@ -693,16 +759,21 @@ function drawOctaveCell(row) {
 	if (row < 1) {
 		return;
 	}
-	var h = s.octave_hint[row];
-	var downBright = h < 0 ? 15 : 4;
-	var upBright = h > 0 ? 15 : 4;
+	var track = row - 1;
+	//post("[grid_router] drawOctaveCell " + row + " " + s.tracks[track].octave + "\n");
+	var h = s.tracks[track].octave;
+	var dir = h > 0 ? 1 : -1;
+
+	var upBright = clamp(dir > 0 ? 4 + h : 4, 4, 15);
+	var downBright = clamp(dir < 0 ? 4 - h : 4, 4, 15);
 	led(13, row, downBright);
 	led(14, row, upBright);
 }
 
 function drawReverseColumn() {
 	for (var y = 1; y < s.gridHeight; y++) {
-		led(15, y, s.reverse_toggles[y] ? 15 : 0);
+		var track = y - 1;
+		led(15, y, s.tracks[track].reverse ? 15 : 0);
 	}
 }
 
@@ -729,7 +800,7 @@ function muteUpdate() {
 	var ch = parseInt(arguments[0], 10);
 	var val = parseInt(arguments[1], 10);
 	if (ch >= 1 && ch <= 8) {
-		s.muted[ch - 1] = val ? 1 : 0;
+		s.channels[ch - 1].muted = val ? 1 : 0;
 	}
 	if (s.kmod === 2) {
 		drawMuteRow();
@@ -747,6 +818,7 @@ function handleOldPatternOut() {
 	if (s.kmod !== 1) return;
 
 	//ledRow(row, 0); // clear the row for this looper
+	kfping(col, row, 10); // light up the button played
 	kfping(col, row, 10); // light up the button played
 	drawChannelsPlaying();
 	//led(7, 0, 15); // highlight the active
@@ -774,10 +846,12 @@ function handleChannelOnArray() {
 	drawChannelsPlaying();
 }
 function handleSeqOnArray() {
+	/*
 	for (i = 0; i < 4; i++) {
 		s.sequencers[i].on = arguments[i];
 	}
-	drawChannelsPlaying();
+	drawSequencers();
+	*/
 }
 
 
@@ -829,13 +903,13 @@ function boxledcol() {
 
 function handleAutomationArm(row) {
 	if (row !== 7) return;
-	if (automation.recording) {
+	if (s.automation.recording) {
 		stopRecording();
 		return;
 	}
-	automation.armed = !automation.armed;
+	s.automation.armed = !s.automation.armed;
 	drawAutomationColumn();
-	if (automation.armed) {
+	if (s.automation.armed) {
 		post("[grid_router] automation armed\n");
 	} else {
 		post("[grid_router] automation disarmed\n");
@@ -845,14 +919,14 @@ function handleAutomationArm(row) {
 function handleAutomationControl(row) {
 	var automationRow = 0;
 	if (row === automationRow) {
-		if (automation.playing) {
+		if (s.automation.playing) {
 			stopPlayback();
-		} else if (automation.events.length > 0) {
+		} else if (s.automation.events.length > 0) {
 			startPlayback();
 		}
 		drawAutomationColumn();
 	} else if (row === automationRow + 1) {
-		automation.looping = !automation.looping;
+		s.automation.looping = !s.automation.looping;
 		drawAutomationColumn();
 		post("[grid_router] automation loop=" + automation.looping + "\n");
 	} else if (row >= automationRow + 2 && row <= automationRow + 5) {
@@ -921,24 +995,25 @@ function clearAnimRange(x, y0, y1) {
 }
 
 function clockTick() {
-	automation.tick++;
+	if (!s.initialized) return;
+	s.automation.tick++;
 
-	if (!automation.playing || automation.events.length === 0) return;
+	if (!s.automation.playing || s.automation.events.length === 0) return;
 
-	var tickInLoop = automation.playHead % automation.length;
+	var tickInLoop = s.automation.playHead % s.automation.length;
 	playbackDispatching = true;
-	for (var i = 0; i < automation.events.length; i++) {
-		var ev = automation.events[i];
+	for (var i = 0; i < s.automation.events.length; i++) {
+		var ev = s.automation.events[i];
 		if (ev.tick === tickInLoop) {
 			dispatch(ev.col, ev.row, ev.state);
 		}
 	}
 	playbackDispatching = false;
 
-	automation.playHead++;
-	if (automation.playHead >= automation.length) {
-		if (automation.looping) {
-			automation.playHead = 0;
+	s.automation.playHead++;
+	if (s.automation.playHead >= s.automation.length) {
+		if (s.automation.looping) {
+			s.automation.playHead = 0;
 		} else {
 			stopPlayback();
 		}
