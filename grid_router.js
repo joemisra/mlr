@@ -1,6 +1,6 @@
 autowatch = 1;
 inlets = 3;
-outlets = 3;
+outlets = 4;
 
 /**
  * Central grid routing hub for mlr.
@@ -22,6 +22,7 @@ outlets = 3;
  *           [p box] unpack, so [s grid_router_playback] can replace the old receive.
  * Outlet 1: LED setcell commands for grid_matrix_io (setcell x y level)
  * Outlet 2: status / automation events
+ * Outlet 3: keyframe commands for anim engine
  *
  * kmod values: 1 = normal (cut/pattern), 2 = mod page, 3 = groups page,
  *              4 = reserved (step sequencer)
@@ -41,22 +42,93 @@ outlets = 3;
 
 // ─── State ──────────────────────────────────────────────────────────────
 
-var kmod = 1;
-var edition = 256;
-var gridWidth = 16;
-var gridHeight = 16;
+/* this is to set up a global state using the max api*/
+/* more or less a singleton object */
 
-var NUM_CHANNELS = 8;
-var NUM_TRACKS = 15; // rows 1-15
+var s = new Global("mlr");
+
+s.muted = [0, 0, 0, 0, 0, 0, 0, 0];
+s.volumes = [100, 100, 100, 100, 100, 100, 100, 100]; // 0–158
+s.reverse_toggles = new Array(16).fill(0);
+s.dual128Mode = 0;
+s.gridports = [0, 0];
+s.prefix = "/box";
+s.kmod = 1;
+s.edition = 256;
+s.gridWidth = 16;
+s.gridHeight = 16;
+s.NUM_CHANNELS = 8;
+s.NUM_TRACKS = 15; // rows 1-15
+s.MAX_SAMPLES = 128;
 
 /** Guard flag: true while automation playback is dispatching events. */
 var playbackDispatching = false;
 
+class Sequencer {
+	constructor(channel) {
+		this.channel = channel;
+		this.on = 0;
+		this.last = 0;
+		this.phase = 0;
+	}
 
-var muted = [0, 0, 0, 0, 0, 0, 0, 0];
-var volumes = [100, 100, 100, 100, 100, 100, 100, 100]; // 0-158
-var reverse_toggles = new Array(16).fill(0);
-var pattern_states = [0, 0, 0, 0]; // 4 pattern recorders on cols 8-11
+	update(state) {
+		if (state !== this.last) {
+			this.last = state;
+			this.on = state;
+		}
+	}
+}
+
+if (!s.sequencers) s.sequencers = new Array(8).fill(null).map((_, i) => new Sequencer(i));
+
+// SamplePlayer class for managing the pl subpatcher for each channel
+class SamplePlayer {
+	constructor(channel) {
+		this.channel = channel; // aka group, 8 of these
+		this.sampleIndex = 0;
+		this.offset = 0;
+		this.offset_state = 0;
+	}
+}
+
+// there are 8 of these shared across 15 tracks
+if (!s.samplers) s.samplers = new Array(8).fill(null).map((_, i) => new SamplePlayer(i));
+
+class mlrChannel {
+	constructor(channel) {
+		this.channel = channel;
+		this.muted = 0;
+		this.volume = 100;
+		this.reverse = 0;
+		this.pattern = 0;
+		this.randomOffset = 0;
+		this.quantize = 0;
+		this.session = 0;
+		this.buffer = 0;
+		this.halfTime = 0;
+		this.timestretch = 0;
+		this.doubleTime = 0;
+		this.on = 0;
+	}
+}
+
+// we have 15 to work with not 16 as only 15 rows are usable on a 256 grid
+if (!s.channels) s.channels = new Array(15).fill(null).map((_, i) => new mlrChannel(i));
+
+s.patternout = function (patnum, ch, pos, track) {
+	//Max.outlet("patternout", JSON.stringify({patnum, patout}));
+	post(`patternout ${patnum} ${ch} ${pos} ${track}`); //${patout[1]} ${patout[2]} ${patout[3]}`, "\n");//, patout[0], patout[1], patout[2], patout[3], "\n");
+};
+
+//var s = new Global("mlr"); // shared global state — mlr.js initialises primitives
+
+//var s = new Global("mlr");
+
+var randomOffset_states = [0, 0, 0, 0, 0, 0, 0, 0]; // 8 random offset toggles on cols 12-15
+
+// states of the 4 pattern recorders
+var pattern_states = [0, 0, 0, 0];
 
 /** Insert FX placeholder: cols 0–7 × rows 4–15 (96 cells). */
 var insert_fx = new Array(8 * 12).fill(0);
@@ -66,7 +138,7 @@ function insertFxIndex(col, row) {
 }
 
 /** Local octave hint per track row (for LED on col 13/14); not synced from DSP. */
-var octave_hint = new Array(16).fill(0);
+if (!s.octave_hint) s.octave_hint = new Array(16).fill(0);
 
 /** Last mod-page picks for right-side columns (redraw after overlay clear). */
 var modQuantizeRow = 0;
@@ -96,19 +168,28 @@ function clamp(v, lo, hi) {
 	return Math.min(hi, Math.max(lo, v));
 }
 
+function postln(s) {
+	post(s + "\n");
+}
+
 function led(x, y, level) {
 	// this output connects to [s gridmatrixio] which goes to 1st inlet of [p grid_matrix_io]
 	outlet(1, "setcell", x, y, clamp(level | 0, 0, 15));
 }
 
+// set up a simple keyframe command, sent out of outlet 3 to anim engine
+function kfping(x, y, level) {
+	outlet(3, "kf", x, y, level, 1, 0, 20);
+}
+
 function ledRow(y, level) {
-	for (var x = 0; x < gridWidth; x++) {
+	for (var x = 0; x < s.gridWidth; x++) {
 		led(x, y, level);
 	}
 }
 
 function ledCol(x, level) {
-	for (var y = 0; y < gridHeight; y++) {
+	for (var y = 0; y < s.gridHeight; y++) {
 		led(x, y, level);
 	}
 }
@@ -119,24 +200,25 @@ function volToBrightness(vol) {
 
 /** Row2 vol-up: brighter; row3 vol-down: dimmer readout of same level. */
 function volBrightnessUp(col) {
-	return volToBrightness(volumes[col]);
+	return volToBrightness(s.volumes[col]);
 }
 
 function volBrightnessDown(col) {
 	return clamp(Math.round(volBrightnessUp(col) * 0.45), 0, 15);
 }
 function setVolume(col, vol) {
-	volumes[col] = vol;
+	s.volumes[col] = vol;
 	updateVolumeDisplay(col);
 }
 
 // ─── Entry Points ───────────────────────────────────────────────────────
 
 function loadbang() {
-	post("[grid_router] ready — kmod=" + kmod + " edition=" + edition + "\n");
+	post("[grid_router] ready — kmod=" + s.kmod + " edition=" + s.edition + "\n");
 }
 
 function msg_int(a) {
+	post("[grid_router] msg_int " + a + "\n");
 	if (inlet === 1) {
 		setKmod(a);
 	} else if (inlet === 2) {
@@ -174,20 +256,23 @@ function key() {
 // ─── kmod ───────────────────────────────────────────────────────────────
 
 function setKmod(val) {
-	var prev = kmod;
-	kmod = val;
-	if (prev !== kmod) {
-		onKmodChange(prev, kmod);
+	if (val !== s.kmod) {
+		prev = s.kmod;
+		s.kmod = val;
+		post("[grid_router] setKmod " + val + "\n");
+		onKmodChange(prev, s.kmod);
 	}
 }
 
 function onKmodChange(prev, next) {
 	// Log kmod state change
-	post("[grid_router] kmod " + prev + " -> " + next + " (" + kmod + ")\n");
+	post("[grid_router] kmod " + prev + " -> " + next + " (" + s.kmod + ")\n");
 
 	// Always clear the grid when changing modes
 	messnamed("togridmatrixio", "clear");
 	messnamed("togridmatrixio", "flush");
+
+	messnamed("kmod", s.kmod);
 
 	// Kmod page indicators: [col, brightness]
 	var kmodIndicators = [
@@ -207,8 +292,9 @@ function onKmodChange(prev, next) {
 	switch (next) {
 		case 1:
 			// Return to normal mode: clear overlay indicators, stop anim
-			led(14, 0, 0);
-			led(15, 0, 0);
+			drawMainPage();
+			//led(14, 0, 0);
+			//led(15, 0, 0);
 			animTask.cancel();
 			break;
 		case 2:
@@ -231,9 +317,9 @@ function onKmodChange(prev, next) {
 
 function dispatch(col, row, state) {
 	if (isNaN(col) || isNaN(row) || isNaN(state)) return;
-	col = clamp(col, 0, gridWidth - 1);
-	row = clamp(row, 0, gridHeight - 1);
-	state = state ? 1 : 0;
+	col = clamp(col, 0, s.gridWidth - 1);
+	row = clamp(row, 0, s.gridHeight - 1);
+	state = state ? 1 : 0; // key pressed or released
 
 	// Don't re-record events dispatched during automation playback
 	if (automation.recording && state === 1 && !playbackDispatching) {
@@ -245,7 +331,7 @@ function dispatch(col, row, state) {
 		return;
 	}
 
-	switch (kmod) {
+	switch (s.kmod) {
 		case 1: handleNormalMode(col, row, state); break;
 		case 2: handleModPage(col, row, state); break;
 		case 3: handleGroupsPage(col, row, state); break;
@@ -264,10 +350,10 @@ function handleRow0(col, state) {
 		handlePatternRecorder(col - 8);
 	} else if (col === 12) {
 		if (state !== 1) return;
-		messnamed("prevPreset", 1);
+		//messnamed("prevPreset", 1);
 	} else if (col === 13) {
 		if (state !== 1) return;
-		messnamed("nextPreset", 1);
+		//messnamed("nextPreset", 1);
 	} else if (col === 14) {
 		// Groups page — momentary (hold = kmod 3, release = kmod 1)
 		/*
@@ -278,25 +364,25 @@ function handleRow0(col, state) {
 		}
 		*/
 		if (state === 1) {
-			messnamed("kmod", kmod === 3 ? 1 : 3);
+			//messnamed("kmod", s.kmod === 3 ? 1 : 3);
 		}
 	} else if (col === 15) {
 		// Mod page — toggle between 1 and 2
 		if (state === 1) {
-			messnamed("kmod", kmod === 2 ? 1 : 2);
+			setKmod(s.kmod === 2 ? 1 : 2);
 		}
 	}
 }
 
 function handleRow0Channel(col) {
 	var ch = col + 1;
-	if (kmod === 1) {
+	if (s.kmod === 1) {
 		messnamed(ch + "[pl]stop", 1);
 		outlet(0, col, 0, 1);
-	} else if (kmod === 2) {
+	} else if (s.kmod === 2) {
 		handleModMute(col);
 		// kmod 2: mutes on mod page row 1 (Phase 2)
-		post("[grid_router] handleRow0Channel " + col + " " + kmod + "\n");
+		post("[grid_router] handleRow0Channel " + col + " " + s.kmod + "\n");
 	}
 }
 
@@ -315,6 +401,17 @@ function handleNormalMode(col, row, state) {
 
 // ─── Mod Page (kmod 2) ─────────────────────────────────────────────────
 
+function handleTimestretchToggle(col, state) {
+	if (s.kmod !== 2) return;
+	ch = col + 1;
+
+	s.channels[col].timestretch = 1 - s.channels[col].timestretch;
+	messnamed(ch + "[ch]timestretch", s.channels[col].timestretch ? 1 : 0);
+
+	led(col, 3, s.channels[col].timestretch ? 15 : 0);
+	post("[grid_router] handleTimestretchToggle " + col + " " + state + " " + s.channels[col].timestretch + "\n");
+}
+
 function handleModPage(col, row, state) {
 	if (state !== 1) return;
 
@@ -327,8 +424,9 @@ function handleModPage(col, row, state) {
 			handleModVolume(col, row);
 			return;
 		}
-		if (row >= 3) {
-			handleInsertFxToggle(col, row);
+		if (row === 3) {
+			//post("[grid_router] handleTimestretchToggle " + col + " " + row + " " + state + "\n");
+			handleTimestretchToggle(col, state);
 			return;
 		}
 	} else if (col === 8) {
@@ -340,7 +438,7 @@ function handleModPage(col, row, state) {
 	} else if (col === 11 && row >= 1 && row <= 8) {
 		handleSessionLoad(row);
 	} else if (col === 12 && row >= 1 && row <= 8) {
-		handleBufferSelect(row);
+		handleModRandomOffset(row);
 	} else if (col === 13 && row >= 1) {
 		handleHalfTime(row);
 	} else if (col === 14 && row >= 1) {
@@ -352,6 +450,8 @@ function handleModPage(col, row, state) {
 
 /** Col 8 mod page: row 1 = all channels; rows 2–15 = track (row+1) only. */
 function handleModRandomize(row) {
+	if (s.kmod !== 2) return;
+
 	var randRow = 0
 	if (row === randRow) {
 		messnamed("[mlr]randomfun", "bang");
@@ -375,6 +475,7 @@ function handleModRandomize(row) {
 }
 
 function handleInsertFxToggle(col, row) {
+	if (s.kmod !== 2) return;
 	var ix = insertFxIndex(col, row);
 	insert_fx[ix] = 1 - insert_fx[ix];
 	led(col, row, insert_fx[ix] ? 12 : 0);
@@ -382,29 +483,36 @@ function handleInsertFxToggle(col, row) {
 }
 
 function handleModMute(col) {
-	var ch = col + 1;
-	muted[col] = muted[col] ? 0 : 1;
-	messnamed(ch + "[box]mute", muted[col]);
-	if (kmod === 2) {
-		drawMuteRow();
-	}
+	if (s.kmod !== 2) return;
+	// toggle
+	s.channels[col].muted = s.channels[col].muted ? 0 : 1;
+	s.muted[col] = s.channels[col].muted;
+
+	var ch = col + 1; // the name of the receive
+	messnamed(ch + "[box]mute", s.muted[col]);
+	drawMuteRow();
 }
 
 function handleModVolume(col, row) {
+	if (s.kmod !== 2) return;
+
 	var volRow = 1;
-	var ch = col + 1;
+	var ch = col + 1; // global receive objects need + 1
 	if (row === volRow) {
 		messnamed(ch + "vol_add", 4);
-		volumes[col] = clamp(volumes[col] + 4, 0, 158);
+		s.channels[col].volume = clamp(s.channels[col].volume + 4, 0, 158);
+		s.volumes[col] = s.channels[col].volume;
 		updateVolumeDisplay(col);
 	} else if (row === volRow + 1) {
 		messnamed(ch + "vol_add", -4);
-		volumes[col] = clamp(volumes[col] - 4, 0, 158);
+		s.channels[col].volume = clamp(s.channels[col].volume - 4, 0, 158);
+		s.volumes[col] = s.channels[col].volume;
 		updateVolumeDisplay(col);
 	}
 }
 
 function handleQuantize(row) {
+	if (s.kmod !== 2) return;
 	var qValues = { 1: 32, 2: 16, 3: 8, 4: 4, 5: 2 };
 	var qVal = qValues[row];
 	if (qVal !== undefined) {
@@ -416,38 +524,43 @@ function handleQuantize(row) {
 }
 
 function handleSessionLoad(row) {
+	if (s.kmod !== 2) return;
 	// TODO: temp
 	messnamed("loadSel", row);
 	modSessionRow = row;
 	drawSessionColumn();
 }
 
-function handleBufferSelect(row) {
-	// TODO: temp
+function handleModRandomOffset(row) {
+	if (s.kmod !== 2) return;
+	// TODO: kero wants this columnto toggle random offsets
 	messnamed("buffSel", row);
 	modBufferRow = row;
 	drawBufferColumn();
 }
 
 function handleHalfTime(row) {
+	if (s.kmod !== 2) return;
 	var trackId = row + 1;
 	messnamed(trackId + "[box]dwnOct", 1);
-	octave_hint[row]--;
+	s.octave_hint[row]--;
 	drawOctaveCell(row);
 }
 
 function handleDoubleTime(row) {
+	if (s.kmod !== 2) return;
 	var trackId = row + 1;
 	messnamed(trackId + "[box]upOct", 1);
-	octave_hint[row]++;
+	s.octave_hint[row]++;
 	drawOctaveCell(row);
 }
 
 function handleReverse(row) {
+	if (s.kmod !== 2) return;
 	var trackId = row + 1;
-	reverse_toggles[row] = 1 - reverse_toggles[row];
-	messnamed(trackId + "[box]rev", reverse_toggles[row]);
-	led(15, row, reverse_toggles[row] ? 15 : 0);
+	s.reverse_toggles[row] = 1 - s.reverse_toggles[row];
+	messnamed(trackId + "[box]rev", s.reverse_toggles[row]);
+	led(15, row, s.reverse_toggles[row] ? 15 : 0);
 }
 
 // ─── Groups Page (kmod 3) ──────────────────────────────────────────────
@@ -484,9 +597,19 @@ function drawModPage() {
 	drawReverseColumn();
 }
 
+function drawMainPage() {
+	drawChannelsPlaying();
+	// draw active active recorders
+}
+
 function drawMuteRow() {
-	for (var x = 0; x < 8; x++) {
-		led(x, 0, muted[x] ? 0 : 15);
+	if (s.kmod === 2) {
+		for (var x = 0; x < 8; x++) {
+			led(x, 0, s.muted[x] ? 0 : 15);
+		}
+	}
+	else if (s.kmod === 1) {
+		drawChannelsPlaying(); // this reflects the state of the groove~ object rather than mutes
 	}
 }
 
@@ -506,7 +629,7 @@ function drawInsertFxBlock() {
 	var x;
 	var y;
 	for (x = 0; x < 8; x++) {
-		for (y = 4; y < gridHeight; y++) {
+		for (y = 4; y < s.gridHeight; y++) {
 			led(x, y, insert_fx[insertFxIndex(x, y)] ? 12 : 0);
 		}
 	}
@@ -515,7 +638,7 @@ function drawInsertFxBlock() {
 function drawRandomizeColumn() {
 	var y;
 	led(8, 0, 6);
-	for (y = 1; y < gridHeight; y++) {
+	for (y = 1; y < s.gridHeight; y++) {
 		led(8, y, 2);
 	}
 }
@@ -561,7 +684,7 @@ function drawBufferColumn() {
 
 function drawOctaveColumns() {
 	var y;
-	for (y = 1; y < gridHeight; y++) {
+	for (y = 1; y < s.gridHeight; y++) {
 		drawOctaveCell(y);
 	}
 }
@@ -570,7 +693,7 @@ function drawOctaveCell(row) {
 	if (row < 1) {
 		return;
 	}
-	var h = octave_hint[row];
+	var h = s.octave_hint[row];
 	var downBright = h < 0 ? 15 : 4;
 	var upBright = h > 0 ? 15 : 4;
 	led(13, row, downBright);
@@ -578,8 +701,8 @@ function drawOctaveCell(row) {
 }
 
 function drawReverseColumn() {
-	for (var y = 1; y < gridHeight; y++) {
-		led(15, y, reverse_toggles[y] ? 15 : 0);
+	for (var y = 1; y < s.gridHeight; y++) {
+		led(15, y, s.reverse_toggles[y] ? 15 : 0);
 	}
 }
 
@@ -591,8 +714,8 @@ function volumeUpdate() {
 	var ch = parseInt(arguments[0], 10);
 	var val = parseInt(arguments[1], 10);
 	if (ch >= 1 && ch <= 8) {
-		volumes[ch - 1] = clamp(val, 0, 158);
-		if (kmod === 2) {
+		s.volumes[ch - 1] = clamp(val, 0, 158);
+		if (s.kmod === 2) {
 			updateVolumeDisplay(ch - 1);
 		}
 	}
@@ -606,9 +729,9 @@ function muteUpdate() {
 	var ch = parseInt(arguments[0], 10);
 	var val = parseInt(arguments[1], 10);
 	if (ch >= 1 && ch <= 8) {
-		muted[ch - 1] = val ? 1 : 0;
+		s.muted[ch - 1] = val ? 1 : 0;
 	}
-	if (kmod === 2) {
+	if (s.kmod === 2) {
 		drawMuteRow();
 	}
 }
@@ -618,14 +741,45 @@ function handleOldPatternOut() {
 	var col = parseInt(arguments[1], 10);
 	var row = parseInt(arguments[2], 10) - 1;
 
-	post("handleOldPatternOut: channel " + (ch + 1) + " row " + row + " col " + col + "\n");
-	if (kmod !== 1) return;
+	//post("handleOldPatternOut: channel " + (ch + 1) + " row " + row + " col " + col + "\n");
 
-	ledRow(row, 0); // clear the row for this looper
-	led(col, row, 15); // light up the button played
-	led(ch, 0, 15); // highlight the active
+	//s.channels[ch].pos = 
+	if (s.kmod !== 1) return;
+
+	//ledRow(row, 0); // clear the row for this looper
+	kfping(col, row, 10); // light up the button played
+	drawChannelsPlaying();
+	//led(7, 0, 15); // highlight the active
 	// flush
 }
+
+function drawChannelsPlaying() {
+	if (s.kmod !== 1) return;
+	for (i = 0; i < 8; i++) {
+		led(i, 0, s.channels[i].on ? 15 : 0);
+		//post(s.channels[i].on);
+	}
+	for (i = 0; i < 4; i++) {
+		led(i + 8, 0, s.sequencers[i].on ? 15 : 0);
+	}
+	//postln("drawing channels playing");
+}
+
+s.drawChannelsPlaying = drawChannelsPlaying;
+
+function handleChannelOnArray() {
+	for (i = 0; i < 8; i++) {
+		s.channels[i].on = arguments[i];
+	}
+	drawChannelsPlaying();
+}
+function handleSeqOnArray() {
+	for (i = 0; i < 4; i++) {
+		s.sequencers[i].on = arguments[i];
+	}
+	drawChannelsPlaying();
+}
+
 
 // ─── Normal-mode LED bridge (replaces [p switcher]) ────────────────────
 // These handlers receive LED data from [p chnls] / channel playback heads
@@ -638,9 +792,9 @@ function handleOldPatternOut() {
  * Replaces the old [p switcher] path: r mlrpageled → constrain → prepend setcell → s togridmatrixio.
  */
 function boxled() {
-	if (kmod !== 1) return;
-	var col = clamp(parseInt(arguments[0], 10) | 0, 0, gridWidth - 1);
-	var row = clamp(parseInt(arguments[1], 10) | 0, 0, gridHeight - 1);
+	if (s.kmod !== 1 || true) return;
+	var col = clamp(parseInt(arguments[0], 10) | 0, 0, s.gridWidth - 1);
+	var row = clamp(parseInt(arguments[1], 10) | 0, 0, s.gridHeight - 1);
 	var level = clamp(parseInt(arguments[2], 10) | 0, 0, 15);
 	led(col, row, level);
 }
@@ -650,9 +804,9 @@ function boxled() {
  * First arg is the row, remaining args are brightness values for each column.
  */
 function boxledrow() {
-	if (kmod !== 1) return;
-	var row = clamp(parseInt(arguments[0], 10) | 0, 0, gridHeight - 1);
-	for (var x = 1; x < arguments.length && (x - 1) < gridWidth; x++) {
+	if (s.kmod !== 1 || true) return;
+	var row = clamp(parseInt(arguments[0], 10) | 0, 0, s.gridHeight - 1);
+	for (var x = 1; x < arguments.length && (x - 1) < s.gridWidth; x++) {
 		var level = clamp(parseInt(arguments[x], 10) | 0, 0, 15);
 		led(x - 1, row, level);
 	}
@@ -663,9 +817,9 @@ function boxledrow() {
  * First arg is the column, remaining args are brightness values for each row.
  */
 function boxledcol() {
-	if (kmod !== 1) return;
-	var col = clamp(parseInt(arguments[0], 10) | 0, 0, gridWidth - 1);
-	for (var y = 1; y < arguments.length && (y - 1) < gridHeight; y++) {
+	if (s.kmod !== 1 || true) return;
+	var col = clamp(parseInt(arguments[0], 10) | 0, 0, s.gridWidth - 1);
+	for (var y = 1; y < arguments.length && (y - 1) < s.gridHeight; y++) {
 		var level = clamp(parseInt(arguments[y], 10) | 0, 0, 15);
 		led(col, y - 1, level);
 	}
@@ -796,13 +950,13 @@ function clockTick() {
 function animateLeds() {
 	animBrightness = (animBrightness >= 15) ? 5 : animBrightness + 1;
 
-	if (automation.recording && kmod === 2) {
-		for (var y = 2; y < gridHeight; y++) {
+	if (automation.recording && s.kmod === 2) {
+		for (var y = 2; y < s.gridHeight; y++) {
 			led(8, y, animBrightness);
 		}
 	}
 
-	if (automation.playing && kmod === 2) {
+	if (automation.playing && s.kmod === 2) {
 		var span = 7;
 		var progress = Math.floor((automation.playHead / automation.length) * span);
 		if (progress > span - 1) {
@@ -823,11 +977,11 @@ function anything() {
 	if (name === "edition" && args.length) {
 		var e = parseInt(args[0], 10);
 		if (e === 64 || e === 128 || e === 256) {
-			edition = e;
+			s.edition = e;
 			var dims = { 64: [8, 8], 128: [16, 8], 256: [16, 16] };
-			gridWidth = dims[edition][0];
-			gridHeight = dims[edition][1];
-			post("[grid_router] edition=" + edition + " grid=" + gridWidth + "x" + gridHeight + "\n");
+			s.gridWidth = dims[s.edition][0];
+			s.gridHeight = dims[s.edition][1];
+			post("[grid_router] edition=" + s.edition + " grid=" + s.gridWidth + "x" + s.gridHeight + "\n");
 		}
 	} else if (name === "volumeUpdate" && args.length >= 2) {
 		volumeUpdate.apply(this, args);
@@ -835,7 +989,16 @@ function anything() {
 		muteUpdate.apply(this, args);
 	} else if (name === "handleOldPatternOut" && args.length >= 3) {
 		handleOldPatternOut.apply(this, args);
-	} else if (name === "boxled" && args.length >= 3) {
+	} else if (name == "setKmod") {
+		//
+	}
+	else if (name === "seqOnArray") {
+		handleSeqOnArray.apply(this, args);
+	}
+	else if (name === "channelOnArray") {
+		handleChannelOnArray.apply(this, args);
+	}
+	else if (name === "boxled" && args.length >= 3) {
 		boxled.apply(this, args);
 	} else if (name === "boxledrow" && args.length >= 2) {
 		boxledrow.apply(this, args);

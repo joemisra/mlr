@@ -1,0 +1,1 @@
+var s = new Global("mlr");

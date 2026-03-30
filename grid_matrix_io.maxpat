@@ -9,8 +9,30 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 1692.0, 513.0, 920.0, 520.0 ],
+        "rect": [ 134.0, 164.0, 920.0, 520.0 ],
         "boxes": [
+            {
+                "box": {
+                    "id": "obj-6",
+                    "maxclass": "message",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 198.0, 337.0, 35.0, 22.0 ],
+                    "text": "clear"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-5",
+                    "maxclass": "message",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 602.0, 346.0, 35.0, 22.0 ],
+                    "text": "clear"
+                }
+            },
             {
                 "box": {
                     "id": "obj-7",
@@ -26,7 +48,7 @@
                 "box": {
                     "comment": "commands",
                     "id": "obj-3",
-                    "index": 0,
+                    "index": 4,
                     "maxclass": "inlet",
                     "numinlets": 0,
                     "numoutlets": 1,
@@ -38,11 +60,11 @@
                 "box": {
                     "comment": "commands",
                     "id": "obj-2",
-                    "index": 0,
+                    "index": 3,
                     "maxclass": "inlet",
                     "numinlets": 0,
                     "numoutlets": 1,
-                    "outlettype": [ "" ],
+                    "outlettype": [ "bang" ],
                     "patching_rect": [ 439.0, 145.0, 30.0, 30.0 ]
                 }
             },
@@ -50,11 +72,11 @@
                 "box": {
                     "comment": "commands",
                     "id": "obj-1",
-                    "index": 0,
+                    "index": 2,
                     "maxclass": "inlet",
                     "numinlets": 0,
                     "numoutlets": 1,
-                    "outlettype": [ "" ],
+                    "outlettype": [ "int" ],
                     "patching_rect": [ 58.0, 145.0, 30.0, 30.0 ]
                 }
             },
@@ -65,7 +87,7 @@
                     "maxclass": "comment",
                     "numinlets": 1,
                     "numoutlets": 0,
-                    "patching_rect": [ 1.0, 0.0, 420.0, 87.0 ],
+                    "patching_rect": [ 1.0, 0.0, 476.0, 87.0 ],
                     "text": "grid_matrix_io — varibright state in jit.matrix, bridge to /grid/led/level/map.\nMessages: edition 64|128|256, prefix /box, dual128 0|1, clear, flush, setcell x y v, fill v, fade_step.\nOut 0 = OSC to primary grid; out 1 = lower half when dual128 1 (stacked 2×128 as 256).\ngrid_anim_engine: kf x y t f …, line y x0 x1 …, tick (qmetro→flush when dirty). jit.matrix: grid_matrix_io_state."
                 }
             },
@@ -73,7 +95,7 @@
                 "box": {
                     "comment": "commands",
                     "id": "obj-in",
-                    "index": 0,
+                    "index": 1,
                     "maxclass": "inlet",
                     "numinlets": 0,
                     "numoutlets": 1,
@@ -85,7 +107,7 @@
                 "box": {
                     "comment": "OSC-style messages to serialosc",
                     "id": "obj-out",
-                    "index": 0,
+                    "index": 1,
                     "maxclass": "outlet",
                     "numinlets": 1,
                     "numoutlets": 0,
@@ -96,7 +118,7 @@
                 "box": {
                     "comment": "2nd grid (dual128 1): lower 8 rows",
                     "id": "obj-out2",
-                    "index": 1,
+                    "index": 2,
                     "maxclass": "outlet",
                     "numinlets": 1,
                     "numoutlets": 0,
@@ -299,6 +321,18 @@
             },
             {
                 "patchline": {
+                    "destination": [ "obj-anim", 0 ],
+                    "source": [ "obj-5", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-bridge", 0 ],
+                    "source": [ "obj-6", 0 ]
+                }
+            },
+            {
+                "patchline": {
                     "destination": [ "obj-bridge", 0 ],
                     "source": [ "obj-7", 0 ]
                 }
@@ -370,7 +404,6 @@
                     "source": [ "obj-tglanim", 0 ]
                 }
             }
-        ],
-        "autosave": 0
+        ]
     }
 }
