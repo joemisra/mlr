@@ -270,6 +270,12 @@ function key() {
 
 // ─── kmod ───────────────────────────────────────────────────────────────
 
+const sequpdate = function (idx, on) {
+	messnamed(idx + "pp", on);
+	led(idx + 8, 0, on ? 10 : 0);
+}
+s.sequpdate = sequpdate;
+
 function setKmod(val, col = 0) {
 	if (val !== s.kmod) {
 		prev = s.kmod;
@@ -409,8 +415,8 @@ function handlePatternRecorder(idx) {
 	if (s.sequencers[idx].on === 1) {
 		//s.sequencers[idx].update(0, "home");
 		// st
-		//messnamed(idx + "pp", s.sequencers[idx].on);
-		//led(idx + 8, 0, s.sequencers[idx].on ? 15 : 0);
+		messnamed(idx + "pp", s.sequencers[idx].on);
+		led(idx + 8, 0, 0);
 
 		// turn off
 		s.sequencers[idx].on = 0;
@@ -418,7 +424,8 @@ function handlePatternRecorder(idx) {
 	} else {
 		// turn on
 		s.sequencers[idx].on = 1;
-		//messnamed(idx + "pp", s.sequencers[idx].on);
+		messnamed(idx + "pp", s.sequencers[idx].on);
+		led(idx + 8, 0, s.sequencers[idx].on ? 10 : 0);
 		outlet(2, "pattern", idx, s.sequencers[idx].on, "on");
 	}
 }
@@ -496,6 +503,7 @@ function handleModRandomize(row) {
 		messnamed(trackId + "[box]rnd", 1);
 		led(8, row, 15);
 		kfping(8, row, 6);
+
 		//var t2 = new Task(
 		//	(function (rr) {
 		//		return function () { led(8, rr, 2); };
@@ -762,7 +770,7 @@ function drawOctaveCell(row) {
 	var track = row - 1;
 	//post("[grid_router] drawOctaveCell " + row + " " + s.tracks[track].octave + "\n");
 	var h = s.tracks[track].octave;
-	var dir = h > 0 ? 1 : -1;
+	var dir = h > 0 ? 2 : -2;
 
 	var upBright = clamp(dir > 0 ? 4 + h : 4, 4, 15);
 	var downBright = clamp(dir < 0 ? 4 - h : 4, 4, 15);

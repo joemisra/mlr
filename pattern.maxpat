@@ -9,7 +9,7 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 139.0, 206.0, 1065.0, 624.0 ],
+        "rect": [ 139.0, 142.0, 1065.0, 624.0 ],
         "gridsize": [ 8.0, 8.0 ],
         "boxes": [
             {
@@ -63,7 +63,7 @@
                     "numoutlets": 1,
                     "outlettype": [ "" ],
                     "patching_rect": [ 586.0, 263.5, 152.0, 22.0 ],
-                    "text": "1 0 16 0. 0 0 7 0"
+                    "text": "1 0 16 0.135417 0 0 8 0"
                 }
             },
             {
@@ -137,7 +137,7 @@
             },
             {
                 "box": {
-                    "code": "inlets = 1;\r\noutlets = 2;\r\nvar idx = 0;\r\n\r\n\r\nfunction index(_idx) {\r\n    idx = _idx;\r\n}\r\n\r\nfunction updatephase(phs) {\r\n    var s = new Global(\"mlr\");\r\n\r\n    if(!s.sequencers) return;\r\n    s.sequencers[this.idx].phase = phs;\r\n}\r\n\r\nfunction msg_int(tog) {\r\n    var s = new Global(\"mlr\");\r\n\r\n    if(!s.sequencers) return;\r\n    s.sequencers[this.idx].update(tog, \"pattern\");\r\n}\r\n\r\nfunction checkrandomoffset(row) {\r\n    var s = new Global(\"mlr\");  \r\n    //post(row + \"\\n\");\r\n    \r\n    //var isit = s.tracks[row - 1].randomOffset;\r\n    //outlet(0, isit);\r\n}\r\n\r\nfunction bang() {\r\n    outlet(0, s.sequencers[this.idx].phase, s.sequencers[this.idx].on);\r\n}",
+                    "code": "inlets = 1;\r\noutlets = 2;\r\nvar idx = 0;\r\n\r\n\r\nfunction index(_idx) {\r\n    idx = _idx;\r\n}\r\n\r\nfunction updatephase(phs) {\r\n    var s = new Global(\"mlr\");\r\n\r\n    if(!s.sequencers) return;\r\n    s.sequencers[this.idx].phase = phs;\r\n}\r\n\r\nfunction msg_int(tog) {\r\n    var s = new Global(\"mlr\");\r\n\r\n    if(!s.sequencers) return;\r\n    s.sequpdate(idx, tog);\r\n    //s.sequencers[this.idx].update(tog, \"pattern\");\r\n}\r\n\r\nfunction checkrandomoffset(row) {\r\n    var s = new Global(\"mlr\");  \r\n    //post(row + \"\\n\");\r\n    \r\n    //var isit = s.tracks[row - 1].randomOffset;\r\n    //outlet(0, isit);\r\n}\r\n\r\nfunction bang() {\r\n    outlet(0, s.sequencers[this.idx].phase, s.sequencers[this.idx].on);\r\n}",
                     "filename": "none",
                     "fontface": 0,
                     "fontname": "<Monospaced>",

@@ -153,7 +153,7 @@
                     "numinlets": 1,
                     "numoutlets": 0,
                     "patching_rect": [ 12.0, 12.0, 313.0, 154.0 ],
-                    "text": "grid_composite_2x128 -- two 128s as one logical 256\n\nArgs #1 #2 = serialosc DEVICE ports.\nOn load: sends /sys/host, /sys/port, /sys/prefix /box to each device.\nLED: inlet splits /grid/led/level/map by oy (top/bottom) -> udpsend to each device port.\nKeys: internal udpreceive 58901/58902 -> JS merges bottom y+=8 -> outlet.\n\nBridge: dual128 0, edition 256, prefix /box."
+                    "text": "grid_composite_2x128\n\nDEFAULT: single monome 256 (dual128 0)\n  Arg #1 = device serialosc port. Arg #2 unused.\n  All LEDs pass straight to udpsend #1. Keys arrive on 58901.\n  No y-remapping needed — 256 is native 16 rows.\n\nALT: two 128s stacked (dual128 1)\n  Args #1 #2 = top/bottom device ports.\n  LEDs split by oy: rows 0-7 -> udpsend #1, rows 8-15 -> udpsend #2 (y-=8).\n  Keys: 58901 = top (y 0-7), 58902 = bottom (y +=8).\n\nClick 'dual128 0' for a 256, 'dual128 1' for two 128s."
                 }
             },
             {
@@ -443,6 +443,12 @@
             {
                 "patchline": {
                     "destination": [ "obj-tinit", 0 ],
+                    "source": [ "obj-del", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-3", 0 ],
                     "source": [ "obj-del", 0 ]
                 }
             },
