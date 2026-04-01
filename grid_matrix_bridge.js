@@ -53,12 +53,8 @@ function set_edition(n) {
 	post("[grid_matrix_bridge] edition=" + edition + " dim=" + wh + "\n");
 }
 
-function prefix_msg(s) {
-	prefix = s;
-}
-
 function bang() {
-	flush();
+	send_level_maps();
 }
 
 function flush() {
@@ -66,13 +62,8 @@ function flush() {
 }
 
 function clear() {
-	var jm = bind_matrix();
-	jm.clear();
-	flush();
-	//outlet(0, prefix + "/grid/led/all", 0);
-	//if (dual128Mode) {
-	//	outlet(1, prefix + "/grid/led/all", 0);
-	//}
+	bind_matrix().clear();
+	send_level_maps();
 }
 
 function setcell(x, y, v) {
@@ -91,38 +82,31 @@ function setcell(x, y, v) {
 function fade_step() {
 	var jm = bind_matrix();
 	var wh = jm.dim;
-	var w = wh[0];
-	var h = wh[1];
-	var u8 = new Uint8Array(w * h);
+	var u8 = new Uint8Array(wh[0] * wh[1]);
 	jm.copymatrixtoarray(u8);
-	var i;
-	for (i = 0; i < u8.length; i++) {
-		u8[i] = Math.max(0, (u8[i] | 0) - 1);
+	for (var i = 0; i < u8.length; i++) {
+		u8[i] = Math.max(0, u8[i] - 1);
 	}
 	jm.copyarraytomatrix(u8);
 }
 
 function fill(v) {
 	v = clamp(Math.floor(v), 0, 15);
-	var jm = bind_matrix();
-	jm.fillplane(0, v);
+	bind_matrix().fillplane(0, v);
 }
 
 function send_level_maps() {
 	var jm = bind_matrix();
 	var wh = jm.dim;
 	var w = wh[0];
-	var h = wh[1];
-	var u8 = new Uint8Array(w * h);
+	var u8 = new Uint8Array(w * wh[1]);
 	jm.copymatrixtoarray(u8);
 	var path = prefix + "/grid/led/level/map";
 	var regions = regions_for_edition(edition);
-	var i;
-	for (i = 0; i < regions.length; i++) {
+	for (var i = 0; i < regions.length; i++) {
 		var ox = regions[i][0];
 		var oy = regions[i][1];
-		var data = block8_from_u8(u8, w, ox, oy);
-		out_list(path, ox, oy, data);
+		out_block(path, ox, oy, block8_from_u8(u8, w, ox, oy));
 	}
 }
 
@@ -133,34 +117,20 @@ function regions_for_edition(e) {
 }
 
 function block8_from_u8(u8, w, ox, oy) {
-	var row, col;
 	var out = [];
-	for (row = 0; row < 8; row++) {
-		for (col = 0; col < 8; col++) {
-			out.push(clamp(u8[(oy + row) * w + (ox + col)] | 0, 0, 15));
+	for (var row = 0; row < 8; row++) {
+		for (var col = 0; col < 8; col++) {
+			out.push(u8[(oy + row) * w + (ox + col)]);
 		}
 	}
 	return out;
 }
 
-function out_list(path, ox, oy, bytes) {
-	var args = [path, ox, oy];
-	var i;
-	for (i = 0; i < bytes.length; i++) {
-		args.push(bytes[i]);
-	}
-	if (!dual128Mode) {
-		outlet.apply(this, [0].concat(args));
-		return;
-	}
-	if (oy < 8) {
-		outlet.apply(this, [0].concat(args));
+function out_block(path, ox, oy, bytes) {
+	if (!dual128Mode || oy < 8) {
+		outlet.apply(this, [0, path, ox, oy].concat(bytes));
 	} else {
-		var argsB = [path, ox, oy - 8];
-		for (i = 0; i < bytes.length; i++) {
-			argsB.push(bytes[i]);
-		}
-		outlet.apply(this, [1].concat(argsB));
+		outlet.apply(this, [1, path, ox, oy - 8].concat(bytes));
 	}
 }
 
@@ -168,24 +138,20 @@ function clamp(n, lo, hi) {
 	return Math.min(hi, Math.max(lo, n));
 }
 
+// Only messages without dedicated handlers reach anything():
+// "edition", "prefix", and "dual128".
 function anything() {
 	var a = arrayfromargs(arguments);
-	if (messagename === "edition") {
-		set_edition(parseInt(a[0], 10));
-	} else if (messagename === "prefix") {
-		prefix = a.length ? a.join(" ") : "/box";
-	} else if (messagename === "setcell" && a.length >= 3) {
-		setcell(a[0], a[1], a[2]);
-	} else if (messagename === "fill" && a.length) {
-		fill(a[0]);
-	} else if (messagename === "flush") {
-		flush();
-	} else if (messagename === "clear") {
-		clear();
-	} else if (messagename === "fade_step") {
-		fade_step();
-	} else if (messagename === "dual128") {
-		dual128Mode = a[0] ? 1 : 0;
-		post("[grid_matrix_bridge] dual128Mode=" + dual128Mode + "\n");
+	switch (messagename) {
+		case "edition":
+			set_edition(parseInt(a[0], 10));
+			break;
+		case "prefix":
+			prefix = a.length ? a.join(" ") : "/box";
+			break;
+		case "dual128":
+			dual128Mode = a[0] ? 1 : 0;
+			post("[grid_matrix_bridge] dual128Mode=" + dual128Mode + "\n");
+			break;
 	}
 }
