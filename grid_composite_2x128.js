@@ -106,6 +106,10 @@ function emit(outn, args) {
 	outlet.apply(this, out);
 }
 
+function dual128(mode) {
+    post(`setting dual 128 mode: ${mode}`);
+}
+
 function loadbang() {
 	post("[grid_composite_2x128] ready\n");
 }

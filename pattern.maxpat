@@ -9,7 +9,7 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 73.0, 185.0, 1065.0, 624.0 ],
+        "rect": [ 139.0, 206.0, 1065.0, 624.0 ],
         "gridsize": [ 8.0, 8.0 ],
         "boxes": [
             {
@@ -63,7 +63,7 @@
                     "numoutlets": 1,
                     "outlettype": [ "" ],
                     "patching_rect": [ 586.0, 263.5, 152.0, 22.0 ],
-                    "text": "12 0 16 0.559007 0 0 8 1"
+                    "text": "1 0 16 0. 0 0 7 0"
                 }
             },
             {
@@ -89,7 +89,7 @@
                     "numoutlets": 1,
                     "outlettype": [ "int" ],
                     "parameter_enable": 0,
-                    "patching_rect": [ 562.0, 676.0, 24.0, 24.0 ]
+                    "patching_rect": [ 558.0, 621.0, 24.0, 24.0 ]
                 }
             },
             {
@@ -101,17 +101,6 @@
                     "outlettype": [ "", "bang" ],
                     "parameter_enable": 0,
                     "patching_rect": [ 524.0, 383.0, 50.0, 22.0 ]
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-61",
-                    "maxclass": "button",
-                    "numinlets": 1,
-                    "numoutlets": 1,
-                    "outlettype": [ "bang" ],
-                    "parameter_enable": 0,
-                    "patching_rect": [ 793.0, 337.0, 24.0, 24.0 ]
                 }
             },
             {
@@ -148,7 +137,7 @@
             },
             {
                 "box": {
-                    "code": "inlets = 1;\r\noutlets = 2;\r\nvar idx = 0;\r\n\r\n\r\nfunction index(_idx) {\r\n    idx = _idx;\r\n}\r\n\r\nfunction updatephase(phs) {\r\n    var s = new Global(\"mlr\");\r\n\r\n    if(!s.sequencers) return;\r\n    s.sequencers[this.idx].phase = phs;\r\n}\r\n\r\nfunction msg_int(tog) {\r\n    var s = new Global(\"mlr\");\r\n\r\n    if(!s.sequencers) return;\r\n    s.sequencers[this.idx].update(tog);\r\n}\r\n\r\nfunction checkrandomoffset(row) {\r\n    var s = new Global(\"mlr\");  \r\n    //post(row + \"\\n\");\r\n    \r\n    //var isit = s.tracks[row - 1].randomOffset;\r\n    //outlet(0, isit);\r\n}\r\n\r\nfunction bang() {\r\n    outlet(0, s.sequencers[this.idx].phase, s.sequencers[this.idx].on);\r\n}",
+                    "code": "inlets = 1;\r\noutlets = 2;\r\nvar idx = 0;\r\n\r\n\r\nfunction index(_idx) {\r\n    idx = _idx;\r\n}\r\n\r\nfunction updatephase(phs) {\r\n    var s = new Global(\"mlr\");\r\n\r\n    if(!s.sequencers) return;\r\n    s.sequencers[this.idx].phase = phs;\r\n}\r\n\r\nfunction msg_int(tog) {\r\n    var s = new Global(\"mlr\");\r\n\r\n    if(!s.sequencers) return;\r\n    s.sequencers[this.idx].update(tog, \"pattern\");\r\n}\r\n\r\nfunction checkrandomoffset(row) {\r\n    var s = new Global(\"mlr\");  \r\n    //post(row + \"\\n\");\r\n    \r\n    //var isit = s.tracks[row - 1].randomOffset;\r\n    //outlet(0, isit);\r\n}\r\n\r\nfunction bang() {\r\n    outlet(0, s.sequencers[this.idx].phase, s.sequencers[this.idx].on);\r\n}",
                     "filename": "none",
                     "fontface": 0,
                     "fontname": "<Monospaced>",
@@ -158,7 +147,7 @@
                     "numinlets": 1,
                     "numoutlets": 2,
                     "outlettype": [ "", "" ],
-                    "patching_rect": [ 546.0, 438.0, 364.0, 249.0 ],
+                    "patching_rect": [ 617.0, 438.0, 364.0, 249.0 ],
                     "saved_object_attributes": {
                         "parameter_enable": 0
                     }
@@ -1263,14 +1252,6 @@
             {
                 "patchline": {
                     "destination": [ "obj-44", 0 ],
-                    "order": 0,
-                    "source": [ "obj-58", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-52", 0 ],
-                    "order": 1,
                     "source": [ "obj-58", 0 ]
                 }
             },
@@ -1278,12 +1259,6 @@
                 "patchline": {
                     "destination": [ "obj-9", 0 ],
                     "source": [ "obj-6", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-52", 0 ],
-                    "source": [ "obj-61", 0 ]
                 }
             },
             {

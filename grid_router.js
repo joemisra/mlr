@@ -52,14 +52,6 @@ class Sequencer {
 		this.last = 0;
 		this.phase = 0;
 	}
-
-	update(state) {
-		if (state !== this.last) {
-			this.last = this.on;
-			this.on = state;
-			this.dirty = 1;
-		}
-	}
 }
 
 // SamplePlayer class for managing the pl subpatcher for each channel
@@ -106,9 +98,9 @@ class mlrTrack {
 var s = new Global("mlr");
 
 if (!s.initialized) {
-	s.muted = [0, 0, 0, 0, 0, 0, 0, 0];
-	s.volumes = [100, 100, 100, 100, 100, 100, 100, 100]; // 0–158
-	s.reverse_toggles = new Array(16).fill(0);
+	//s.muted = [0, 0, 0, 0, 0, 0, 0, 0];
+	//s.volumes = [100, 100, 100, 100, 100, 100, 100, 100]; // 0–158
+	//s.reverse_toggles = new Array(16).fill(0);
 	s.dual128Mode = 0;
 	s.gridports = [0, 0];
 	s.prefix = "/box";
@@ -127,7 +119,6 @@ if (!s.initialized) {
 	const tracks = Array.from({ length: 15 }, (_, i) => new mlrTrack(i));
 	s.channels = channels;
 	s.tracks = tracks;
-	s.initialized = true;
 
 	//s.patternout = function (patnum, ch, pos, track) {
 	//Max.outlet("patternout", JSON.stringify({patnum, patout}));
@@ -146,6 +137,7 @@ if (!s.initialized) {
 		playHead: 0
 	};
 	s.automation = automation;
+	s.initialized = true;
 }
 
 /** Guard flag: true while automation playback is dispatching events. */
@@ -223,14 +215,14 @@ function volToBrightness(vol) {
 
 /** Row2 vol-up: brighter; row3 vol-down: dimmer readout of same level. */
 function volBrightnessUp(col) {
-	return volToBrightness(s.volumes[col]);
+	return volToBrightness(s.channels[col].volume);
 }
 
 function volBrightnessDown(col) {
 	return clamp(Math.round(volBrightnessUp(col) * 0.45), 0, 15);
 }
 function setVolume(col, vol) {
-	s.volumes[col] = vol;
+	s.channels[col].volume = vol;
 	updateVolumeDisplay(col);
 }
 
@@ -414,10 +406,21 @@ function handlePatternRecorder(idx) {
 	if (s.kmod !== 1) return;
 	// sends look like 0pp
 	idx = parseInt(idx, 10);
-	s.sequencers[idx].update(1 - s.sequencers[idx].on);
-	messnamed(idx + "pp", s.sequencers[idx].on);
-	led(idx + 8, 0, s.sequencers[idx].on ? 15 : 0);
-	outlet(2, "pattern", idx, s.sequencers[idx].on);
+	if (s.sequencers[idx].on === 1) {
+		//s.sequencers[idx].update(0, "home");
+		// st
+		//messnamed(idx + "pp", s.sequencers[idx].on);
+		//led(idx + 8, 0, s.sequencers[idx].on ? 15 : 0);
+
+		// turn off
+		s.sequencers[idx].on = 0;
+		outlet(2, "pattern", idx, s.sequencers[idx].on, "off");
+	} else {
+		// turn on
+		s.sequencers[idx].on = 1;
+		//messnamed(idx + "pp", s.sequencers[idx].on);
+		outlet(2, "pattern", idx, s.sequencers[idx].on, "on");
+	}
 }
 
 // ─── Normal Mode (kmod 1) ──────────────────────────────────────────────
@@ -481,7 +484,7 @@ function handleModRandomize(row) {
 
 	var randRow = 0
 	if (row === randRow) {
-		messnamed("[mlr]randomfun", "bang");
+		messnamed("[mlr]randomfun", 1);
 		kfping(8, 0, 6);
 		//led(8, 1, 15);
 		//var t = new Task(function () { led(8, 1, 6); }, this);
@@ -530,12 +533,10 @@ function handleModVolume(col, row) {
 	if (row === volRow) {
 		messnamed(ch + "vol_add", 4);
 		s.channels[col].volume = clamp(s.channels[col].volume + 4, 0, 158);
-		s.volumes[col] = s.channels[col].volume;
 		updateVolumeDisplay(col);
 	} else if (row === volRow + 1) {
 		messnamed(ch + "vol_add", -4);
 		s.channels[col].volume = clamp(s.channels[col].volume - 4, 0, 158);
-		s.volumes[col] = s.channels[col].volume;
 		updateVolumeDisplay(col);
 	}
 }
@@ -646,7 +647,6 @@ function drawTimestretchRow() {
 }
 
 function drawMainPage() {
-	clear
 	drawChannelsPlaying();
 	drawSequencers();
 	// draw active active recorders
@@ -785,7 +785,7 @@ function volumeUpdate() {
 	var ch = parseInt(arguments[0], 10);
 	var val = parseInt(arguments[1], 10);
 	if (ch >= 1 && ch <= 8) {
-		s.volumes[ch - 1] = clamp(val, 0, 158);
+		s.channels[ch - 1].volume = clamp(val, 0, 158);
 		if (s.kmod === 2) {
 			updateVolumeDisplay(ch - 1);
 		}
@@ -818,7 +818,6 @@ function handleOldPatternOut() {
 	if (s.kmod !== 1) return;
 
 	//ledRow(row, 0); // clear the row for this looper
-	kfping(col, row, 10); // light up the button played
 	kfping(col, row, 10); // light up the button played
 	drawChannelsPlaying();
 	//led(7, 0, 15); // highlight the active
