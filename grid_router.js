@@ -32,7 +32,7 @@ outlets = 4;
  *
  * Mod page (kmod 2), cols 0–7: row 0 mutes, rows 1–2 vol up/down (brightness = level),
  * rows 4–15 = insert-FX placeholders (no audio wiring yet).
- * Col 8: row 0 randomize all channels ([mlr]randomfun); rows 1+ per-track (#[box]rnd).
+ * Col 8: row 0 randomize all channels ([ch]randomfun); rows 1+ per-track (#[box]rnd).
  * Col 9: automation (play r1, loop r2, length r3–6, arm r7); recording anim col 8 r2–15;
  * playback progress col 9 r8–14.
  *
@@ -101,8 +101,8 @@ if (!s.initialized) {
 	s.NUM_TRACKS = 15;
 	s.MAX_SAMPLES = 128;
 	s.sequencers = Array.from({ length: 8 }, (_, i) => new Sequencer(i));
-	s.channels  = Array.from({ length: 8 }, (_, i) => new mlrChannel(i));
-	s.tracks    = Array.from({ length: 15 }, (_, i) => new mlrTrack(i));
+	s.channels = Array.from({ length: 8 }, (_, i) => new mlrChannel(i));
+	s.tracks = Array.from({ length: 15 }, (_, i) => new mlrTrack(i));
 	s.automation = {
 		armed: false,
 		recording: false,
@@ -151,6 +151,14 @@ function postln(msg) {
 
 function led(x, y, level) {
 	outlet(1, "setcell", x, y, clamp(level | 0, 0, 15));
+}
+
+function led_bg(x, y, level) {
+	outlet(1, "setcell_bg", x, y, clamp(level | 0, 0, 15));
+}
+
+function clear_bg() {
+	outlet(1, "clear_bg");
 }
 
 function kfping(x, y, level) {
@@ -269,10 +277,10 @@ function onKmodChange(prev, next) {
 	}
 
 	switch (next) {
-		case 1: drawMainPage();   break;
-		case 2: drawModPage();    break;
+		case 1: drawMainPage(); break;
+		case 2: drawModPage(); break;
 		case 3: drawGroupsPage(); break;
-		case 4:                   break;
+		case 4: break;
 	}
 }
 
@@ -280,8 +288,8 @@ function onKmodChange(prev, next) {
 
 function dispatch(col, row, state) {
 	if (isNaN(col) || isNaN(row) || isNaN(state)) return;
-	col   = clamp(col, 0, s.gridWidth - 1);
-	row   = clamp(row, 0, s.gridHeight - 1);
+	col = clamp(col, 0, s.gridWidth - 1);
+	row = clamp(row, 0, s.gridHeight - 1);
 	state = state ? 1 : 0;
 
 	if (s.automation.recording && state === 1 && !playbackDispatching) {
@@ -294,9 +302,9 @@ function dispatch(col, row, state) {
 	}
 
 	switch (s.kmod) {
-		case 1: handleNormalMode(col, row, state);  break;
-		case 2: handleModPage(col, row, state);     break;
-		case 3: handleGroupsPage(col, row, state);  break;
+		case 1: handleNormalMode(col, row, state); break;
+		case 2: handleModPage(col, row, state); break;
+		case 3: handleGroupsPage(col, row, state); break;
 		case 4: handleStepSeqPage(col, row, state); break;
 	}
 }
@@ -304,18 +312,21 @@ function dispatch(col, row, state) {
 // ─── Row 0 (top row) ───────────────────────────────────────────────────
 
 function handleRow0(col, state) {
+	if (state !== 1) return;
 	if (col < 8) {
-		if (state !== 1) return;
 		handleRow0Channel(col);
 	} else if (col <= 11) {
-		if (state !== 1) return;
-		handlePatternRecorder(col - 8);
+		// Pattern recorders (cols 8–11): only active in normal mode.
+		if (s.kmod === 1) handlePatternRecorder(col - 8);
+		// In kmod 2, col 8 row 0 = randomize all (handled below).
+		if (s.kmod === 2 && col === 8) {
+			messnamed("[ch]randomfun", 1);
+			kfping(8, 0, 6);
+		}
 	} else if (col === 14) {
-		// Groups page — toggle between 3 and 4
-		if (state === 1) setKmod(s.kmod !== 3 ? 3 : 4);
+		setKmod(s.kmod !== 3 ? 3 : 4); // groups page toggle
 	} else if (col === 15) {
-		// Mod page — toggle between 1 and 2
-		if (state === 1) setKmod(s.kmod !== 1 ? 1 : 2);
+		setKmod(s.kmod !== 1 ? 1 : 2); // mod page toggle
 	}
 }
 
@@ -333,9 +344,9 @@ function handlePatternRecorder(idx) {
 	if (s.kmod !== 1) return;
 	idx = idx | 0;
 	if (s.sequencers[idx].on === 1) {
+		s.sequencers[idx].on = 0;
 		messnamed(idx + "pp", s.sequencers[idx].on);
 		led(idx + 8, 0, 0);
-		s.sequencers[idx].on = 0;
 		outlet(2, "pattern", idx, 0, "off");
 	} else {
 		s.sequencers[idx].on = 1;
@@ -348,7 +359,7 @@ function handlePatternRecorder(idx) {
 // ─── Normal Mode (kmod 1) ──────────────────────────────────────────────
 
 function handleNormalMode(col, row, state) {
-	outlet(0, col, row, state);
+	messnamed((row + 1) + "input", col, state);
 }
 
 // ─── Mod Page (kmod 2) ─────────────────────────────────────────────────
@@ -395,13 +406,13 @@ function handleModPage(col, row, state) {
 function handleModRandomize(row) {
 	if (s.kmod !== 2) return;
 	if (row === 0) {
-		messnamed("[mlr]randomfun", 1);
+		messnamed("[ch]randomfun", 1);
 		kfping(8, 0, 6);
 		return;
 	}
 	var trackId = row + 1;
 	messnamed(trackId + "[box]rnd", 1);
-	led(8, row, 15);
+	//led(8, row, 15);
 	kfping(8, row, 6);
 }
 
@@ -635,7 +646,7 @@ function drawReverseColumn() {
  * ch is 1-indexed. Send "volumeUpdate <ch 1-8> <val 0-158>" to inlet 0.
  */
 function volumeUpdate() {
-	var ch  = parseInt(arguments[0], 10);
+	var ch = parseInt(arguments[0], 10);
 	var val = parseInt(arguments[1], 10);
 	if (ch >= 1 && ch <= 8) {
 		s.channels[ch - 1].volume = clamp(val, 0, 158);
@@ -648,7 +659,7 @@ function volumeUpdate() {
  * val: 1 = muted, 0 = unmuted.
  */
 function muteUpdate() {
-	var ch  = parseInt(arguments[0], 10);
+	var ch = parseInt(arguments[0], 10);
 	var val = parseInt(arguments[1], 10);
 	if (ch >= 1 && ch <= 8) {
 		s.channels[ch - 1].muted = val ? 1 : 0;
@@ -660,8 +671,9 @@ function handleOldPatternOut() {
 	var col = parseInt(arguments[1], 10);
 	var row = parseInt(arguments[2], 10) - 1;
 	if (s.kmod !== 1) return;
+	// Flash the played cell. Channel on/off row-0 LEDs are managed separately
+	// by handleChannelOnArray — don't redraw the whole row on every pattern step.
 	kfping(col, row, 10);
-	drawChannelsPlaying();
 }
 
 function drawChannelsPlaying() {
@@ -669,8 +681,9 @@ function drawChannelsPlaying() {
 	for (var i = 0; i < 8; i++) {
 		led(i, 0, s.channels[i].on ? 15 : 0);
 	}
+	// Sequencer buttons use brightness 10 — matches handlePatternRecorder and drawSequencers.
 	for (var j = 0; j < 4; j++) {
-		led(j + 8, 0, s.sequencers[j].on ? 15 : 0);
+		led(j + 8, 0, s.sequencers[j].on ? 10 : 0);
 	}
 }
 
@@ -690,36 +703,36 @@ function handleSeqOnArray() {
 // ─── Normal-mode LED bridge (replaces [p switcher]) ────────────────────
 
 /**
- * boxled col row level — single LED from [s box/led].
- * Suppressed on overlay pages (kmod 2/3/4).
+ * boxled col row level — playback position LED from [s box/led].
+ * Writes to the background plane so positions show as minimum brightness,
+ * visible beneath foreground overlays and animations.
  */
 function boxled() {
-	if (s.kmod !== 1) return;
-	var col   = clamp(parseInt(arguments[0], 10), 0, s.gridWidth - 1);
-	var row   = clamp(parseInt(arguments[1], 10), 0, s.gridHeight - 1);
+	var col = clamp(parseInt(arguments[0], 10), 0, s.gridWidth - 1);
+	var row = clamp(parseInt(arguments[1], 10), 0, s.gridHeight - 1);
 	var level = clamp(parseInt(arguments[2], 10), 0, 15);
-	led(col, row, level);
+	led_bg(col, row, level);
 }
 
 /**
- * boxledrow row col0_level col1_level ... — full row LED update from [s box/led_row].
+ * boxledrow row col0_level col1_level ... — full row background update
+ * from [s box/led_row]. Writes to background plane.
  */
 function boxledrow() {
-	if (s.kmod !== 1) return;
 	var row = clamp(parseInt(arguments[0], 10), 0, s.gridHeight - 1);
 	for (var x = 1; x < arguments.length && (x - 1) < s.gridWidth; x++) {
-		led(x - 1, row, clamp(parseInt(arguments[x], 10), 0, 15));
+		led_bg(x - 1, row, clamp(parseInt(arguments[x], 10), 0, 15));
 	}
 }
 
 /**
- * boxledcol col row0_level row1_level ... — full column LED update from [s box/led_col].
+ * boxledcol col row0_level row1_level ... — full column background update
+ * from [s box/led_col]. Writes to background plane.
  */
 function boxledcol() {
-	if (s.kmod !== 1) return;
 	var col = clamp(parseInt(arguments[0], 10), 0, s.gridWidth - 1);
 	for (var y = 1; y < arguments.length && (y - 1) < s.gridHeight; y++) {
-		led(col, y - 1, clamp(parseInt(arguments[y], 10), 0, 15));
+		led_bg(col, y - 1, clamp(parseInt(arguments[y], 10), 0, 15));
 	}
 }
 
@@ -883,7 +896,7 @@ function anything() {
 			if (e === 64 || e === 128 || e === 256) {
 				s.edition = e;
 				var dims = { 64: [8, 8], 128: [16, 8], 256: [16, 16] };
-				s.gridWidth  = dims[e][0];
+				s.gridWidth = dims[e][0];
 				s.gridHeight = dims[e][1];
 				post("[grid_router] edition=" + s.edition + " grid=" + s.gridWidth + "x" + s.gridHeight + "\n");
 			}

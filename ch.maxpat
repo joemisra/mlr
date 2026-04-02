@@ -9,7 +9,7 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 403.0, 311.0, 843.0, 455.0 ],
+        "rect": [ 403.0, 311.0, 475.0, 455.0 ],
         "boxes": [
             {
                 "box": {
@@ -19,7 +19,7 @@
                     "numoutlets": 1,
                     "outlettype": [ "bang" ],
                     "parameter_enable": 0,
-                    "patching_rect": [ 29.5, 30.75, 22.5, 22.5 ]
+                    "patching_rect": [ 29.5, 25.0, 22.5, 22.5 ]
                 }
             },
             {
@@ -93,7 +93,7 @@
                     "maxclass": "comment",
                     "numinlets": 1,
                     "numoutlets": 0,
-                    "patching_rect": [ 131.0, 7.0, 24.0, 20.0 ],
+                    "patching_rect": [ 152.0, 7.0, 24.0, 20.0 ],
                     "text": "all"
                 }
             },
@@ -152,8 +152,8 @@
                     "numinlets": 0,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 29.5, 6.0, 99.0, 22.0 ],
-                    "text": "r [mlr]randomfun"
+                    "patching_rect": [ 29.5, -3.0, 93.0, 22.0 ],
+                    "text": "r [ch]randomfun"
                 }
             },
             {
@@ -166,7 +166,7 @@
                     "numinlets": 0,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 134.0, 30.0, 63.0, 19.0 ],
+                    "patching_rect": [ 90.0, 32.5, 63.0, 19.0 ],
                     "text": "r [file]number"
                 }
             },
@@ -179,7 +179,7 @@
                     "numinlets": 2,
                     "numoutlets": 1,
                     "outlettype": [ "int" ],
-                    "patching_rect": [ 96.0, 76.0, 32.5, 22.0 ],
+                    "patching_rect": [ 29.5, 88.0, 32.5, 22.0 ],
                     "text": "+ 8"
                 }
             },
@@ -192,7 +192,7 @@
                     "numinlets": 2,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 29.5, 54.5, 51.0, 22.0 ],
+                    "patching_rect": [ 29.5, 55.0, 51.0, 22.0 ],
                     "text": "random"
                 }
             },
@@ -1311,7 +1311,7 @@
                     "numinlets": 0,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 36.0, 88.0, 56.0, 19.0 ],
+                    "patching_rect": [ 27.0, 116.0, 56.0, 19.0 ],
                     "text": "r [file]list"
                 }
             },
@@ -1326,7 +1326,7 @@
                     "fontname": "Arial",
                     "fontsize": 9.0,
                     "id": "obj-24",
-                    "items": [ "input_1", ",", "input_2", ",", "input_3", ",", "input_4", ",", "input_5", ",", "input_6", ",", "input_7", ",", "input_8" ],
+                    "items": [ "input_1", ",", "input_2", ",", "input_3", ",", "input_4", ",", "input_5", ",", "input_6", ",", "input_7", ",", "input_8", ",", "edithandpros.wav", ",", "fartsandfistulasinmyfoot.wav", ",", "funkehdrammah.wav", ",", "manmadekoolaid.wav" ],
                     "maxclass": "umenu",
                     "numinlets": 1,
                     "numoutlets": 3,

@@ -8,6 +8,11 @@ outlets = 2;
  * and for 256 also (0,8), (8,8).
  * Requires Max JS v8 + Jitter (copymatrixtoarray / copyarraytomatrix).
  *
+ * Two-plane compositing: the jit.matrix holds the foreground (interactive LEDs,
+ * overlays, animations). A separate background array sets the minimum brightness
+ * per cell (e.g. playback position indicators). Each cell renders as
+ * max(foreground, background). Background persists across foreground clears.
+ *
  * dual128 1: two stacked 128 grids as one 256 — outlet 0 = top rows (0–7),
  * outlet 1 = bottom rows (logical 8–15 mapped to physical 0–7). Use edition 256.
  */
@@ -16,6 +21,7 @@ var matrixName = "grid_matrix_io_state";
 var prefix = "/box";
 var edition = 256;
 var dual128Mode = 0;
+var bg = new Uint8Array(16 * 16);
 
 if (jsarguments.length > 1) {
 	matrixName = jsarguments[1];
@@ -50,6 +56,7 @@ function set_edition(n) {
 	jm.type = "char";
 	jm.dim = wh;
 	jm.clear();
+	bg = new Uint8Array(wh[0] * wh[1]);
 	post("[grid_matrix_bridge] edition=" + edition + " dim=" + wh + "\n");
 }
 
@@ -79,6 +86,24 @@ function setcell(x, y, v) {
 	jm.setcell2d(x, y, v);
 }
 
+function setcell_bg(x, y, v) {
+	x = x | 0;
+	y = y | 0;
+	v = clamp(Math.floor(v), 0, 15);
+	var wh = dims_for_edition(edition);
+	if (x < 0 || y < 0 || x >= wh[0] || y >= wh[1]) return;
+	bg[y * wh[0] + x] = v;
+}
+
+function clear_bg() {
+	for (var i = 0; i < bg.length; i++) bg[i] = 0;
+}
+
+function fill_bg(v) {
+	v = clamp(Math.floor(v), 0, 15);
+	for (var i = 0; i < bg.length; i++) bg[i] = v;
+}
+
 function fade_step() {
 	var jm = bind_matrix();
 	var wh = jm.dim;
@@ -99,14 +124,19 @@ function send_level_maps() {
 	var jm = bind_matrix();
 	var wh = jm.dim;
 	var w = wh[0];
-	var u8 = new Uint8Array(w * wh[1]);
-	jm.copymatrixtoarray(u8);
+	var n = w * wh[1];
+	var fg = new Uint8Array(n);
+	jm.copymatrixtoarray(fg);
+	var composite = new Uint8Array(n);
+	for (var j = 0; j < n; j++) {
+		composite[j] = fg[j] > bg[j] ? fg[j] : bg[j];
+	}
 	var path = prefix + "/grid/led/level/map";
 	var regions = regions_for_edition(edition);
 	for (var i = 0; i < regions.length; i++) {
 		var ox = regions[i][0];
 		var oy = regions[i][1];
-		out_block(path, ox, oy, block8_from_u8(u8, w, ox, oy));
+		out_block(path, ox, oy, block8_from_u8(composite, w, ox, oy));
 	}
 }
 
@@ -138,8 +168,6 @@ function clamp(n, lo, hi) {
 	return Math.min(hi, Math.max(lo, n));
 }
 
-// Only messages without dedicated handlers reach anything():
-// "edition", "prefix", and "dual128".
 function anything() {
 	var a = arrayfromargs(arguments);
 	switch (messagename) {
@@ -152,6 +180,15 @@ function anything() {
 		case "dual128":
 			dual128Mode = a[0] ? 1 : 0;
 			post("[grid_matrix_bridge] dual128Mode=" + dual128Mode + "\n");
+			break;
+		case "setcell_bg":
+			if (a.length >= 3) setcell_bg(parseInt(a[0], 10), parseInt(a[1], 10), parseInt(a[2], 10));
+			break;
+		case "clear_bg":
+			clear_bg();
+			break;
+		case "fill_bg":
+			if (a.length >= 1) fill_bg(parseInt(a[0], 10));
 			break;
 	}
 }

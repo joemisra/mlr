@@ -351,6 +351,50 @@
                     "patching_rect": [ 600.0, 44.0, 282.0, 33.0 ],
                     "text": "Tell each grid where to send keys (required without monome-device)."
                 }
+            },
+            {
+                "box": {
+                    "id": "obj-setup-del0",
+                    "maxclass": "newobj",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "bang" ],
+                    "patching_rect": [ 480.0, 231.0, 61.0, 22.0 ],
+                    "text": "delay 50"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-setup-trig0",
+                    "maxclass": "newobj",
+                    "numinlets": 1,
+                    "numoutlets": 3,
+                    "outlettype": [ "bang", "bang", "bang" ],
+                    "patching_rect": [ 480.0, 260.0, 48.0, 22.0 ],
+                    "text": "t b b b"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-setup-del1",
+                    "maxclass": "newobj",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "bang" ],
+                    "patching_rect": [ 480.0, 340.0, 61.0, 22.0 ],
+                    "text": "delay 50"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-setup-trig1",
+                    "maxclass": "newobj",
+                    "numinlets": 1,
+                    "numoutlets": 3,
+                    "outlettype": [ "bang", "bang", "bang" ],
+                    "patching_rect": [ 480.0, 370.0, 48.0, 22.0 ],
+                    "text": "t b b b"
+                }
             }
         ],
         "lines": [
@@ -371,6 +415,13 @@
                 "patchline": {
                     "destination": [ "obj-9", 0 ],
                     "order": 0,
+                    "source": [ "obj-11", 1 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-setup-del1", 0 ],
+                    "order": 2,
                     "source": [ "obj-11", 1 ]
                 }
             },
@@ -431,6 +482,14 @@
             {
                 "patchline": {
                     "destination": [ "obj-7", 0 ],
+                    "order": 0,
+                    "source": [ "obj-8", 1 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-setup-del0", 0 ],
+                    "order": 1,
                     "source": [ "obj-8", 1 ]
                 }
             },
@@ -570,6 +629,54 @@
                 "patchline": {
                     "destination": [ "obj-js", 2 ],
                     "source": [ "obj-udprx1", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-setup-trig0", 0 ],
+                    "source": [ "obj-setup-del0", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m0", 0 ],
+                    "source": [ "obj-setup-trig0", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m1", 0 ],
+                    "source": [ "obj-setup-trig0", 1 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m2", 0 ],
+                    "source": [ "obj-setup-trig0", 2 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-setup-trig1", 0 ],
+                    "source": [ "obj-setup-del1", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m3", 0 ],
+                    "source": [ "obj-setup-trig1", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m4", 0 ],
+                    "source": [ "obj-setup-trig1", 1 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m5", 0 ],
+                    "source": [ "obj-setup-trig1", 2 ]
                 }
             }
         ]

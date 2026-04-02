@@ -1,0 +1,43 @@
+---
+description: How to read and understand .maxpat files in this project
+globs: **/*.maxpat
+alwaysApply: false
+---
+
+# Working with .maxpat Files
+
+`.maxpat` files are verbose JSON (up to 68K lines) — do NOT read them directly. Use the analyzer tool instead.
+
+## Before touching any .maxpat file
+
+Run the analyzer to get a compact summary:
+
+```bash
+# Quick overview (root level only, no comments)
+python scripts/analyze_maxpat.py <file>.maxpat --depth 0 --no-comments
+
+# Full logical structure
+python scripts/analyze_maxpat.py <file>.maxpat --no-comments
+
+# Just messaging topology (fastest for understanding signal flow)
+python scripts/analyze_maxpat.py <file>.maxpat --sends-only
+
+# Save to file for reference
+python scripts/analyze_maxpat.py <file>.maxpat --no-comments -o /tmp/<file>_summary.txt
+```
+
+## Output format
+
+- `obj-N  <text>  [inlets in, outlets out]` — one line per object
+- `obj-A:outlet -> obj-B:inlet` — patch cord connections
+- Subpatchers shown as indented sections
+- Send/Receive map at the bottom with send-only / receive-only cross-reference
+- External References: bpatchers and js/v8 scripts
+
+## Key facts about this patch
+
+- Inter-patch messaging uses `send`/`receive` with namespaced names (e.g. `#1[pl]stop`, `tr_pulse`, `kmod`)
+- `#1` is a Max argument placeholder — becomes the channel number (1–8) at instantiation
+- `bpatcher` boxes embed another `.maxpat` by filename; they do NOT inline their contents
+- Subpatchers (`p <name>`) inline their full graph inside the parent box JSON
+- `s` / `r` are shorthand for `send` / `receive`; `s~` / `r~` are audio-rate variants
