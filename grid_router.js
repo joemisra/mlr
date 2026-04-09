@@ -12,7 +12,12 @@ outlets = 4;
  *            - boxledrow row lev0 lev1 ...   (full row LED update)
  *            - volumeUpdate ch val           (sync from output.maxpat)
  *            - muteUpdate ch val             (sync from output.maxpat)
+ *            - outputMeter ch level          (VU level from output.maxpat)
  *            - handleOldPatternOut ch col row (pattern replay LED)
+ *            - chUpdateCollEvent ch fi oct len spd rev spd2 grp rndOff
+ *                                             (track param sync from ch.maxpat [pak])
+ *            - chRowPos row pos              (playback pos from ch.maxpat)
+ *            - chGroup ch grp                (group assignment from ch.maxpat)
  *            - edition 64|128|256            (grid size)
  *            - clear_automation              (reset automation state)
  * Inlet 1: kmod value — int from [r kmod]
@@ -31,10 +36,12 @@ outlets = 4;
  *   This replaces the old [p switcher] path (r mlrpageled → constrain → setcell).
  *
  * Mod page (kmod 2), cols 0–7: row 0 mutes, rows 1–2 vol up/down (brightness = level),
- * rows 4–15 = insert-FX placeholders (no audio wiring yet).
+ * row 3 timestretch, rows 4+ insert-FX placeholders (no audio wiring yet),
+ * bottom 3 rows = VU meters from output.maxpat (outputMeter).
  * Col 8: row 0 randomize all channels ([ch]randomfun); rows 1+ per-track (#[box]rnd).
  * Col 9: automation (play r1, loop r2, length r3–6, arm r7); recording anim col 8 r2–15;
  * playback progress col 9 r8–14.
+ * Cols 10–15 rows 1+: quantize, session, random offset, half/double time, reverse.
  *
  * All sends use messnamed() to existing [r ...] buses so downstream patches
  * (pl, output, pattern, etc.) keep working without rewiring.
@@ -72,6 +79,7 @@ class mlrChannel {
 		this.doubleTime = 0;
 		this.halfTime = 0;
 		this.on = 0;
+		this.lastCell = [0, 0]; // to clear on rowpos change
 	}
 }
 
@@ -88,21 +96,24 @@ class mlrTrack {
 }
 
 var s = new Global("mlr");
-
+s.dual128Mode = 0;
 if (!s.initialized) {
-	s.dual128Mode = 0;
 	s.gridports = [0, 0];
 	s.prefix = "/box";
 	s.kmod = 1;
 	s.edition = 256;
 	s.gridWidth = 16;
 	s.gridHeight = 16;
+
+	s.NUM_SEQUENCERS = 8;
 	s.NUM_CHANNELS = 8;
-	s.NUM_TRACKS = 15;
+	s.NUM_TRACKS = 16;
 	s.MAX_SAMPLES = 128;
+
 	s.sequencers = Array.from({ length: 8 }, (_, i) => new Sequencer(i));
 	s.channels = Array.from({ length: 8 }, (_, i) => new mlrChannel(i));
-	s.tracks = Array.from({ length: 15 }, (_, i) => new mlrTrack(i));
+	s.tracks = Array.from({ length: 16 }, (_, i) => new mlrTrack(i));
+
 	s.automation = {
 		armed: false,
 		recording: false,
@@ -161,12 +172,13 @@ function clear_bg() {
 	outlet(1, "clear_bg");
 }
 
-function kfping(x, y, level) {
-	outlet(3, "kf", x, y, level, 1, 0, 20);
+function kfping(x, y, level, time = 20) {
+	outlet(3, "kf", x, y, level, 1, 0, time);
 }
 
 function clear() {
-	messnamed("togridmatrixio", "clear");
+	post("[grid_router] clear() called — kmod=" + s.kmod + "\n");
+	outlet(1, "clear");
 	messnamed("togridmatrixanim", "clear_anim");
 }
 
@@ -246,7 +258,9 @@ function key() {
 
 const sequpdate = function (idx, on) {
 	messnamed(idx + "pp", on);
-	led(idx + 8, 0, on ? 10 : 0);
+	s.sequencers[idx].on = on ? 1 : 0;
+	if (!on) s.sequencers[idx].phase = 0;
+	if (s.kmod === 1) drawSequencerLeds();
 };
 s.sequpdate = sequpdate;
 
@@ -259,10 +273,21 @@ function setKmod(val) {
 }
 
 function onKmodChange(prev, next) {
-	post("[grid_router] kmod " + prev + " -> " + next + "\n");
+	post("[grid_router] kmod " + prev + " -> " + next + " (tick=" + s.automation.tick + ")\n");
 
-	messnamed("togridmatrixio", "clear");
+	// 1. Broadcast kmod FIRST (synchronous via messnamed) so all downstream
+	//    patches settle their gates/switches before we draw.
 	messnamed("kmod", s.kmod);
+
+	// 2. Clear animations (synchronous — empties anim queue immediately so
+	//    no pending tick() can overwrite our draws).
+	messnamed("togridmatrixanim", "clear_anim");
+
+	// 3. Clear + draw via outlet (all deferred, executes as one atomic batch:
+	//    clear, then setcell draws, in order). This prevents the race where
+	//    messnamed-triggered side effects arrive after our deferred draws.
+	outlet(1, "clear");
+	outlet(1, "clear_bg");
 
 	// Kmod page indicators: [col, brightness]
 	var kmodIndicators = [
@@ -345,14 +370,81 @@ function handlePatternRecorder(idx) {
 	idx = idx | 0;
 	if (s.sequencers[idx].on === 1) {
 		s.sequencers[idx].on = 0;
-		messnamed(idx + "pp", s.sequencers[idx].on);
+		s.sequencers[idx].phase = 0;
+		messnamed(idx + "pp", 0);
 		led(idx + 8, 0, 0);
 		outlet(2, "pattern", idx, 0, "off");
 	} else {
 		s.sequencers[idx].on = 1;
+		s.sequencers[idx].phase = 0;
 		messnamed(idx + "pp", 1);
-		led(idx + 8, 0, 10);
+		led(idx + 8, 0, 15);
 		outlet(2, "pattern", idx, 1, "on");
+	}
+}
+
+/**
+ * chUpdateCollEvent — fired by ch.maxpat's [pak] whenever any track parameter
+ * changes. Syncs s.tracks state and tells the corresponding [pl] to re-read
+ * its coll so groove~ reacts immediately.
+ *
+ * Args: ch (track# from ch.maxpat, 2-indexed), fileindex, octave, length,
+ *       speed, reverse, speed2, group, randomOffset
+ */
+function chUpdateCollEvent(ch, fileindex, oct, length, speed, reverse, speed2, group, randomOffset) {
+	var trackIdx = ch - 2;
+	if (trackIdx < 0 || trackIdx >= s.NUM_TRACKS || !s.tracks[trackIdx]) return;
+
+	s.tracks[trackIdx].buffer = fileindex;
+	s.tracks[trackIdx].octave = oct;
+	s.tracks[trackIdx].reverse = reverse;
+	s.tracks[trackIdx].channel = group;
+	s.tracks[trackIdx].randomOffset = randomOffset;
+
+	messnamed(group + "[ch]update", 1);
+
+	if (s.kmod === 2) drawModPage();
+	if (s.kmod === 3) drawGroupsPage();
+}
+
+function chGroup(ch, grp) {
+	if (!s.tracks[ch - 2]) {
+		post("bad track, ch: " + ch + " grp: " + grp + "\n");
+		return;
+	}
+	s.tracks[ch - 2].channel = grp; // old ch send names start at 2
+	if (s.kmod === 3) { // we would be in this function potentially from a change from the patch ui so check
+		ledRow(ch - 1, 0);
+		drawGroupsPage();
+	}
+}
+
+
+
+function chRowPos(row, pos) {
+	if (s.kmod === 1) {
+		//post("rowPos " + row + " " + pos);
+		var tracknum = row - 1;
+		for (var i = 1; i < 15; i++) {
+			if (!s.tracks[i]) {
+				post("had no track, i: " + i + " row: " + row + "\n");
+				continue;
+			}
+			else if (!s.tracks[tracknum]) {
+				post("no track, tracknum: " + tracknum + "\n");
+				continue;
+			}
+			else if (s.tracks[i].channel === s.tracks[tracknum].channel && i !== tracknum) {
+				ledRow(i, 0);
+			}
+		}
+
+
+		kfping(pos, row - 1, 15, 8);
+	}
+	else if (s.kmod === 2) {
+		//var tracknum = row - 1;
+		//led(8, row - 1, s.tracks[tracknum].phase > 0 ? 15 : 0);
 	}
 }
 
@@ -493,12 +585,12 @@ function handleReverse(row) {
 // ─── Groups Page (kmod 3) ──────────────────────────────────────────────
 
 function handleGroupsPage(col, row, state) {
-	if (state !== 1 || col > 7 || row < 1) return;
+	if (s.kmod !== 3) return;
 	var track = row - 1;
-	var channelId = col + 1;
-	messnamed((row + 1) + "chn", channelId);
-	s.tracks[track].channel = channelId;
-	drawGroupsPage();
+	var channelId = col - 7;
+	messnamed((row + 1) + "chn[box]", channelId);
+	//s.tracks[track].channel = channelId;
+	//drawGroupsPage();
 }
 
 // ─── Step Sequencer Page (kmod 4, reserved) ─────────────────────────────
@@ -531,14 +623,6 @@ function drawTimestretchRow() {
 
 function drawMainPage() {
 	drawChannelsPlaying();
-	drawSequencers();
-}
-
-function drawSequencers() {
-	if (s.kmod !== 1) return;
-	for (var x = 0; x < 4; x++) {
-		led(x + 8, 0, s.sequencers[x].on ? 10 : 0);
-	}
 }
 
 function drawMuteRow() {
@@ -564,8 +648,9 @@ function updateVolumeDisplay(col) {
 }
 
 function drawInsertFxBlock() {
+	var vuTop = s.gridHeight - 3; // leave bottom 3 rows for VU meters
 	for (var x = 0; x < 8; x++) {
-		for (var y = 4; y < s.gridHeight; y++) {
+		for (var y = 4; y < vuTop; y++) {
 			led(x, y, insert_fx[insertFxIndex(x, y)] ? 12 : 0);
 		}
 	}
@@ -577,10 +662,24 @@ function drawRandomizeColumn() {
 		led(8, y, 2);
 	}
 }
+/**
+ * outputMeter ch level — VU meter from output.maxpat.
+ * Draws 3 rows at the bottom of the left 8 cols (cols 0–7) on the mod page.
+ * ch is 1-indexed. level is 0–15 from snapshot~ * 16.
+ * Bottom row = hottest, top row = coolest (offset brightness accordingly).
+ */
+function outputMeter(ch, level) {
+	if (s.kmod !== 2) return;
+	var col = ch - 1;
+	var bot = s.gridHeight - 1; // bottom row
+	led(col, bot, clamp(level + 7, 0, 15));
+	led(col, bot - 1, clamp(level + 5, 0, 15));
+	led(col, bot - 2, clamp(level + 2, 0, 15));
+}
 
 function drawGroupsPage() {
 	for (var y = 1; y < s.gridHeight; y++) {
-		led(8 + s.tracks[y - 1].channel, y, 15);
+		led(8 + s.tracks[y - 1].channel - 1, y, 15);
 	}
 }
 
@@ -668,12 +767,13 @@ function muteUpdate() {
 }
 
 function handleOldPatternOut() {
-	var col = parseInt(arguments[1], 10);
-	var row = parseInt(arguments[2], 10) - 1;
 	if (s.kmod !== 1) return;
 	// Flash the played cell. Channel on/off row-0 LEDs are managed separately
 	// by handleChannelOnArray — don't redraw the whole row on every pattern step.
-	kfping(col, row, 10);
+	var col = parseInt(arguments[1], 10);
+	var row = parseInt(arguments[2], 10) - 1;
+	kfping(col, row, 15);
+
 }
 
 function drawChannelsPlaying() {
@@ -681,9 +781,18 @@ function drawChannelsPlaying() {
 	for (var i = 0; i < 8; i++) {
 		led(i, 0, s.channels[i].on ? 15 : 0);
 	}
-	// Sequencer buttons use brightness 10 — matches handlePatternRecorder and drawSequencers.
+	drawSequencerLeds();
+}
+
+/** Draw sequencer row-0 LEDs at cols 8–11, respecting beat phase for pulsing. */
+function drawSequencerLeds() {
 	for (var j = 0; j < 4; j++) {
-		led(j + 8, 0, s.sequencers[j].on ? 10 : 0);
+		if (!s.sequencers[j]) continue;
+		if (s.sequencers[j].on) {
+			led(j + 8, 0, s.sequencers[j].phase === 0 ? 15 : 5);
+		} else {
+			led(j + 8, 0, 0);
+		}
 	}
 }
 
@@ -706,8 +815,11 @@ function handleSeqOnArray() {
  * boxled col row level — playback position LED from [s box/led].
  * Writes to the background plane so positions show as minimum brightness,
  * visible beneath foreground overlays and animations.
+ * Only active in kmod 1 — on overlay pages the old [p chnls] LED path
+ * would overwrite the page with stale/zero data.
  */
 function boxled() {
+	if (s.kmod !== 1) return;
 	var col = clamp(parseInt(arguments[0], 10), 0, s.gridWidth - 1);
 	var row = clamp(parseInt(arguments[1], 10), 0, s.gridHeight - 1);
 	var level = clamp(parseInt(arguments[2], 10), 0, 15);
@@ -716,9 +828,10 @@ function boxled() {
 
 /**
  * boxledrow row col0_level col1_level ... — full row background update
- * from [s box/led_row]. Writes to background plane.
+ * from [s box/led_row]. Writes to background plane. Gated to kmod 1.
  */
 function boxledrow() {
+	if (s.kmod !== 1) return;
 	var row = clamp(parseInt(arguments[0], 10), 0, s.gridHeight - 1);
 	for (var x = 1; x < arguments.length && (x - 1) < s.gridWidth; x++) {
 		led_bg(x - 1, row, clamp(parseInt(arguments[x], 10), 0, 15));
@@ -727,9 +840,10 @@ function boxledrow() {
 
 /**
  * boxledcol col row0_level row1_level ... — full column background update
- * from [s box/led_col]. Writes to background plane.
+ * from [s box/led_col]. Writes to background plane. Gated to kmod 1.
  */
 function boxledcol() {
+	if (s.kmod !== 1) return;
 	var col = clamp(parseInt(arguments[0], 10), 0, s.gridWidth - 1);
 	for (var y = 1; y < arguments.length && (y - 1) < s.gridHeight; y++) {
 		led_bg(col, y - 1, clamp(parseInt(arguments[y], 10), 0, 15));
@@ -825,6 +939,17 @@ function clearAnimRange(x, y0, y1) {
 function clockTick() {
 	if (!s.initialized) return;
 	s.automation.tick++;
+
+	// Pulse active sequencer LEDs on beat (kmod 1 only)
+	if (s.kmod === 1) {
+		for (var si = 0; si < 4; si++) {
+			if (s.sequencers[si] && s.sequencers[si].on) {
+				s.sequencers[si].phase = (s.sequencers[si].phase + 1) % 4;
+				led(si + 8, 0, s.sequencers[si].phase === 0 ? 15 : 5);
+			}
+		}
+	}
+
 	if (!s.automation.playing || s.automation.events.length === 0) return;
 
 	var tickInLoop = s.automation.playHead % s.automation.length;
@@ -868,6 +993,28 @@ function animateLeds() {
 	}
 }
 
+// ─── Debug ──────────────────────────────────────────────────────────────
+
+/** Send "dump" to gridrouter to dump matrix state + JS state to console. */
+function dump() {
+	post("[grid_router] kmod=" + s.kmod + " edition=" + s.edition +
+		" grid=" + s.gridWidth + "x" + s.gridHeight + "\n");
+	post("[grid_router] seq on: " + s.sequencers.map(function(sq) { return sq.on; }).join(",") + "\n");
+	post("[grid_router] ch on: " + s.channels.map(function(ch) { return ch.on; }).join(",") + "\n");
+	// Forward dump to the bridge so it prints fg/bg
+	messnamed("togridmatrixio", "dump");
+}
+
+/** Send "redraw" to gridrouter to force-redraw the current page. */
+function redraw() {
+	post("[grid_router] redraw kmod=" + s.kmod + "\n");
+	switch (s.kmod) {
+		case 1: drawMainPage(); break;
+		case 2: drawModPage(); break;
+		case 3: drawGroupsPage(); break;
+	}
+}
+
 // ─── Message Router ────────────────────────────────────────────────────
 
 function clear_automation() {
@@ -898,6 +1045,9 @@ function anything() {
 				var dims = { 64: [8, 8], 128: [16, 8], 256: [16, 16] };
 				s.gridWidth = dims[e][0];
 				s.gridHeight = dims[e][1];
+				// Forward to bridge + anim engine so all layers agree on dimensions
+				outlet(1, "edition", e);
+				messnamed("togridmatrixanim", "edition", e);
 				post("[grid_router] edition=" + s.edition + " grid=" + s.gridWidth + "x" + s.gridHeight + "\n");
 			}
 			break;

@@ -13,6 +13,17 @@
         "boxes": [
             {
                 "box": {
+                    "id": "obj-10",
+                    "maxclass": "button",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [ "bang" ],
+                    "parameter_enable": 0,
+                    "patching_rect": [ 457.0, 74.0, 24.0, 24.0 ]
+                }
+            },
+            {
+                "box": {
                     "id": "obj-18",
                     "maxclass": "button",
                     "numinlets": 1,
@@ -148,11 +159,11 @@
             {
                 "box": {
                     "id": "obj-title",
-                    "linecount": 11,
+                    "linecount": 15,
                     "maxclass": "comment",
                     "numinlets": 1,
                     "numoutlets": 0,
-                    "patching_rect": [ 12.0, 12.0, 313.0, 154.0 ],
+                    "patching_rect": [ 12.0, 12.0, 313.0, 208.0 ],
                     "text": "grid_composite_2x128\n\nDEFAULT: single monome 256 (dual128 0)\n  Arg #1 = device serialosc port. Arg #2 unused.\n  All LEDs pass straight to udpsend #1. Keys arrive on 58901.\n  No y-remapping needed — 256 is native 16 rows.\n\nALT: two 128s stacked (dual128 1)\n  Args #1 #2 = top/bottom device ports.\n  LEDs split by oy: rows 0-7 -> udpsend #1, rows 8-15 -> udpsend #2 (y-=8).\n  Keys: 58901 = top (y 0-7), 58902 = bottom (y +=8).\n\nClick 'dual128 0' for a 256, 'dual128 1' for two 128s."
                 }
             },
@@ -400,6 +411,12 @@
         "lines": [
             {
                 "patchline": {
+                    "destination": [ "obj-del", 0 ],
+                    "source": [ "obj-10", 0 ]
+                }
+            },
+            {
+                "patchline": {
                     "destination": [ "obj-16", 0 ],
                     "source": [ "obj-11", 0 ]
                 }
@@ -407,21 +424,21 @@
             {
                 "patchline": {
                     "destination": [ "obj-18", 0 ],
-                    "order": 1,
+                    "order": 2,
                     "source": [ "obj-11", 1 ]
                 }
             },
             {
                 "patchline": {
                     "destination": [ "obj-9", 0 ],
-                    "order": 0,
+                    "order": 1,
                     "source": [ "obj-11", 1 ]
                 }
             },
             {
                 "patchline": {
                     "destination": [ "obj-setup-del1", 0 ],
-                    "order": 2,
+                    "order": 0,
                     "source": [ "obj-11", 1 ]
                 }
             },
@@ -482,14 +499,14 @@
             {
                 "patchline": {
                     "destination": [ "obj-7", 0 ],
-                    "order": 0,
+                    "order": 1,
                     "source": [ "obj-8", 1 ]
                 }
             },
             {
                 "patchline": {
                     "destination": [ "obj-setup-del0", 0 ],
-                    "order": 1,
+                    "order": 0,
                     "source": [ "obj-8", 1 ]
                 }
             },
@@ -501,13 +518,15 @@
             },
             {
                 "patchline": {
-                    "destination": [ "obj-tinit", 0 ],
+                    "destination": [ "obj-3", 0 ],
+                    "order": 1,
                     "source": [ "obj-del", 0 ]
                 }
             },
             {
                 "patchline": {
-                    "destination": [ "obj-3", 0 ],
+                    "destination": [ "obj-tinit", 0 ],
+                    "order": 0,
                     "source": [ "obj-del", 0 ]
                 }
             },
@@ -585,6 +604,54 @@
             },
             {
                 "patchline": {
+                    "destination": [ "obj-setup-trig0", 0 ],
+                    "source": [ "obj-setup-del0", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-setup-trig1", 0 ],
+                    "source": [ "obj-setup-del1", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m0", 0 ],
+                    "source": [ "obj-setup-trig0", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m1", 0 ],
+                    "source": [ "obj-setup-trig0", 1 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m2", 0 ],
+                    "source": [ "obj-setup-trig0", 2 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m3", 0 ],
+                    "source": [ "obj-setup-trig1", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m4", 0 ],
+                    "source": [ "obj-setup-trig1", 1 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-m5", 0 ],
+                    "source": [ "obj-setup-trig1", 2 ]
+                }
+            },
+            {
+                "patchline": {
                     "destination": [ "obj-m0", 0 ],
                     "source": [ "obj-tinit", 0 ]
                 }
@@ -629,54 +696,6 @@
                 "patchline": {
                     "destination": [ "obj-js", 2 ],
                     "source": [ "obj-udprx1", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-setup-trig0", 0 ],
-                    "source": [ "obj-setup-del0", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-m0", 0 ],
-                    "source": [ "obj-setup-trig0", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-m1", 0 ],
-                    "source": [ "obj-setup-trig0", 1 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-m2", 0 ],
-                    "source": [ "obj-setup-trig0", 2 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-setup-trig1", 0 ],
-                    "source": [ "obj-setup-del1", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-m3", 0 ],
-                    "source": [ "obj-setup-trig1", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-m4", 0 ],
-                    "source": [ "obj-setup-trig1", 1 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-m5", 0 ],
-                    "source": [ "obj-setup-trig1", 2 ]
                 }
             }
         ]

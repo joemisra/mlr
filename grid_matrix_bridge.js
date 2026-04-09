@@ -69,6 +69,7 @@ function flush() {
 }
 
 function clear() {
+	post("[grid_matrix_bridge] clear() called\n");
 	bind_matrix().clear();
 	send_level_maps();
 }
@@ -96,6 +97,7 @@ function setcell_bg(x, y, v) {
 }
 
 function clear_bg() {
+	post("[grid_matrix_bridge] clear_bg() called\n");
 	for (var i = 0; i < bg.length; i++) bg[i] = 0;
 }
 
@@ -166,6 +168,27 @@ function out_block(path, ox, oy, bytes) {
 
 function clamp(n, lo, hi) {
 	return Math.min(hi, Math.max(lo, n));
+}
+
+/** Send "dump" to this object to print fg/bg/composite state to Max console. */
+function dump() {
+	var jm = bind_matrix();
+	var wh = jm.dim;
+	var w = wh[0]; var h = wh[1];
+	var fg = new Uint8Array(w * h);
+	jm.copymatrixtoarray(fg);
+	post("[grid_matrix_bridge] === DUMP fg/bg/composite === edition=" + edition + " dim=" + w + "x" + h + "\n");
+	for (var y = 0; y < h; y++) {
+		var fgRow = [], bgRow = [], cRow = [];
+		for (var x = 0; x < w; x++) {
+			var idx = y * w + x;
+			var f = fg[idx], b = bg[idx], c = f > b ? f : b;
+			fgRow.push(f.toString(16));
+			bgRow.push(b.toString(16));
+			cRow.push(c.toString(16));
+		}
+		post("  row " + y + "  fg:[" + fgRow.join(" ") + "]  bg:[" + bgRow.join(" ") + "]  out:[" + cRow.join(" ") + "]\n");
+	}
 }
 
 function anything() {
