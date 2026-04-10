@@ -18,6 +18,55 @@ Licensed under GPL v2 (see `license_mlr.txt`).
 
 For full operation details, see `mlr_info.txt` (opens from within the patch via the info button).
 
+## Developer Tooling
+
+### Compact `.maxpat` Analysis
+
+Use the local analyzer to strip UI/layout noise and summarize object topology:
+
+```bash
+python3 scripts/analyze_maxpat.py grid_router_io.maxpat --no-comments --depth 1
+python3 scripts/analyze_maxpat.py _mlr.maxpat --no-comments --sends-only
+```
+
+This is useful when reviewing large patches with an LLM because it preserves:
+
+- objects and connections
+- subpatcher hierarchy
+- send/receive topology
+- bpatcher and JS/V8 references
+
+### Codex MCP Server
+
+This repo includes a local stdio MCP server for Codex:
+
+```bash
+python3 scripts/maxpat_mcp_server.py
+```
+
+It exposes static patch-analysis tools:
+
+- `list_maxpat_files`
+- `analyze_maxpat`
+- `analyze_maxpat_batch`
+- `max_bridge_status`
+
+It also adapts the existing Max Socket.IO bridge on `127.0.0.1:5002` into live MCP tools for:
+
+- patch object/patch-cord inspection
+- selection inspection and expansion
+- object attribute reads
+- object creation, connection, and message/attribute edits
+
+Requirements:
+
+- `python-socketio` installed in the Python interpreter used to launch the server
+- Max running with `_mlr.maxpat` open and the `MaxMSP_Agent` bridge active
+
+Optional docs support:
+
+- if `/Users/jm/Projects/MaxMSP-MCP-Server/docs.json` is present, the server also exposes `list_all_objects` and `get_object_doc`
+
 ## File Reference
 
 ### Main Patch

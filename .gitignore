@@ -5,3 +5,7 @@ Icon?
 # Max/MSP generated
 *.mxf
 samples
+
+# Python
+__pycache__/
+*.pyc

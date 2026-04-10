@@ -7,6 +7,7 @@ var p = this.patcher
 var obj_count = 0;
 var boxes = [];
 var lines = [];
+var _selected_varnames = {};
 
 function safe_parse_json(str) {
     try {
@@ -26,6 +27,17 @@ function split_long_string(inString, maxLength) {
     return result;
 }
 
+function is_bridge_internal_varname(varname) {
+    return !!varname && varname.substring(0, 8) == "maxmcpid";
+}
+
+function ensure_varname(obj) {
+    if (!obj.varname){
+        obj.varname = "obj-" + obj_count;
+    }
+    return obj.varname;
+}
+
 // Called when a message arrives at inlet 0 (from [udpreceive] or similar)
 function anything() {
     var msg = arrayfromargs(messagename, arguments).join(" ");
@@ -42,7 +54,7 @@ function anything() {
             break;
         case "get_objects_in_patch":
             if (data.request_id) {
-                get_objects_in_patch(data.request_id);
+                get_objects_in_patch(data.request_id, data.limit);
             } else {
                 outlet(0, "error", "Missing request_id for get_objects_in_patch");
             }
@@ -52,6 +64,20 @@ function anything() {
                 get_objects_in_selected(data.request_id);
             } else {
                 outlet(0, "error", "Missing request_id for get_objects_in_selected");
+            }
+            break;
+        case "expand_selection":
+            if (data.request_id) {
+                expand_selection(data.request_id, data.hops || 1);
+            } else {
+                outlet(0, "error", "Missing request_id for expand_selection");
+            }
+            break;
+        case "select_objects":
+            if (data.request_id && data.varnames) {
+                select_objects(data.request_id, data.varnames, data.add_to_selection || false);
+            } else {
+                outlet(0, "error", "Missing request_id or varnames for select_objects");
             }
             break;
         case "get_object_attributes":
@@ -235,65 +261,270 @@ function set_number(varname, num) {
 // ========================================
 // fetch request:
 
-function get_objects_in_patch(request_id) {
-    
-	var p = this.patcher
-    obj_count = 0;
-    boxes = [];
-    lines = [];
+var _collect_limit = 0;
 
-    p.applydeep(collect_objects);
-    var patcher_dict = {};
-    patcher_dict["boxes"] = boxes;
-    patcher_dict["lines"] = lines;
+function emit_patcher_dict_response(request_id, patcher_dict) {
+    var results = {"request_id": request_id, "results": patcher_dict};
+    outlet(1, "response", split_long_string(JSON.stringify(results, null, 0), 2500));
+}
 
-    // use these if no v8:
-    // var results = {"request_id": request_id, "results": patcher_dict}
-    // outlet(1, "response", split_long_string(JSON.stringify(results, null, 2), 2000));
+function emit_error_response(request_id, message) {
+    var results = {
+        success: false,
+        error: message
+    };
+    outlet(1, "response", split_long_string(JSON.stringify({
+        request_id: request_id,
+        results: results
+    }, null, 0), 2500));
+}
 
-    // use this if has v8:
-    outlet(2, "add_boxtext", request_id, JSON.stringify(patcher_dict, null, 0));
+function get_selected_varnames(p) {
+    var actual = {};
+    p.applydeep(function (obj) {
+        var varname = ensure_varname(obj);
+        if (obj.selected && !is_bridge_internal_varname(varname)) {
+            actual[varname] = true;
+        }
+    });
+    var actual_names = Object.keys(actual);
+    if (actual_names.length) {
+        _selected_varnames = actual;
+        return actual_names;
+    }
+    return Object.keys(_selected_varnames);
+}
+
+function build_patcher_dict_for_varnames(p, varnames) {
+    var selected = {};
+    for (var i = 0; i < varnames.length; i++) {
+        if (varnames[i] && !is_bridge_internal_varname(varnames[i])) {
+            selected[varnames[i]] = true;
+        }
+    }
+
+    var selected_boxes = [];
+    var selected_lines = [];
+
+    p.applydeep(function (obj) {
+        var varname = ensure_varname(obj);
+        if (is_bridge_internal_varname(varname) || !selected[varname]) {
+            return;
+        }
+
+        var outputs = obj.patchcords.outputs;
+        if (outputs && outputs.length){
+            for (var i = 0; i < outputs.length; i++) {
+                var dst = outputs[i].dstobject;
+                if (!dst) {
+                    continue;
+                }
+                var dst_varname = ensure_varname(dst);
+                if (selected[dst_varname]) {
+                    selected_lines.push({patchline: {
+                        source: [varname, outputs[i].srcoutlet],
+                        destination: [dst_varname, outputs[i].dstinlet]
+                    }});
+                }
+            }
+        }
+
+        var boxtext = "";
+        try {
+            boxtext = obj.boxtext || "";
+        } catch (e) {
+            boxtext = "";
+        }
+
+        selected_boxes.push({box:{
+            maxclass: obj.maxclass,
+            varname: varname,
+            patching_rect: obj.rect,
+            text: boxtext,
+        }});
+    });
+
+    return {
+        boxes: selected_boxes,
+        lines: selected_lines
+    };
+}
+
+function get_objects_in_patch(request_id, limit) {
+    try {
+    	var p = this.patcher
+        obj_count = 0;
+        boxes = [];
+        lines = [];
+        _collect_limit = limit || 0;
+
+        p.applydeep(collect_objects);
+
+        if (limit && limit > 0) {
+            boxes = boxes.slice(0, limit);
+            var boxVarnames = {};
+            for (var i = 0; i < boxes.length; i++) {
+                boxVarnames[boxes[i].box.varname] = true;
+            }
+            lines = lines.filter(function(ln) {
+                var src = ln.patchline.source[0];
+                var dst = ln.patchline.destination[0];
+                return boxVarnames[src] && boxVarnames[dst];
+            });
+        }
+
+        var patcher_dict = {};
+        patcher_dict["boxes"] = boxes;
+        patcher_dict["lines"] = lines;
+
+        emit_patcher_dict_response(request_id, patcher_dict);
+    } catch (e) {
+        emit_error_response(request_id, "get_objects_in_patch failed: " + e.message);
+    }
 }
 
 function get_objects_in_selected(request_id) {
-    
-	var p = this.patcher
-    obj_count = 0;
-    boxes = [];
-    lines = [];
+    try {
+    	var p = this.patcher
+        obj_count = 0;
+        emit_patcher_dict_response(request_id, build_patcher_dict_for_varnames(p, get_selected_varnames(p)));
+    } catch (e) {
+        emit_error_response(request_id, "get_objects_in_selected failed: " + e.message);
+    }
+}
 
-    p.applydeepif(collect_objects, function (obj) {
-        return obj.selected;
+function get_connected_varnames(obj) {
+    var varnames = [];
+    var outputs = obj.patchcords.outputs;
+    if (outputs && outputs.length) {
+        for (var i = 0; i < outputs.length; i++) {
+            if (outputs[i].dstobject) {
+                varnames.push(ensure_varname(outputs[i].dstobject));
+            }
+        }
+    }
+    var inputs = obj.patchcords.inputs;
+    if (inputs && inputs.length) {
+        for (var i = 0; i < inputs.length; i++) {
+            if (inputs[i].srcobject) {
+                varnames.push(ensure_varname(inputs[i].srcobject));
+            }
+        }
+    }
+    return varnames;
+}
+
+function expand_selection(request_id, hops) {
+    try {
+        var p = this.patcher;
+        var to_select = {};
+        var frontier = [];
+
+        function add_varname(v) {
+            if (v && !is_bridge_internal_varname(v)) {
+                if (!to_select[v]) {
+                    to_select[v] = true;
+                    frontier.push(v);
+                }
+            }
+        }
+
+        var selected_varnames = get_selected_varnames(p);
+        for (var i = 0; i < selected_varnames.length; i++) {
+            add_varname(selected_varnames[i]);
+        }
+
+        var depth = hops || 1;
+        for (var h = 0; h < depth && frontier.length > 0; h++) {
+            var next_frontier = [];
+            for (var i = 0; i < frontier.length; i++) {
+                var obj = p.getnamed(frontier[i]);
+                if (obj) {
+                    var connected = get_connected_varnames(obj);
+                    for (var j = 0; j < connected.length; j++) {
+                        if (!to_select[connected[j]]) {
+                            to_select[connected[j]] = true;
+                            next_frontier.push(connected[j]);
+                        }
+                    }
+                }
+            }
+            frontier = next_frontier;
+        }
+
+        var varnames = Object.keys(to_select);
+        _selected_varnames = {};
+        for (var i = 0; i < varnames.length; i++) {
+            var obj = p.getnamed(varnames[i]);
+            _selected_varnames[varnames[i]] = true;
+            if (obj) obj.selected = true;
+        }
+
+        var result = { expanded_count: varnames.length, varnames: varnames };
+        var results = {"request_id": request_id, "results": result};
+        outlet(1, "response", split_long_string(JSON.stringify(results, null, 0), 2500));
+    } catch (e) {
+        var errResult = { error: e.message, expanded_count: 0, varnames: [] };
+        var results = {"request_id": request_id, "results": errResult};
+        outlet(1, "response", split_long_string(JSON.stringify(results, null, 0), 2500));
+    }
+}
+
+function select_objects(request_id, varnames, add_to_selection) {
+    var p = this.patcher;
+    var set = {};
+    for (var i = 0; i < varnames.length; i++) {
+        if (varnames[i] && !is_bridge_internal_varname(varnames[i])) {
+            set[varnames[i]] = true;
+        }
+    }
+
+    if (!add_to_selection) {
+        _selected_varnames = {};
+        p.applydeep(function (obj) {
+            obj.selected = false;
+        });
+    } else {
+        var existing = get_selected_varnames(p);
+        for (var i = 0; i < existing.length; i++) {
+            set[existing[i]] = true;
+        }
+    }
+
+    var count = 0;
+    p.applydeep(function (obj) {
+        var varname = ensure_varname(obj);
+        if (set[varname]) {
+            obj.selected = true;
+            _selected_varnames[varname] = true;
+            count++;
+        }
     });
-    var patcher_dict = {};
-    patcher_dict["boxes"] = boxes;
-    patcher_dict["lines"] = lines;
 
-    // use these if no v8:
-    // var results = {"request_id": request_id, "results": patcher_dict}
-    // outlet(1, "response", split_long_string(JSON.stringify(results, null, 2), 2000));
-
-    // use this if has v8:
-    outlet(2, "add_boxtext", request_id, JSON.stringify(patcher_dict, null, 0));
+    var result = { selected_count: count, varnames: Object.keys(set) };
+    var results = {"request_id": request_id, "results": result};
+    outlet(1, "response", split_long_string(JSON.stringify(results, null, 0), 2500));
 }
 
 function collect_objects(obj) {
-    //var keys = Object.keys(obj.varname);
-    //post(typeof obj.varname + "\n");
-    if (obj.varname.substring(0, 8) == "maxmcpid"){
+    if (_collect_limit && boxes.length >= _collect_limit) {
         return;
     }
-    if (!obj.varname){
-        obj.varname = "obj-" + obj_count;
+    //var keys = Object.keys(obj.varname);
+    //post(typeof obj.varname + "\n");
+    var varname = ensure_varname(obj);
+    if (is_bridge_internal_varname(varname)){
+        return;
     }
     obj_count+=1;
 
     var outputs = obj.patchcords.outputs;
     if (outputs.length){
         for (var i = 0; i < outputs.length; i++) {
+            var dst_varname = ensure_varname(outputs[i].dstobject);
             lines.push({patchline: {
-                source: [obj.varname, outputs[i].srcoutlet],
-                destination: [outputs[i].dstobject.varname, outputs[i].dstinlet]
+                source: [varname, outputs[i].srcoutlet],
+                destination: [dst_varname, outputs[i].dstinlet]
             }})
         }
     }
@@ -306,10 +537,17 @@ function collect_objects(obj) {
             attr[name] = value;
         }
     }
+    var boxtext = "";
+    try {
+        boxtext = obj.boxtext || "";
+    } catch (e) {
+        boxtext = "";
+    }
     boxes.push({box:{
         maxclass: obj.maxclass,
-        varname: obj.varname,
+        varname: varname,
         patching_rect: obj.rect,
+        text: boxtext,
         // numinlets: obj.patchcords.inputs.length,
         // numoutputs: obj.patchcords.outputs.length,
         // attributes: attr,

@@ -213,6 +213,9 @@ def format_patcher(result, name, indent="", sends_only=False):
     """Format a full patcher (objects + connections + subpatchers) as text lines."""
     out = []
 
+    if sends_only:
+        return out
+
     if not sends_only:
         if result["objects"]:
             out.append(f"{indent}### Objects")
