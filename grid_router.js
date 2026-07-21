@@ -199,8 +199,6 @@ var modQuantizeRow = 0;
 var modBufferRow = 0;
 
 var animBrightness = 0;
-var animTask = new Task(animateLeds, this);
-animTask.interval = 80;
 var SEQUENCER_PULSE_LEVEL = 15;
 var LOOP_HIGHLIGHT_LEVEL = 3;
 var TRACK_SUB_LOOP_OPTIONS = [4, 6, 8, 12, 16, 24, 32, 48];
@@ -1001,7 +999,7 @@ function dispatch(col, row, state) {
 	row = clamp(row, 0, s.gridHeight - 1);
 	state = state ? 1 : 0;
 
-	if (s.automation.recording && state === 1 && !playbackDispatching) {
+	if (shouldRecordAutomationEvent(col, row, state)) {
 		recordEvent(col, row, state);
 	}
 
@@ -1654,6 +1652,16 @@ function boxledcol() {
 
 // ─── Automation Recording ───────────────────────────────────────────────
 
+function shouldRecordAutomationEvent(col, row, state) {
+	if (state !== 1 || playbackDispatching) return false;
+	if (!s.automation.armed && !s.automation.recording) return false;
+	// Automation controls operate the recorder itself and must never become
+	// playback events. In particular, recording the arm/stop pad would restart
+	// or disarm the recorder when the sequence played back.
+	if (s.kmod === 2 && col === 9) return false;
+	return true;
+}
+
 function handleAutomationArm(row) {
 	if (row !== 7) return;
 	if (s.automation.recording) {
@@ -1741,6 +1749,10 @@ function clearAnimRange(x, y0, y1) {
 function clockTick() {
 	if (!s.initialized) return;
 	s.automation.tick++;
+	if (s.automation.recording &&
+		(s.automation.tick - s.automation.startTick) >= s.automation.length) {
+		stopRecording();
+	}
 
 	// Pulse active sequencer LEDs on beat (kmod 1 only)
 	for (var si = 0; si < 4; si++) {
@@ -1752,7 +1764,10 @@ function clockTick() {
 		}
 	}
 
-	if (!s.automation.playing || s.automation.events.length === 0) return;
+	if (!s.automation.playing || s.automation.events.length === 0) {
+		if (s.kmod === 2 && s.automation.recording) animateLeds();
+		return;
+	}
 
 	var tickInLoop = s.automation.playHead % s.automation.length;
 	playbackDispatching = true;
@@ -1770,6 +1785,7 @@ function clockTick() {
 			stopPlayback();
 		}
 	}
+	if (s.kmod === 2 && s.automation.playing) animateLeds();
 }
 
 // ─── Recording LED Animation ───────────────────────────────────────────

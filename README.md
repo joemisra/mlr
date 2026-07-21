@@ -68,6 +68,29 @@ intensity8 level
 Unlike `colorCell` and `colorAll`, the RGB and level8 commands intentionally
 change LED output state. Values are clamped to 0–255 by both mlr and serialosc.
 
+### Mode 2: columns 10–12
+
+Grid positions below are one-based. The top grid row is row 1.
+
+| Column | Rows | Function |
+|--------|------|----------|
+| 10 | 2 play/stop; 3 loop; 4–7 length 1/2/4/8 bars; 8 arm/stop record | Clocked grid-button automation |
+| 11 | 2–6 = 1/32, 1/16, 1/8, 1/4, 1/2 | Global input quantize |
+| 12 | 2 onward, one row per track | Cycle that track's short-loop division through 1/4, 1/6, 1/8, 1/12, 1/16, 1/24, 1/32, 1/48 |
+
+The short-loop latch itself is channel-scoped: mode-2 row 5, columns 1–8
+toggle it for channels 1–8. Column 12 only chooses the division for each
+track. Triggering a track on a latched channel reapplies its selected short
+loop at the new playback position.
+
+To test automation, remain on mode 2: select a short length, press column 10
+row 8 to arm, then press a non-automation control such as mute or random
+offset. The first such press starts recording. Press the arm pad again to stop
+early, or let the selected length expire. With loop off, press column 10 row 2
+to play the capture once. Automation currently records press-down events and
+stores grid coordinates rather than page identity, so changing pages during
+recording or playback is not supported.
+
 ### Compact `.maxpat` Analysis
 
 Use the local analyzer to strip UI/layout noise and summarize object topology:
