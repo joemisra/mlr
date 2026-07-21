@@ -42,10 +42,32 @@ function ledDispatch(args) {
 
 	// dual-128 mode below ---
 
-	// /grid/led/all or /grid/led/level/all -> send to both grids
-	if (path.indexOf("grid/led/all") >= 0 || path.indexOf("grid/led/level/all") >= 0) {
+	// Whole-grid commands -> send to both grids.
+	if (path.indexOf("grid/led/all") >= 0 ||
+		path.indexOf("grid/led/level/all") >= 0 ||
+		path.indexOf("grid/led/color/all") >= 0 ||
+		path.indexOf("grid/led/color/preset/store") >= 0 ||
+		path.indexOf("grid/led/color/preset/recall") >= 0 ||
+		path.indexOf("grid/led/rgb/all") >= 0 ||
+		path.indexOf("grid/led/level8/all") >= 0 ||
+		path.indexOf("grid/led/intensity8") >= 0) {
 		emit(0, args);
 		emit(1, args);
+		return;
+	}
+
+	// MechaTrellis per-cell extension commands use x/y as their first two args.
+	if (path.indexOf("grid/led/color/set") >= 0 ||
+		path.indexOf("grid/led/rgb/set") >= 0 ||
+		path.indexOf("grid/led/level8/set") >= 0) {
+		var cellY = args[2] | 0;
+		if (cellY < 8) {
+			emit(0, args);
+		} else {
+			var cellRemapped = args.slice();
+			cellRemapped[2] = cellY - 8;
+			emit(1, cellRemapped);
+		}
 		return;
 	}
 

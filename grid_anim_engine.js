@@ -5,7 +5,7 @@ outlets = 2;
 /**
  * Keyframe queue per cell: pairs (target, frames). frames==0 = instant.
  * tick advances one animation step per cell (one lerp step per segment per tick).
- * outlet 1: flush — only when matrix changed (dirty).
+ * outlet 0: flush — only when matrix changed (dirty).
  * Same matrix name as grid_matrix_bridge.js (@args).
  */
 
@@ -59,13 +59,24 @@ function clear_anim() {
 }
 
 function tick() {
+	var k;
+	var hasCells = false;
+	for (k in cells) {
+		hasCells = true;
+		break;
+	}
+	if (!hasCells) return;
+
 	var jm = bind_matrix();
 	var dirty = false;
-	var k;
 	for (k in cells) {
-		if (advanceCell(k, cells[k], jm)) {
+		var cell = cells[k];
+		if (advanceCell(k, cell, jm)) {
 			dirty = true;
 		}
+		// Completed cells must be removed so a future animation rereads the
+		// current shared matrix level, and so the high-rate tick stays cheap.
+		if (!cell.seg && cell.q.length === 0) delete cells[k];
 	}
 	if (dirty) {
 		outlet(0, "flush");
@@ -235,7 +246,7 @@ function setcell(x, y, v) {
 }
 
 function anything() {
-	var a = arrayfromargs(messagename, arguments);
+	var a = arrayfromargs(arguments);
 	if (messagename === "edition") {
 		edition_msg(a[0]);
 	} else if (messagename === "tick") {

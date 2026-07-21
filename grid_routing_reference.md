@@ -32,14 +32,16 @@ Audio Engine (p chnls / playback heads)
   │  grid_router.js:
   │    boxled / boxledrow / boxledcol  → led(x,y,level)
   │      → outlet(1, "setcell", x, y, level)
-  │    onKmodChange → messnamed("togridmatrixio", "clear"/"flush")
+  │    onKmodChange → beginframe → draw complete page → endframe
+  │      (bridge suppresses intermediate flushes; no blank page is transmitted)
   │    drawModPage / animateLeds → led() calls (kmod 2 only)
   │
   │  Outlet 1 → s togridmatrixio
   │
        ▼
   grid_matrix_io.maxpat  (contains grid_matrix_bridge.js + grid_anim_engine.js)
-  │  Inlet 0: r togridmatrixio  — setcell / flush / clear / edition / dual128
+  │  Inlet 0: r togridmatrixio  — setcell / flush / clear / beginframe / endframe
+  │                               / edition / dual128 / color extension commands
   │  Inlet 1: toggle            — qmetro 33ms periodic flush (manual enable)
   │  Inlet 2: button            — anim engine tick (manual / undriven)
   │  Inlet 3: r togridmatrixanim — kf / line animation commands
@@ -49,7 +51,8 @@ Audio Engine (p chnls / playback heads)
   │    inlet 1 ──► toggle → qmetro 33 → [t b b] out1 → "flush" msg → bridge
   │    inlet 2 ──► "tick" msg → grid_anim_engine.js
   │    inlet 3 ──► grid_anim_engine.js (kf / line)
-  │    anim_engine outlet 0 ──► "flush" msg → bridge  (triggers flush on dirty)
+  │    anim_engine outlet 0 ──► "flush" msg → bridge  (triggers flush on dirty;
+  │      completed cells are retired so later animations reread matrix state)
   │    bridge outlet 0 ──► grid_matrix_io outlet 0
   │    bridge outlet 1 ──► grid_matrix_io outlet 1
   │

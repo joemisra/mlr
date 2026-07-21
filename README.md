@@ -20,6 +20,54 @@ For full operation details, see `mlr_info.txt` (opens from within the patch via 
 
 ## Developer Tooling
 
+### MechaTrellis color and 8-bit LED helpers
+
+`grid_router.js` exposes private MechaTrellis LED commands through the existing
+`gridrouter` message bus. Persistent color helpers do not change a cell's
+legacy brightness or state, so the existing mlr drawing and animation paths
+continue to use their standard 0–15 levels.
+
+Send these messages to `s gridrouter` (or directly to `grid_router_io`):
+
+```text
+colorCell x y r g b
+colorAll r g b
+colorRow y r g b
+colorCol x r g b
+colorRect x0 y0 x1 y1 r g b
+applyPageColors [page]
+storeColorPreset slot
+recallColorPreset slot
+initializePageColorPresets
+autoPageColors 0|1
+```
+
+Automatic starter palettes are enabled by default for kmod pages 1–4. On
+startup mlr uploads them at a safe pace and stores them in firmware slots 0–3.
+Later page changes send a single preset-recall packet. Their RGB values live in
+`PAGE_COLORS` and `GROUP_COLORS` near the top of `grid_router.js`.
+
+Send `autoPageColors 0` to keep manual colors across page changes, or
+`applyPageColors 1` through `applyPageColors 4` to rebuild and store one page.
+Because firmware slots live in RAM, send `initializePageColorPresets` after a
+MechaTrellis reset that occurs while mlr remains open. Palette uploads remain
+paced so they do not crowd legacy LED frames out of serialosc's nonblocking
+serial connection.
+
+The remaining private commands are also available when direct 8-bit control is
+needed:
+
+```text
+rgbCell x y r g b
+rgbAll r g b
+level8Cell x y level
+level8All level
+intensity8 level
+```
+
+Unlike `colorCell` and `colorAll`, the RGB and level8 commands intentionally
+change LED output state. Values are clamped to 0–255 by both mlr and serialosc.
+
 ### Compact `.maxpat` Analysis
 
 Use the local analyzer to strip UI/layout noise and summarize object topology:
