@@ -36,8 +36,12 @@ Audio Engine (p chnls / playback heads)
   │      (bridge suppresses intermediate flushes; no blank page is transmitted)
   │    editor cell diff → beginupdate → changed setcell(s) → endupdate
   │      (same atomic flush, without clearing the existing matrix)
-  │    editor clock → target automation → gate FX → probability/gate trigger
-  │      (all three transports reset off whenever a target is selected)
+  │    64-step editor clock → advance independent shape voices
+  │      → probability → persistent parameter locks → quantized cut trigger
+  │      (Run resets off whenever a target is selected; Stop releases Gate
+  │       shapes but leaves ordinary MLR cuts and Set locks latched)
+  │    main-page hold col 14 + matching cut → wait for quantized chRowPos
+  │      → store exact track/slice at current 64-step position
   │    optional editorBrightnessColors → colorcell beside changed level cells
   │      (off by default; legacy 0–15 levels remain authoritative)
   │    drawModPage / animateLeds → led() calls (kmod 2 only)
@@ -109,6 +113,25 @@ Physical Grid(s)
   → grid_dual128_merge.js (dual=0, passthrough) → s box/press_mlr
   → grid_router_io (r box/press_mlr) → grid_router.js
 ```
+
+### 16×16 editor ownership
+
+The editor is dormant until mode-2 physical column 14 is held and a group or
+track is selected. Its default `sequence64` layout owns physical rows 9–16 only
+while mode 2 is visible. Rows 9–12 map row-major to steps 1–64; row 16 switches
+between Sequence and Setup or exits. The selected target persists on the main
+page so holding physical column 14 there can record cuts, but no lower-half LEDs
+or legacy key routes are intercepted outside mode 2.
+
+`chRowPos` is the commit point for live cuts. A normal-mode press first creates a
+short-lived pending record candidate; only the matching track's returned,
+quantized position is stored. Sequencer-generated cuts carry a playback guard so
+they cannot recursively record themselves.
+
+The six-page prototype remains behind `editorLayout legacy` for comparison and
+rollback. `editorLayout sequence64` is the production default. Each legacy
+target's first 16 gates/probabilities/gate-FX values migrate once into new step
+objects, without modifying the old dictionaries.
 
 ---
 

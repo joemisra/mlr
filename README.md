@@ -17,6 +17,7 @@ Licensed under GPL v2 (see `license_mlr.txt`).
 5. Press keys on the grid to cut and remix
 
 For full operation details, see `mlr_info.txt` (opens from within the patch via the info button).
+The new lower-half sequencer is documented in `sequence64_editor_reference.md`.
 
 ## Developer Tooling
 
@@ -68,67 +69,95 @@ intensity8 level
 Unlike `colorCell` and `colorAll`, the RGB and level8 commands intentionally
 change LED output state. Values are clamped to 0–255 by both mlr and serialosc.
 
-### Mode 2: 16×16 target chooser and extended editor
+### Mode 2: 16×16 target chooser and 64-step editor
 
-Grid positions below are one-based. The top grid row is row 1.
+Grid positions below are one-based. The top grid row is row 1. This workspace is
+opt-in: until a target is selected, the existing main and mode-2 controls behave
+exactly as before.
 
-On a 16×16 grid, mode-2 row 1 column 14 is the extended-editor button. It stays
-unlit while idle so the legacy page looks unchanged. Hold it to open the target
-chooser; releasing it always closes the chooser:
+On a 16×16 grid, hold mode-2 row 1 column 14 to open the target chooser:
 
 - Row 1, columns 1–8 select groups 1–8.
 - Column 16, rows 2–16 select tracks 1–15.
-- The chooser temporarily owns those cells, so selecting a group does not mute
-  it and selecting a track does not toggle reverse.
-- Selecting a target changes UI state only; it sends no audio-engine command.
-- The chooser remains visible while column 14 is held, so another group or track
-  can be selected immediately.
-- Pressing the currently selected group or track clears the editor selection,
-  like the bottom-right exit button, while leaving the chooser visible until
-  column 14 is released.
+- The chooser owns those cells only while column 14 is held, so target selection
+  cannot mute a group or toggle a track's reverse state.
+- Keep holding column 14 to change targets quickly. Selecting the current target
+  cancels it; releasing column 14 always hides the chooser.
+- A selection is silent and persists when switching between mode 2 and the main
+  page. Press row 16 column 16 in the editor to exit completely.
 
-After target selection, rows 9–16 become the editor workspace. Row 16 always
-selects Step, Loop, Parameter, Automation, Probability, and FX in columns 1–6;
-column 16 exits. Saved data is independent for every group and track. Selecting
-a target never starts a clocked feature: Step Run, Automation Play/Record, and
-FX Run all reset off and must be enabled explicitly.
+The lower half has two views. Row 16 column 1 selects **Sequence**, column 2
+selects **Setup**, and column 16 exits.
 
-A group target follows the last track played on that group. If no current track
-exists, its step sequence waits silently. A direct track target always addresses
-that track. Track parameter changes use that track's current group/channel.
+#### Sequence view
 
-| Page | Rows 9–15 |
-|------|------------|
-| Step | Row 9 playhead; row 10 gate steps; row 11 column 1 Run and column 16 clear |
-| Loop | Row 9 span/position; row 10 start; row 11 end; row 12 column 1 on/off and column 16 reset; row 13 divisions 1/4 through 1/48; row 14 channel latch; row 15 target track |
-| Parameter | Row 9 group assignment; row 10 volume; row 11 octave −3 through +3; rows 12–15 column 1 reverse, random offset, timestretch, and mute |
-| Automation | Row 9 event timeline; row 10 columns 1/2/16 record/play/clear; rows 11–15 show loop, volume, pitch/group, switch, and reserved event categories |
-| Probability | Each step is one column; rows 9–15 select probability levels 15, 12, 10, 8, 5, 2, or 0 from top to bottom |
-| FX | Rows 9–14 select per-step gate levels 15, 12, 8, 5, 2, or 0; row 15 column 1 runs the lane and column 16 clears/restores unity |
+| Grid cells | Function |
+|------------|----------|
+| Rows 9–12 | Steps 1–64, in row-major order |
+| Row 13, columns 1–4 | Pattern length 16 / 32 / 48 / 64 |
+| Row 14, column 1 | Run/Stop; Run is always explicitly opt-in |
+| Row 14, column 2 | Momentary parameter-lock record button |
+| Row 14, column 16 | Clear pattern; press twice within 1.2 seconds |
+| Row 15, column 1 | Clear Motion: end shapes and release gates, keep latched values |
+| Row 15, column 2 | Restore Start State captured when Run was pressed |
 
-The playhead advances once every two `tr_pulse` ticks: 16 positions per 32-tick
-bar. A running gate triggers the corresponding 1–16 slice of the resolved track,
-subject to its Probability value. The FX lane drives the existing per-channel
-`[gatefx]level` stage and restores unity when stopped, when the chooser opens,
-on exit, on reload, or on grid reconnect.
+Tap and release a step to add or remove its cut trigger. Hold a step to replace
+rows 13–15 with its lock editor:
 
-Target Automation records Loop and Parameter changes at the current step. Its
-five category rows show which steps contain events; pressing a lit category cell
-deletes that category at that step, while pressing the timeline cell deletes all
-events at that step. Playback reapplies recorded values before FX and gate
-triggering on each step.
+| Lock row | Columns |
+|----------|---------|
+| Row 13 | 1 slice, 2 probability, 3 volume, 4 future filter, 5 reverse, 6 octave, 7 loop division, 8 gate length |
+| Row 14 | Value; slice/probability/volume/filter use columns 1–16, octave uses 1–7, division uses 1–8, and gate length uses 1–16 |
+| Row 15 | For volume/filter: 1 Set, 2 Glide, 3 Pluck, 4 Swell, 5 Gate, 6 Pulse; column 16 clears the selected lock |
 
-Playhead and editor changes use non-clearing renderer transactions, so clock
-movement normally changes only the previous and next cells. All unclaimed
-controls in rows 1–8 continue through the existing mode-2 handlers.
+Trigger cuts and Set locks are latched. Stopping the sequence prevents new
+events and releases active Gate shapes, but it deliberately does not move a
+loop back or restore a persistent parameter. Pluck, Swell, and Pulse tails can
+continue after the step or after Stop. A newer event on the same target and
+parameter replaces the older shape. `Restore Start State` is the explicit way
+to return to the values and playback position captured at Run.
 
-Hold column 14 again whenever the target needs to change. Press row 16 column 16
-while the chooser is closed to exit and restore the complete legacy mode-2
-layout. Leaving mode 2 also closes the workspace. The feature is unavailable on
-8×8 and 16×8 grids. Send `extendedEditors 0` to `gridrouter` to hide and disable
-it, or `extendedEditors 1` to enable it again. `clearEditorTargetData` resets the
-selected target's gates, probabilities, FX, and automation; `clearEditorAllData`
-resets every target.
+Volume locks use the existing per-channel `[gatefx]level` multiplier, leaving
+the normal channel-volume control intact. Filter locks already emit the parallel
+`N[filterfx]level value ramp-ms` bus and preserve their data, but are silent until
+the planned filter DSP stage is added.
+
+#### Live recording and Setup
+
+With a target selected, return to the main page and hold row 1 column 14 while
+performing cuts. mlr stores the actual quantized `chRowPos` result at the current
+64-step position, rather than the raw key coordinate. A track target accepts
+only that track. A group target accepts tracks assigned to that group and stores
+the exact played track/slice. Releasing column 14 stops accepting new cuts; a
+cut already sent while it was held may still commit when its quantized position
+arrives. Without a selected target the gesture remains a no-op.
+
+The Setup view consolidates direct controls:
+
+| Row | Function |
+|-----|----------|
+| 9 | Group assignment/indicator |
+| 10 | Channel volume |
+| 11 | Track octave −3 through +3 |
+| 12 | Columns 1/2 reverse/random offset; columns 3–10 loop division 1/4 through 1/48 |
+| 13 | Loop start |
+| 14 | Loop end |
+| 15 | Columns 1–4 loop on/off, channel latch, timestretch, mute |
+
+Hold Sequence row 14 column 2, switch to Setup, and move a supported control to
+write a Set lock at the current step. While recording, the volume row previews
+and records the modulation multiplier instead of moving the base channel fader;
+without Record held it remains the ordinary channel-volume control. Release the
+Record button to stop. A group target follows its current active track for
+manually entered steps; a live-recorded group cut stores the exact track played.
+
+The renderer uses non-clearing `beginupdate` transactions for cell diffs. The
+feature is unavailable on 8×8 and 16×8 grids. Send `extendedEditors 0|1` to
+disable/enable it. `clearEditorTargetData` resets the selected target and
+`clearEditorAllData` resets all targets. `editorLayout legacy` temporarily
+restores the saved six-page prototype; `editorLayout sequence64` returns to the
+new default. Legacy 16-step data is copied once into the first 16 new steps and
+is never deleted by migration.
 
 Optional brightness-linked MechaTrellis color is available with
 `editorBrightnessColors 1` and disabled with `editorBrightnessColors 0`. It
