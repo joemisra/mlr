@@ -88,6 +88,14 @@ function beginframe() {
 	}
 }
 
+/**
+ * Atomically apply a partial update without clearing either matrix plane.
+ * This is the transaction used by renderer diffs and moving indicators.
+ */
+function beginupdate() {
+	frameBatchDepth++;
+}
+
 function endframe() {
 	if (frameBatchDepth === 0) return;
 	frameBatchDepth--;
@@ -314,7 +322,13 @@ function anything() {
 		case "beginframe":
 			beginframe();
 			break;
+		case "beginupdate":
+			beginupdate();
+			break;
 		case "endframe":
+			endframe();
+			break;
+		case "endupdate":
 			endframe();
 			break;
 		case "colorcell":

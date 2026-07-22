@@ -68,9 +68,75 @@ intensity8 level
 Unlike `colorCell` and `colorAll`, the RGB and level8 commands intentionally
 change LED output state. Values are clamped to 0–255 by both mlr and serialosc.
 
-### Mode 2: columns 10–12
+### Mode 2: 16×16 target chooser and extended editor
 
 Grid positions below are one-based. The top grid row is row 1.
+
+On a 16×16 grid, mode-2 row 1 column 14 is the extended-editor button. It stays
+unlit while idle so the legacy page looks unchanged. Hold it to open the target
+chooser; releasing it always closes the chooser:
+
+- Row 1, columns 1–8 select groups 1–8.
+- Column 16, rows 2–16 select tracks 1–15.
+- The chooser temporarily owns those cells, so selecting a group does not mute
+  it and selecting a track does not toggle reverse.
+- Selecting a target changes UI state only; it sends no audio-engine command.
+- The chooser remains visible while column 14 is held, so another group or track
+  can be selected immediately.
+- Pressing the currently selected group or track clears the editor selection,
+  like the bottom-right exit button, while leaving the chooser visible until
+  column 14 is released.
+
+After target selection, rows 9–16 become the editor workspace. Row 16 always
+selects Step, Loop, Parameter, Automation, Probability, and FX in columns 1–6;
+column 16 exits. Saved data is independent for every group and track. Selecting
+a target never starts a clocked feature: Step Run, Automation Play/Record, and
+FX Run all reset off and must be enabled explicitly.
+
+A group target follows the last track played on that group. If no current track
+exists, its step sequence waits silently. A direct track target always addresses
+that track. Track parameter changes use that track's current group/channel.
+
+| Page | Rows 9–15 |
+|------|------------|
+| Step | Row 9 playhead; row 10 gate steps; row 11 column 1 Run and column 16 clear |
+| Loop | Row 9 span/position; row 10 start; row 11 end; row 12 column 1 on/off and column 16 reset; row 13 divisions 1/4 through 1/48; row 14 channel latch; row 15 target track |
+| Parameter | Row 9 group assignment; row 10 volume; row 11 octave −3 through +3; rows 12–15 column 1 reverse, random offset, timestretch, and mute |
+| Automation | Row 9 event timeline; row 10 columns 1/2/16 record/play/clear; rows 11–15 show loop, volume, pitch/group, switch, and reserved event categories |
+| Probability | Each step is one column; rows 9–15 select probability levels 15, 12, 10, 8, 5, 2, or 0 from top to bottom |
+| FX | Rows 9–14 select per-step gate levels 15, 12, 8, 5, 2, or 0; row 15 column 1 runs the lane and column 16 clears/restores unity |
+
+The playhead advances once every two `tr_pulse` ticks: 16 positions per 32-tick
+bar. A running gate triggers the corresponding 1–16 slice of the resolved track,
+subject to its Probability value. The FX lane drives the existing per-channel
+`[gatefx]level` stage and restores unity when stopped, when the chooser opens,
+on exit, on reload, or on grid reconnect.
+
+Target Automation records Loop and Parameter changes at the current step. Its
+five category rows show which steps contain events; pressing a lit category cell
+deletes that category at that step, while pressing the timeline cell deletes all
+events at that step. Playback reapplies recorded values before FX and gate
+triggering on each step.
+
+Playhead and editor changes use non-clearing renderer transactions, so clock
+movement normally changes only the previous and next cells. All unclaimed
+controls in rows 1–8 continue through the existing mode-2 handlers.
+
+Hold column 14 again whenever the target needs to change. Press row 16 column 16
+while the chooser is closed to exit and restore the complete legacy mode-2
+layout. Leaving mode 2 also closes the workspace. The feature is unavailable on
+8×8 and 16×8 grids. Send `extendedEditors 0` to `gridrouter` to hide and disable
+it, or `extendedEditors 1` to enable it again. `clearEditorTargetData` resets the
+selected target's gates, probabilities, FX, and automation; `clearEditorAllData`
+resets every target.
+
+Optional brightness-linked MechaTrellis color is available with
+`editorBrightnessColors 1` and disabled with `editorBrightnessColors 0`. It
+adds persistent color updates only when editor cell levels change. Standard
+0–15 levels remain authoritative, so monochrome Grid Zero behavior is identical;
+the option defaults off to avoid extra private OSC traffic.
+
+### Mode 2: columns 10–12
 
 | Column | Rows | Function |
 |--------|------|----------|
