@@ -93,11 +93,15 @@ selects **Setup**, and column 16 exits.
 
 | Grid cells | Function |
 |------------|----------|
-| Rows 9–12 | One bar: steps 1–16, 17–32, 33–48, and 49–64 |
-| Row 13, columns 1–4 | Pattern length 16 / 32 / 48 / 64 |
+| Rows 9–12 | Viewed bar: steps 1–16, 17–32, 33–48, and 49–64 |
+| Row 13, columns 1–4 | Viewed-bar length 16 / 32 / 48 / 64 |
+| Row 13, columns 5–12 | Select bars 1–8; the first dim empty slot adds a bar |
+| Row 13, columns 13–14 | Previous / next bar |
+| Row 13, column 15 | Add and select a bar, up to eight |
+| Row 13, column 16 | Remove the viewed bar; press twice within 1.2 seconds |
 | Row 14, column 1 | Run/Stop; Run is always explicitly opt-in |
 | Row 14, column 2 | Momentary parameter-lock record button |
-| Row 14, column 16 | Clear pattern; press twice within 1.2 seconds |
+| Row 14, column 16 | Clear the viewed bar; press twice within 1.2 seconds |
 | Row 15, column 1 | Clear Motion: end shapes and release gates, keep latched values |
 | Row 15, column 2 | Restore Start State captured when Run was pressed |
 
@@ -107,6 +111,13 @@ This is eight times the checkpointed prototype rate. A 64-step pattern
 therefore occupies 16 master pulses. Its four 16-step parts are already visible
 together on rows 9–12; those rows are four quarters of one bar, not four
 independent pattern passes.
+
+Every target starts with one 64-step bar. Up to eight bars can be added and they
+play consecutively before looping back to bar 1. The selected bar button is
+bright; while Run is active, a different playing bar is shown at an intermediate
+level. Changing the viewed bar does not interrupt playback. Adding or removing
+a bar stops Run so that a structural edit cannot move the transport
+unexpectedly. Existing single-bar patterns remain bar 1.
 
 Tap and release a step to add or remove its cut trigger. Hold a step to replace
 rows 13–15 with its lock editor:
@@ -133,11 +144,12 @@ the planned filter DSP stage is added.
 
 With a target selected, return to the main page and hold row 1 column 14 while
 performing cuts. mlr stores the actual quantized `chRowPos` result at the current
-64-step position, rather than the raw key coordinate. A track target accepts
-only that track. A group target accepts tracks assigned to that group and stores
-the exact played track/slice. Releasing column 14 stops accepting new cuts; a
-cut already sent while it was held may still commit when its quantized position
-arrives. Without a selected target the gesture remains a no-op.
+playing bar and step, rather than the viewed bar or raw key coordinate. A track
+target accepts only that track. A group target accepts tracks assigned to that
+group and stores the exact played track/slice. Releasing column 14 stops
+accepting new cuts; a cut already sent while it was held may still commit when
+its quantized position arrives. Without a selected target the gesture remains a
+no-op.
 
 The Setup view consolidates direct controls:
 

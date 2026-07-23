@@ -164,6 +164,7 @@ if (!s.initialized) {
 		editorId: "step",
 		stepPlayhead: -1,
 		lastSequencedStep: -1,
+		lastSequencedBar: -1,
 		patterns64: {},
 		parameterValues64: {},
 		startSnapshots64: {},
@@ -193,6 +194,7 @@ function ensureEditorWorkspaceDefaults() {
 	if (workspace.editorId === undefined) workspace.editorId = "step";
 	if (workspace.stepPlayhead === undefined) workspace.stepPlayhead = -1;
 	if (workspace.lastSequencedStep === undefined) workspace.lastSequencedStep = -1;
+	if (workspace.lastSequencedBar === undefined) workspace.lastSequencedBar = -1;
 	if (!workspace.patterns64) workspace.patterns64 = {};
 	if (!workspace.parameterValues64) workspace.parameterValues64 = {};
 	if (!workspace.startSnapshots64) workspace.startSnapshots64 = {};
@@ -256,6 +258,7 @@ startupEditorWorkspace.targetType = "none";
 startupEditorWorkspace.targetId = -1;
 startupEditorWorkspace.stepPlayhead = -1;
 startupEditorWorkspace.lastSequencedStep = -1;
+startupEditorWorkspace.lastSequencedBar = -1;
 
 /** Guard flag: true while automation playback is dispatching events. */
 var playbackDispatching = false;
@@ -326,6 +329,7 @@ var sequence64LiveRecordHeld = false;
 var sequence64LockRecordHeld = false;
 var sequence64ActiveShapes = [];
 var sequence64ClearArmedUntil = 0;
+var sequence64RemoveBarArmedUntil = 0;
 var sequence64PlaybackCaptureGuard = null;
 var sequence64PendingLiveCut = null;
 var sequence64ClockPosition = Math.max(0, (s.automation.tick || 0) * SEQUENCE64_STEPS_PER_PULSE);
@@ -423,6 +427,7 @@ function resetEditorWorkspaceState(clearTarget) {
 	workspace.editorId = "step";
 	workspace.stepPlayhead = -1;
 	workspace.lastSequencedStep = -1;
+	workspace.lastSequencedBar = -1;
 	sequence64HeldStep = -1;
 	sequence64HeldStepChanged = false;
 	sequence64LiveRecordHeld = false;
@@ -571,11 +576,13 @@ function createSequence64Pattern() {
 	var steps = new Array(64);
 	for (var i = 0; i < steps.length; i++) steps[i] = createSequence64Step();
 	return {
-		version: 1,
+		version: 2,
 		length: 64,
 		running: 0,
 		legacyMigrated: 0,
-		steps: steps
+		steps: steps,
+		bars: [{ length: 64, steps: steps }],
+		currentBar: 0
 	};
 }
 
@@ -622,6 +629,24 @@ function migrateLegacyTargetToSequence64(pattern, targetType, targetId) {
 	return pattern;
 }
 
+function normalizeSequence64Bar(bar, fallbackSteps, fallbackLength) {
+	if (!bar || typeof bar !== "object") bar = {};
+	var previous = bar.steps || fallbackSteps || [];
+	if (!bar.steps || bar.steps.length !== 64) {
+		bar.steps = new Array(64);
+		for (var i = 0; i < 64; i++) bar.steps[i] = normalizeSequence64Step(previous[i]);
+	} else {
+		for (var stepIndex = 0; stepIndex < 64; stepIndex++) {
+			bar.steps[stepIndex] = normalizeSequence64Step(bar.steps[stepIndex]);
+		}
+	}
+	var length = parseInt(bar.length, 10);
+	if (SEQUENCE64_LENGTHS.indexOf(length) < 0) length = parseInt(fallbackLength, 10);
+	if (SEQUENCE64_LENGTHS.indexOf(length) < 0) length = 64;
+	bar.length = length;
+	return bar;
+}
+
 function ensureSequence64Pattern(targetType, targetId) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var key = editorTargetKey(targetType, targetId);
@@ -631,17 +656,21 @@ function ensureSequence64Pattern(targetType, targetId) {
 		pattern = createSequence64Pattern();
 		workspace.patterns64[key] = pattern;
 	}
-	pattern.version = 1;
+	pattern.version = 2;
 	if (SEQUENCE64_LENGTHS.indexOf(pattern.length) < 0) pattern.length = 64;
-	if (!pattern.steps || pattern.steps.length !== 64) {
-		var previous = pattern.steps || [];
-		pattern.steps = new Array(64);
-		for (var i = 0; i < 64; i++) pattern.steps[i] = normalizeSequence64Step(previous[i]);
+	if (!pattern.bars || !pattern.bars.length) {
+		pattern.bars = [normalizeSequence64Bar(null, pattern.steps, pattern.length)];
 	} else {
-		for (var stepIndex = 0; stepIndex < 64; stepIndex++) {
-			pattern.steps[stepIndex] = normalizeSequence64Step(pattern.steps[stepIndex]);
+		for (var barIndex = 0; barIndex < pattern.bars.length; barIndex++) {
+			pattern.bars[barIndex] = normalizeSequence64Bar(pattern.bars[barIndex],
+				barIndex === 0 ? pattern.steps : null,
+				barIndex === 0 ? pattern.length : 64);
 		}
 	}
+	if (pattern.bars.length > 8) pattern.bars.length = 8;
+	pattern.steps = pattern.bars[0].steps;
+	pattern.length = pattern.bars[0].length;
+	pattern.currentBar = clamp(parseInt(pattern.currentBar, 10) || 0, 0, pattern.bars.length - 1);
 	if (pattern.running === undefined) pattern.running = 0;
 	return migrateLegacyTargetToSequence64(pattern, targetType, targetId);
 }
@@ -652,10 +681,41 @@ function currentSequence64Pattern() {
 	return ensureSequence64Pattern(workspace.targetType, workspace.targetId);
 }
 
+function sequence64PatternTotalLength(pattern) {
+	if (!pattern || !pattern.bars || !pattern.bars.length) return 64;
+	var total = 0;
+	for (var barIndex = 0; barIndex < pattern.bars.length; barIndex++) {
+		total += pattern.bars[barIndex].length;
+	}
+	return Math.max(1, total);
+}
+
+function sequence64PlaybackLocation(pattern) {
+	if (!pattern) return { bar: 0, step: 0, flat: 0 };
+	var flat = sequence64ClockPosition % sequence64PatternTotalLength(pattern);
+	var remaining = flat;
+	for (var barIndex = 0; barIndex < pattern.bars.length; barIndex++) {
+		if (remaining < pattern.bars[barIndex].length) {
+			return { bar: barIndex, step: remaining, flat: flat };
+		}
+		remaining -= pattern.bars[barIndex].length;
+	}
+	return { bar: 0, step: 0, flat: 0 };
+}
+
 function currentSequence64StepIndex() {
 	var pattern = currentSequence64Pattern();
-	var length = pattern ? pattern.length : 64;
-	return sequence64ClockPosition % length;
+	return sequence64PlaybackLocation(pattern).step;
+}
+
+function currentSequence64BarIndex() {
+	return sequence64PlaybackLocation(currentSequence64Pattern()).bar;
+}
+
+function currentSequence64EditBar(pattern) {
+	if (!pattern) return null;
+	pattern.currentBar = clamp(parseInt(pattern.currentBar, 10) || 0, 0, pattern.bars.length - 1);
+	return pattern.bars[pattern.currentBar];
 }
 
 function sequence64GridStep(col, row) {
@@ -1131,13 +1191,15 @@ function renderSequence64View(levels) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var pattern = currentSequence64Pattern();
 	if (!pattern) return;
-	workspace.stepPlayhead = currentSequence64StepIndex();
+	var bar = currentSequence64EditBar(pattern);
+	var playback = sequence64PlaybackLocation(pattern);
+	workspace.stepPlayhead = playback.step;
 
-	for (var source = 0; source < pattern.length; source++) {
-		var sourceStep = pattern.steps[source];
+	for (var source = 0; source < bar.length; source++) {
+		var sourceStep = bar.steps[source];
 		if (!sourceStep.cut || sourceStep.cut.gateLength <= 1) continue;
-		for (var tail = 1; tail < sourceStep.cut.gateLength && tail < pattern.length; tail++) {
-			var tailIndex = (source + tail) % pattern.length;
+		for (var tail = 1; tail < sourceStep.cut.gateLength && tail < bar.length; tail++) {
+			var tailIndex = (source + tail) % bar.length;
 			var tailCoords = sequence64StepCoords(tailIndex);
 			setEditorShellLevel(levels, tailCoords[0], tailCoords[1], 2);
 		}
@@ -1145,23 +1207,37 @@ function renderSequence64View(levels) {
 
 	for (var stepIndex = 0; stepIndex < 64; stepIndex++) {
 		var coords = sequence64StepCoords(stepIndex);
-		var step = pattern.steps[stepIndex];
-		var level = stepIndex < pattern.length ? 1 : 0;
+		var step = bar.steps[stepIndex];
+		var level = stepIndex < bar.length ? 1 : 0;
 		if (sequence64StepHasLocks(step)) level = 5;
 		if (step.cut) level = step.cut.gateLength > 1 ? 10 : 7;
 		if (step.cut && sequence64StepHasLocks(step)) level = 12;
-		if (pattern.running && stepIndex === workspace.stepPlayhead) level = 15;
+		if (pattern.running && playback.bar === pattern.currentBar &&
+			stepIndex === workspace.stepPlayhead) level = 15;
 		if (sequence64HeldStep === stepIndex) level = 15;
 		setEditorShellLevel(levels, coords[0], coords[1], level);
 	}
 
 	if (sequence64HeldStep >= 0) {
-		renderSequence64StepEditor(levels, pattern.steps[sequence64HeldStep]);
+		renderSequence64StepEditor(levels, bar.steps[sequence64HeldStep]);
 	} else {
 		for (var lengthIndex = 0; lengthIndex < SEQUENCE64_LENGTHS.length; lengthIndex++) {
 			setEditorShellLevel(levels, lengthIndex, SEQUENCE64_LENGTH_ROW,
-				pattern.length === SEQUENCE64_LENGTHS[lengthIndex] ? 15 : 3);
+				bar.length === SEQUENCE64_LENGTHS[lengthIndex] ? 15 : 3);
 		}
+		for (var barButton = 0; barButton < 8; barButton++) {
+			var barLevel = 0;
+			if (barButton < pattern.bars.length) {
+				barLevel = barButton === pattern.currentBar ? 15 :
+					(barButton === playback.bar && pattern.running ? 10 : 4);
+			} else if (barButton === pattern.bars.length) barLevel = 2;
+			setEditorShellLevel(levels, barButton + 4, SEQUENCE64_LENGTH_ROW, barLevel);
+		}
+		setEditorShellLevel(levels, 12, SEQUENCE64_LENGTH_ROW, pattern.bars.length > 1 ? 6 : 2);
+		setEditorShellLevel(levels, 13, SEQUENCE64_LENGTH_ROW, pattern.bars.length > 1 ? 6 : 2);
+		setEditorShellLevel(levels, 14, SEQUENCE64_LENGTH_ROW, pattern.bars.length < 8 ? 6 : 2);
+		setEditorShellLevel(levels, 15, SEQUENCE64_LENGTH_ROW,
+			sequence64RemoveBarArmedUntil > Date.now() ? 12 : (pattern.bars.length > 1 ? 5 : 2));
 		setEditorShellLevel(levels, 0, SEQUENCE64_TRANSPORT_ROW, pattern.running ? 15 : 4);
 		setEditorShellLevel(levels, 1, SEQUENCE64_TRANSPORT_ROW, sequence64LockRecordHeld ? 15 : 4);
 		setEditorShellLevel(levels, 15, SEQUENCE64_TRANSPORT_ROW,
@@ -1674,7 +1750,9 @@ function setCurrentSequence64Running(enabled) {
 	pattern.running = next;
 	if (next) captureSequence64StartSnapshot();
 	else releaseSequence64Gates();
-	workspace.lastSequencedStep = currentSequence64StepIndex();
+	var playback = sequence64PlaybackLocation(pattern);
+	workspace.lastSequencedStep = playback.step;
+	workspace.lastSequencedBar = playback.bar;
 	outlet(2, "editor_run", workspace.targetType, workspace.targetId + 1, next);
 	redrawEditorShellDiff();
 }
@@ -1699,11 +1777,12 @@ function applySequence64StepLock(parameter, lock, step, trackIdx) {
 	}
 }
 
-function runSequence64Step(stepIndex) {
+function runSequence64Step(barIndex, stepIndex) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var pattern = currentSequence64Pattern();
 	if (!pattern || !pattern.running) return 0;
-	var step = pattern.steps[stepIndex];
+	var bar = pattern.bars[barIndex];
+	var step = bar ? bar.steps[stepIndex] : null;
 	if (!step || (!step.cut && !sequence64StepHasLocks(step)) || !editorProbabilityPass(step.probability)) return 0;
 	var trackIdx = sequence64StepTrack(step);
 	for (var parameter in step.locks) applySequence64StepLock(parameter, step.locks[parameter], step, trackIdx);
@@ -1728,10 +1807,12 @@ function advanceSequence64ClockSubstep() {
 	var workspace = ensureEditorWorkspaceDefaults();
 	if (!workspace.active) return 0;
 	advanceSequence64Shapes();
-	var nextStep = currentSequence64StepIndex();
-	if (workspace.lastSequencedStep === nextStep) return 0;
-	workspace.lastSequencedStep = nextStep;
-	var fired = runSequence64Step(nextStep);
+	var playback = sequence64PlaybackLocation(currentSequence64Pattern());
+	if (workspace.lastSequencedStep === playback.step &&
+		workspace.lastSequencedBar === playback.bar) return 0;
+	workspace.lastSequencedStep = playback.step;
+	workspace.lastSequencedBar = playback.bar;
+	var fired = runSequence64Step(playback.bar, playback.step);
 	if (editorWorkspaceAvailable() && !workspace.choosing && workspace.view64 === "sequence") {
 		return redrawEditorShellDiff();
 	}
@@ -1957,7 +2038,7 @@ function toggleSequence64Step(stepIndex) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var pattern = currentSequence64Pattern();
 	if (!pattern || stepIndex < 0 || stepIndex >= 64) return;
-	var step = pattern.steps[stepIndex];
+	var step = currentSequence64EditBar(pattern).steps[stepIndex];
 	if (step.cut) step.cut = null;
 	else step.cut = sequence64DefaultCutForStep(stepIndex);
 	outlet(2, "editor_step", workspace.targetType, workspace.targetId + 1,
@@ -1969,7 +2050,7 @@ function sequence64SetLockValue(parameter, column) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var pattern = currentSequence64Pattern();
 	if (!pattern || sequence64HeldStep < 0) return;
-	var step = pattern.steps[sequence64HeldStep];
+	var step = currentSequence64EditBar(pattern).steps[sequence64HeldStep];
 	sequence64HeldStepChanged = true;
 	if (parameter === "probability") {
 		step.probability = clamp(column, 0, 15);
@@ -1992,7 +2073,7 @@ function sequence64SetLockValue(parameter, column) {
 function sequence64ClearSelectedLock() {
 	var pattern = currentSequence64Pattern();
 	if (!pattern || sequence64HeldStep < 0) return;
-	var step = pattern.steps[sequence64HeldStep];
+	var step = currentSequence64EditBar(pattern).steps[sequence64HeldStep];
 	if (sequence64EditParameter === "probability") step.probability = 15;
 	else if (sequence64EditParameter === "gateLength") {
 		if (step.cut) step.cut.gateLength = 1;
@@ -2007,7 +2088,7 @@ function sequence64SetBehavior(column) {
 	if (sequence64EditParameter !== "volume" && sequence64EditParameter !== "filter") return;
 	var pattern = currentSequence64Pattern();
 	if (!pattern || sequence64HeldStep < 0) return;
-	var step = pattern.steps[sequence64HeldStep];
+	var step = currentSequence64EditBar(pattern).steps[sequence64HeldStep];
 	var values = currentSequence64ParameterValues();
 	if (!step.locks[sequence64EditParameter]) {
 		step.locks[sequence64EditParameter] = {
@@ -2025,11 +2106,13 @@ function clearCurrentSequence64Pattern() {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var pattern = currentSequence64Pattern();
 	if (!pattern) return;
-	for (var i = 0; i < 64; i++) pattern.steps[i] = createSequence64Step();
+	var bar = currentSequence64EditBar(pattern);
+	for (var i = 0; i < 64; i++) bar.steps[i] = createSequence64Step();
 	pattern.running = 0;
 	releaseSequence64Gates();
 	sequence64ClearArmedUntil = 0;
-	outlet(2, "editor_steps_cleared", workspace.targetType, workspace.targetId + 1);
+	outlet(2, "editor_steps_cleared", workspace.targetType, workspace.targetId + 1,
+		pattern.currentBar + 1);
 	redrawEditorShellDiff();
 }
 
@@ -2043,12 +2126,75 @@ function armOrClearSequence64Pattern() {
 	}
 }
 
+function selectSequence64Bar(barIndex) {
+	var pattern = currentSequence64Pattern();
+	if (!pattern) return;
+	pattern.currentBar = clamp(parseInt(barIndex, 10) || 0, 0, pattern.bars.length - 1);
+	sequence64HeldStep = -1;
+	sequence64HeldStepChanged = false;
+	sequence64RemoveBarArmedUntil = 0;
+	outlet(2, "editor_bar", pattern.currentBar + 1, pattern.bars.length);
+	redrawEditorShellDiff();
+}
+
+function addSequence64Bar() {
+	var pattern = currentSequence64Pattern();
+	if (!pattern || pattern.bars.length >= 8) return false;
+	pattern.bars.push(normalizeSequence64Bar(null, null, 64));
+	pattern.currentBar = pattern.bars.length - 1;
+	pattern.running = 0;
+	releaseSequence64Gates();
+	sequence64RemoveBarArmedUntil = 0;
+	outlet(2, "editor_bar_added", pattern.currentBar + 1, pattern.bars.length);
+	redrawEditorShellDiff();
+	return true;
+}
+
+function removeCurrentSequence64Bar() {
+	var pattern = currentSequence64Pattern();
+	if (!pattern || pattern.bars.length <= 1) return false;
+	var removed = pattern.currentBar;
+	pattern.bars.splice(removed, 1);
+	pattern.currentBar = clamp(removed, 0, pattern.bars.length - 1);
+	pattern.steps = pattern.bars[0].steps;
+	pattern.length = pattern.bars[0].length;
+	pattern.running = 0;
+	releaseSequence64Gates();
+	sequence64RemoveBarArmedUntil = 0;
+	outlet(2, "editor_bar_removed", removed + 1, pattern.bars.length);
+	redrawEditorShellDiff();
+	return true;
+}
+
+function armOrRemoveSequence64Bar() {
+	var pattern = currentSequence64Pattern();
+	if (!pattern || pattern.bars.length <= 1) return;
+	var now = Date.now();
+	if (sequence64RemoveBarArmedUntil > now) removeCurrentSequence64Bar();
+	else {
+		sequence64RemoveBarArmedUntil = now + 1200;
+		outlet(2, "editor_bar_remove_armed", pattern.currentBar + 1);
+		redrawEditorShellDiff();
+	}
+}
+
+function setCurrentSequence64BarLength(length) {
+	var pattern = currentSequence64Pattern();
+	if (!pattern || SEQUENCE64_LENGTHS.indexOf(length) < 0) return;
+	var bar = currentSequence64EditBar(pattern);
+	bar.length = length;
+	if (pattern.currentBar === 0) pattern.length = length;
+	outlet(2, "editor_length", pattern.currentBar + 1, length);
+	redrawEditorShellDiff();
+}
+
 function recordSequence64SetupLock(parameter, value) {
 	if (!sequence64LockRecordHeld) return;
 	var pattern = currentSequence64Pattern();
 	if (!pattern) return;
-	var stepIndex = currentSequence64StepIndex();
-	var step = pattern.steps[stepIndex];
+	var playback = sequence64PlaybackLocation(pattern);
+	var stepIndex = playback.step;
+	var step = pattern.bars[playback.bar].steps[stepIndex];
 	if (parameter === "probability") step.probability = clamp(value, 0, 15);
 	else step.locks[parameter] = { value: value, behavior: "set" };
 	outlet(2, "editor_lock_recorded", stepIndex + 1, parameter, value);
@@ -2163,9 +2309,23 @@ function handleSequence64WorkspaceKey(col, row, state) {
 	}
 
 	if (row === SEQUENCE64_LENGTH_ROW && col < SEQUENCE64_LENGTHS.length) {
-		currentSequence64Pattern().length = SEQUENCE64_LENGTHS[col];
-		outlet(2, "editor_length", currentSequence64Pattern().length);
-		redrawEditorShellDiff();
+		setCurrentSequence64BarLength(SEQUENCE64_LENGTHS[col]);
+	} else if (row === SEQUENCE64_LENGTH_ROW && col >= 4 && col < 12) {
+		var requestedBar = col - 4;
+		var navigationPattern = currentSequence64Pattern();
+		if (requestedBar < navigationPattern.bars.length) selectSequence64Bar(requestedBar);
+		else if (requestedBar === navigationPattern.bars.length) addSequence64Bar();
+	} else if (row === SEQUENCE64_LENGTH_ROW && col === 12) {
+		var previousPattern = currentSequence64Pattern();
+		selectSequence64Bar((previousPattern.currentBar - 1 + previousPattern.bars.length) %
+			previousPattern.bars.length);
+	} else if (row === SEQUENCE64_LENGTH_ROW && col === 13) {
+		var nextPattern = currentSequence64Pattern();
+		selectSequence64Bar((nextPattern.currentBar + 1) % nextPattern.bars.length);
+	} else if (row === SEQUENCE64_LENGTH_ROW && col === 14) {
+		addSequence64Bar();
+	} else if (row === SEQUENCE64_LENGTH_ROW && col === 15) {
+		armOrRemoveSequence64Bar();
 	} else if (row === SEQUENCE64_TRANSPORT_ROW && col === 0) {
 		setCurrentSequence64Running(!currentSequence64Pattern().running);
 	} else if (row === SEQUENCE64_TRANSPORT_ROW && col === 15) {
@@ -2194,7 +2354,11 @@ function selectEditorTarget(targetType, targetId) {
 	workspace.targetType = targetType;
 	workspace.targetId = targetId;
 	workspace.active = true;
-	workspace.lastSequencedStep = sequence64LayoutEnabled() ? currentSequence64StepIndex() : currentEditorClockStep();
+	if (sequence64LayoutEnabled()) {
+		var selectedPlayback = sequence64PlaybackLocation(currentSequence64Pattern());
+		workspace.lastSequencedStep = selectedPlayback.step;
+		workspace.lastSequencedBar = selectedPlayback.bar;
+	} else workspace.lastSequencedStep = currentEditorClockStep();
 	if (EDITOR_IDS.indexOf(workspace.editorId) < 0) workspace.editorId = "step";
 	workspace.view64 = "sequence";
 	var pattern64 = ensureSequence64Pattern(targetType, targetId);
@@ -3268,13 +3432,14 @@ function captureSequence64RowPosition(trackIdx, pos) {
 	if (workspace.targetType === "group" && trackChannelIndex(trackIdx) !== workspace.targetId) return false;
 	var pattern = currentSequence64Pattern();
 	if (!pattern) return false;
-	var stepIndex = currentSequence64StepIndex();
-	var step = pattern.steps[stepIndex];
+	var playback = sequence64PlaybackLocation(pattern);
+	var stepIndex = playback.step;
+	var step = pattern.bars[playback.bar].steps[stepIndex];
 	var existingGateLength = step.cut ? step.cut.gateLength : 1;
 	step.cut = { track: trackIdx, slice: position, gateLength: existingGateLength };
 	sequence64PendingLiveCut = null;
 	outlet(2, "editor_live_cut", workspace.targetType, workspace.targetId + 1,
-		stepIndex + 1, trackIdx + 1, position + 1);
+		playback.bar + 1, stepIndex + 1, trackIdx + 1, position + 1);
 	return true;
 }
 

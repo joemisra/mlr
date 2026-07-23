@@ -900,6 +900,102 @@ test('sequence64 maps one complete bar across the four 16-cell rows', () => {
 	assert.deepEqual(Array.from(router.sequence64StepCoords(48)), [0, 11]);
 });
 
+test('sequence64 preserves a saved single-bar pattern as bar 1', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	const savedSteps = Array.from({ length: 64 }, () => ({
+		cut: null,
+		locks: {},
+		probability: 15
+	}));
+	savedSteps[20].cut = { track: 0, slice: 11, gateLength: 1 };
+	router.s.editorWorkspace.patterns64['track:0'] = {
+		version: 1,
+		length: 32,
+		running: 0,
+		legacyMigrated: 1,
+		steps: savedSteps
+	};
+
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	assert.equal(pattern.version, 2);
+	assert.equal(pattern.bars.length, 1);
+	assert.equal(pattern.bars[0].length, 32);
+	assert.equal(pattern.bars[0].steps[20].cut.slice, 11);
+	assert.equal(pattern.steps, pattern.bars[0].steps);
+	assert.equal(pattern.length, pattern.bars[0].length);
+});
+
+test('sequence64 bar navigation keeps each 64-step bar independent', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+
+	// Bar 1, step 3.
+	router.dispatch(2, 8, 1);
+	router.dispatch(2, 8, 0);
+	assert.equal(pattern.bars.length, 1);
+	assert.notEqual(pattern.bars[0].steps[2].cut, null);
+
+	// Row 13 column 15 adds and selects bar 2.
+	router.dispatch(14, 12, 1);
+	assert.equal(pattern.bars.length, 2);
+	assert.equal(pattern.currentBar, 1);
+	assert.equal(pattern.running, 0);
+	assert.equal(pattern.bars[1].steps[2].cut, null);
+
+	router.dispatch(6, 8, 1);
+	router.dispatch(6, 8, 0);
+	assert.notEqual(pattern.bars[1].steps[6].cut, null);
+	assert.equal(pattern.bars[0].steps[6].cut, null);
+
+	// Direct bar buttons begin at row 13 column 5.
+	router.dispatch(4, 12, 1);
+	assert.equal(pattern.currentBar, 0);
+	assert.equal(hasLed(harness, 4, 12, 15), true);
+	router.dispatch(13, 12, 1);
+	assert.equal(pattern.currentBar, 1);
+
+	// Removing a bar is deliberately a double press on row 13 column 16.
+	router.dispatch(15, 12, 1);
+	assert.equal(pattern.bars.length, 2);
+	router.dispatch(15, 12, 1);
+	assert.equal(pattern.bars.length, 1);
+	assert.equal(pattern.currentBar, 0);
+	assert.notEqual(pattern.steps[2].cut, null);
+});
+
+test('sequence64 playback crosses bar boundaries without resetting step phase', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	router.addSequence64Bar();
+	pattern.bars[0].steps[63].cut = { track: 0, slice: 4, gateLength: 1 };
+	pattern.bars[1].steps[0].cut = { track: 0, slice: 9, gateLength: 1 };
+	router.sequence64ClockPosition = 62;
+	router.s.editorWorkspace.lastSequencedBar = 0;
+	router.s.editorWorkspace.lastSequencedStep = 62;
+	router.setCurrentSequence64Running(1);
+	harness.clearLog();
+
+	router.advanceSequence64ClockSubstep();
+	assert.equal(router.currentSequence64BarIndex(), 0);
+	assert.equal(router.currentSequence64StepIndex(), 63);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 4 && message[2] === 1), true);
+
+	harness.clearLog();
+	router.advanceSequence64ClockSubstep();
+	assert.equal(router.currentSequence64BarIndex(), 1);
+	assert.equal(router.currentSequence64StepIndex(), 0);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 9 && message[2] === 1), true);
+});
+
 test('sequence64 parameter Set locks latch and Stop releases only active Gate shapes', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
@@ -1023,6 +1119,25 @@ test('a cut pressed while live record is held may commit after the button is rel
 	router.chRowPos(2, 9);
 
 	assert.equal(router.s.editorWorkspace.patterns64['track:0'].steps[0].cut.slice, 9);
+});
+
+test('live recording writes into the currently playing bar rather than the viewed bar', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	router.addSequence64Bar();
+	router.selectSequence64Bar(0);
+	router.sequence64ClockPosition = 64;
+	router.setKmod(1);
+	router.dispatch(13, 0, 1);
+	router.dispatch(5, 1, 1);
+	router.chRowPos(2, 5);
+
+	assert.equal(pattern.currentBar, 0);
+	assert.equal(pattern.bars[0].steps[0].cut, null);
+	assert.equal(pattern.bars[1].steps[0].cut.slice, 5);
 });
 
 test('sequence64 Setup consolidates target controls and momentary lock recording writes the current step', () => {

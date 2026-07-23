@@ -42,10 +42,12 @@ Audio Engine (p chnls / playback heads)
   │       intervals: four steps/pulse, eight times the prototype rate)
   │      (next tr_pulse reconciles any late scheduled subdivisions, preserving
   │       exactly 64 steps/bar and preventing cumulative section phase drift)
+  │      (one bar is the default; up to eight per-target bars play consecutively
+  │       while the user may independently view/edit another bar)
   │      (Run resets off whenever a target is selected; Stop releases Gate
   │       shapes but leaves ordinary MLR cuts and Set locks latched)
   │    main-page hold col 14 + matching cut → wait for quantized chRowPos
-  │      → store exact track/slice at current 64-step position
+  │      → store exact track/slice at current playing bar/step
   │    optional editorBrightnessColors → colorcell beside changed level cells
   │      (off by default; legacy 0–15 levels remain authoritative)
   │    drawModPage / animateLeds → led() calls (kmod 2 only)
@@ -126,6 +128,13 @@ while mode 2 is visible. Rows 9–12 map row-major to steps 1–64; row 16 switc
 between Sequence and Setup or exits. The selected target persists on the main
 page so holding physical column 14 there can record cuts, but no lower-half LEDs
 or legacy key routes are intercepted outside mode 2.
+
+Each target starts with one bar and may contain up to eight. Sequence row 13
+chooses a viewed bar, steps through bars, adds a bar, or removes one with a
+double press. Bars play consecutively; switching the viewed bar is non-disruptive
+and hides the playhead when a different bar is playing. Structural add/remove
+operations stop Run. Live cuts and Setup lock recording follow the playing bar,
+not the independently viewed bar.
 
 `chRowPos` is the commit point for live cuts. A normal-mode press first creates a
 short-lived pending record candidate; only the matching track's returned,

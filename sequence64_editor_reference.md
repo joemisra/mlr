@@ -21,9 +21,14 @@ Each group and direct track owns an independent pattern:
 
 ```text
 pattern = {
-  version: 1,
-  length: 16 | 32 | 48 | 64,
+  version: 2,
   running: 0 | 1,
+  currentBar: 0..7,
+  bars: [1..8 × bar]
+}
+
+bar = {
+  length: 16 | 32 | 48 | 64,
   steps: [64 × step]
 }
 
@@ -41,20 +46,26 @@ step = {
 }
 ```
 
+New targets start with one 64-step bar. Version-1 and legacy single-bar data
+becomes bar 1 without being deleted. Internally, `pattern.length` and
+`pattern.steps` remain compatibility aliases for bar 1.
+
 For a manual group step, `track: -1` resolves the group's active track when the
 step plays. Live recording always writes an exact track. A direct-track pattern
 always resolves to its selected track.
 
 `running`, held buttons, chooser state, live-record state, active shapes, and
-clear confirmation are runtime state. A JS reload closes the editor; choosing a
-target again resets Run while preserving its pattern.
+clear/remove confirmation are runtime state. The viewed bar is saved per target.
+A JS reload closes the editor; choosing a target again resets Run while
+preserving its pattern.
 
 ## Event semantics
 
 The clock advances four evenly spaced sequence steps per `tr_pulse`: one at the
 incoming pulse and three at measured quarter-pulse intervals. This is eight
 times the six-page prototype rate, so all 64 steps occupy 16 master pulses. The
-four 16-step parts remain simultaneously visible on rows 9–12. On a step:
+four 16-step parts of the viewed bar remain simultaneously visible on rows
+9–12:
 
 - Row 9 is bar subdivisions 1–16.
 - Row 10 is subdivisions 17–32.
@@ -64,6 +75,14 @@ four 16-step parts remain simultaneously visible on rows 9–12. On a step:
 If Max delivers a scheduled quarter-pulse callback late, the next master pulse
 accounts for the missing subdivision before advancing. This keeps every bar at
 exactly 64 steps instead of allowing alternate 16-step sections to drift.
+
+One bar is the default. Up to eight bars may be added; playback traverses their
+active lengths consecutively and then loops to bar 1. Row 13 selects the viewed
+bar independently of the playing bar, so another bar can be inspected or edited
+without interrupting Run. Live recording and momentary Setup lock recording
+always write the playing bar and step. Adding or removing a bar stops Run;
+removal and clearing the viewed bar each require a second press within 1.2
+seconds.
 
 1. Test the step probability.
 2. Apply persistent track locks and start or replace parameter shapes.
@@ -101,21 +120,26 @@ send `N[filterfx]level <normalized-value> <ramp-ms>` as a future DSP hook.
    change occurred.
 3. Tap steps 1, 17, 33, and 49. Set length to 64 and press Run. Confirm the
    four rows advance in order and stopping leaves the last cut playing.
-4. Hold a step. Add probability, volume Set, and gate length. Repeat with Pluck,
+4. Add bar 2 from row 13, then use the direct bar buttons and previous/next
+   buttons to switch between bars. Enter different cuts on both bars and confirm
+   Run crosses the boundary without resetting phase. While bar 1 is playing,
+   view bar 2 and confirm only the bar-1 playhead indicator is hidden.
+5. Hold a step. Add probability, volume Set, and gate length. Repeat with Pluck,
    Swell, Gate, and Pulse; confirm the visible gate tail and audible modulation.
-5. Stop during a Gate and during a Swell. Gate should release; Swell should
+6. Stop during a Gate and during a Swell. Gate should release; Swell should
    finish. Press Clear Motion, then Restore Start State.
-6. Return to the main page. Hold row 1 column 14 and perform cuts slightly ahead
-   of the beat. Confirm the stored step uses the audible quantized slice. For a
-   group target, play two tracks in the same group and one in another group; only
-   the first two should record.
-7. In Sequence, hold row 14 column 2 and press Setup on row 16. Change volume,
+7. Return to the main page. Hold row 1 column 14 and perform cuts slightly ahead
+   of the beat. Confirm the stored step uses the audible quantized slice and the
+   playing bar, even if another bar is viewed. For a group target, play two
+   tracks in the same group and one in another group; only the first two should
+   record.
+8. In Sequence, hold row 14 column 2 and press Setup on row 16. Change volume,
    octave, and loop division, then release row 14 column 2. Confirm Set locks
    appear at the current sequence step. During this gesture the volume row
    previews the modulation layer; with Record released it controls the base
    channel volume as usual.
-8. Exit with row 16 column 16. Confirm the lower mode-2 controls work normally.
-9. Repeat navigation and monochrome-level checks on Grid Zero. Do not enable
+9. Exit with row 16 column 16. Confirm the lower mode-2 controls work normally.
+10. Repeat navigation and monochrome-level checks on Grid Zero. Do not enable
    `editorBrightnessColors`; its default is off.
 
 Run the automated checks before a hardware pass:
