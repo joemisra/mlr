@@ -185,11 +185,24 @@ restores the saved six-page prototype; `editorLayout sequence64` returns to the
 new default. Legacy 16-step data is copied once into the first 16 new steps and
 is never deleted by migration.
 
-Optional brightness-linked MechaTrellis color is available with
-`editorBrightnessColors 1` and disabled with `editorBrightnessColors 0`. It
-adds persistent color updates only when editor cell levels change. Standard
-0–15 levels remain authoritative, so monochrome Grid Zero behavior is identical;
-the option defaults off to avoid extra private OSC traffic.
+Semantic MechaTrellis editor color is available with `editorColors 1` and
+disabled with `editorColors 0`; the older `editorBrightnessColors` name remains
+an alias. Brightness still communicates state through the standard 0–15 levels,
+while hue communicates function:
+
+| Color family | Editor meaning |
+|--------------|----------------|
+| Cyan / green / amber / magenta | Trigger / gated trigger / lock / trigger+lock |
+| Blue-violet / white / orange | Gate tail / playhead / held step |
+| Green / pink / red | Run or Add / Record / destructive action or Exit |
+| Blue / amber | Sequence and bar navigation / Setup |
+
+Lock parameters and predefined shapes each have stable colors. Setup uses group
+colors plus dedicated families for volume, octave, reverse, randomization,
+division, loop bounds, latch, timestretch, and mute. Full editor palettes are
+paced; subsequent state and color-only changes use cell diffs. Standard levels
+remain authoritative, so monochrome Grid Zero behavior is identical. The option
+defaults off to avoid private OSC traffic on non-color hardware.
 
 ### Mode 2: columns 10–12
 

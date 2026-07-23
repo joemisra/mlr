@@ -671,7 +671,7 @@ test('autowatch reload restores FX unity and closes the editor while preserving 
 		message[0] === '1[gatefx]level' && message[1] === 1 && message[2] === 8), true);
 });
 
-test('optional brightness colors accompany diffs without replacing monochrome levels', () => {
+test('optional editor colors accompany diffs without replacing monochrome levels', () => {
 	const harness = createHarness();
 	const router = harness.context;
 	selectTrack(harness, 0);
@@ -684,6 +684,114 @@ test('optional brightness colors accompany diffs without replacing monochrome le
 		message[0] === 1 && message[1] === 'colorcell' &&
 		message[2] === 4 && message[3] === 9), true);
 	assert.equal(harness.outlets.some((message) => message[1] === 'level8cell'), false);
+});
+
+test('sequence64 semantic colors distinguish triggers, locks, gates, and transport roles', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	pattern.steps[1].cut = { track: 0, slice: 1, gateLength: 1 };
+	pattern.steps[2].locks.volume = { value: 7, behavior: 'set' };
+	pattern.steps[3].cut = { track: 0, slice: 3, gateLength: 1 };
+	pattern.steps[3].locks.reverse = { value: 1, behavior: 'set' };
+	pattern.steps[4].cut = { track: 0, slice: 4, gateLength: 3 };
+	const levels = router.buildEditorShellLevels();
+	const colors = router.buildEditorShellColors(levels);
+	const colorAt = (x, y) => Array.from(colors[router.editorShellLevelIndex(x, y)]);
+
+	assert.deepEqual(colorAt(0, 8), [18, 46, 70]);
+	assert.deepEqual(colorAt(1, 8), [0, 210, 255]);
+	assert.deepEqual(colorAt(2, 8), [255, 180, 20]);
+	assert.deepEqual(colorAt(3, 8), [210, 65, 255]);
+	assert.deepEqual(colorAt(4, 8), [45, 230, 105]);
+	assert.deepEqual(colorAt(5, 8), [70, 90, 225]);
+	assert.deepEqual(colorAt(14, 12), [45, 230, 95]);
+	assert.deepEqual(colorAt(15, 12), [255, 55, 45]);
+	assert.deepEqual(colorAt(0, 13), [35, 235, 90]);
+	assert.deepEqual(colorAt(1, 13), [255, 45, 110]);
+	assert.deepEqual(colorAt(0, 15), [0, 210, 255]);
+	assert.deepEqual(colorAt(1, 15), [255, 175, 25]);
+	assert.deepEqual(colorAt(15, 15), [255, 55, 45]);
+});
+
+test('sequence64 lock and Setup controls retain distinct semantic color families', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.sequence64HeldStep = 0;
+	router.sequence64EditParameter = 'volume';
+	let levels = router.buildEditorShellLevels();
+	let colors = router.buildEditorShellColors(levels);
+	let colorAt = (x, y) => Array.from(colors[router.editorShellLevelIndex(x, y)]);
+
+	assert.deepEqual(colorAt(0, 12), [0, 210, 255]);
+	assert.deepEqual(colorAt(1, 12), [245, 205, 30]);
+	assert.deepEqual(colorAt(2, 12), [50, 225, 100]);
+	assert.deepEqual(colorAt(8, 13), [50, 225, 100]);
+	assert.deepEqual(colorAt(2, 14), [255, 125, 25]);
+	assert.deepEqual(colorAt(4, 14), [45, 230, 105]);
+
+	router.sequence64HeldStep = -1;
+	router.s.editorWorkspace.view64 = 'setup';
+	levels = router.buildEditorShellLevels();
+	colors = router.buildEditorShellColors(levels);
+	colorAt = (x, y) => Array.from(colors[router.editorShellLevelIndex(x, y)]);
+	assert.deepEqual(colorAt(0, 8), [255, 65, 55]);
+	assert.deepEqual(colorAt(7, 8), [235, 55, 190]);
+	assert.deepEqual(colorAt(8, 9), [50, 225, 100]);
+	assert.deepEqual(colorAt(3, 10), [85, 125, 255]);
+	assert.deepEqual(colorAt(0, 11), [255, 65, 40]);
+	assert.deepEqual(colorAt(1, 11), [220, 55, 255]);
+	assert.deepEqual(colorAt(2, 11), [20, 190, 220]);
+	assert.deepEqual(colorAt(0, 12), [35, 220, 100]);
+	assert.deepEqual(colorAt(0, 13), [255, 100, 35]);
+	assert.deepEqual(colorAt(3, 14), [255, 45, 45]);
+});
+
+test('sequence64 emits semantic color-only diffs while levels remain authoritative', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.editorColors(1);
+	harness.clearLog();
+
+	router.dispatch(0, 8, 1);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'colorcell' &&
+		message[2] === 0 && message[3] === 8 &&
+		message[4] === 255 && message[5] === 105 && message[6] === 25), true);
+	router.dispatch(0, 8, 0);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'colorcell' &&
+		message[2] === 0 && message[3] === 8 &&
+		message[4] === 0 && message[5] === 210 && message[6] === 255), true);
+
+	router.dispatch(0, 8, 1);
+	harness.clearLog();
+	router.dispatch(1, 12, 1);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'colorcell' &&
+		message[2] === 5 && message[3] === 13), true);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'setcell' &&
+		message[2] === 5 && message[3] === 13), false);
+	assert.equal(harness.outlets.some((message) => message[1] === 'level8cell'), false);
+});
+
+test('sequence64 semantic palette is rebuilt after leaving and returning to mode 2', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.s.editorWorkspace.patterns64['track:0'].steps[0].cut =
+		{ track: 0, slice: 0, gateLength: 1 };
+	router.editorColors(1);
+	router.setKmod(1);
+	router.setKmod(2);
+
+	const queuedStepColors = Array.from(router.pageColorQueue).filter((command) =>
+		command[0] === 'colorcell' && command[1] === 0 && command[2] === 8);
+	assert.deepEqual(Array.from(queuedStepColors.at(-1)), ['colorcell', 0, 8, 0, 210, 255]);
 });
 
 test('editor entry is unavailable on a 16x8 grid or when disabled', () => {

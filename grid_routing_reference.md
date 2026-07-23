@@ -49,7 +49,7 @@ Audio Engine (p chnls / playback heads)
   │    main-page hold col 14 + matching cut → wait for quantized chRowPos
   │      → buffer exact track/slice and absolute sequence-clock position
   │      → on release, round take to nearest 16-step beat and create 1–8 bars
-  │    optional editorBrightnessColors → colorcell beside changed level cells
+  │    optional editorColors → paced semantic palette + color-only cell diffs
   │      (off by default; legacy 0–15 levels remain authoritative)
   │    drawModPage / animateLeds → led() calls (kmod 2 only)
   │

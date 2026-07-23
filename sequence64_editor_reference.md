@@ -1,6 +1,6 @@
 # 64-Step Editor Reference
 
-Updated 2026-07-22. Grid coordinates in this document are one-based.
+Updated 2026-07-23. Grid coordinates in this document are one-based.
 
 ## Safety and compatibility
 
@@ -14,6 +14,23 @@ Updated 2026-07-22. Grid coordinates in this document are one-based.
   not participate in sequencing or state decisions.
 - `editorLayout legacy` selects the checkpointed six-page implementation;
   `editorLayout sequence64` selects the default implementation.
+
+## Optional semantic colors
+
+Send `editorColors 1` for the MechaTrellis palette; send `editorColors 0` for
+monochrome hardware. The legacy `editorBrightnessColors` command is an alias.
+The Sequence view uses cyan for triggers, green for gated triggers, amber for
+locks, magenta for combined trigger+lock steps, blue-violet for gate tails,
+white for the playhead, and orange for the held step. Run/Add are green,
+recording is pink, destructive controls are red, Sequence navigation is cyan,
+and Setup navigation is amber.
+
+Each lock parameter and predefined shape also has a stable color. Setup reuses
+the eight group colors and gives volume, octave, reverse, randomization, loop
+division, loop bounds, latch, timestretch, and mute separate families. Color
+changes can be sent even when a cell's level does not change. The standard
+0–15 level remains the complete state representation and is always sent through
+the ordinary renderer.
 
 ## Saved model
 
@@ -153,8 +170,10 @@ send `N[filterfx]level <normalized-value> <ramp-ms>` as a future DSP hook.
    previews the modulation layer; with Record released it controls the base
    channel volume as usual.
 9. Exit with row 16 column 16. Confirm the lower mode-2 controls work normally.
-10. Repeat navigation and monochrome-level checks on Grid Zero. Do not enable
-   `editorBrightnessColors`; its default is off.
+10. On MechaTrellis, enable `editorColors 1` and verify the trigger/lock/gate,
+   navigation, parameter, shape, and Setup color families. Repeat navigation
+   and monochrome-level checks on Grid Zero with `editorColors 0`; its default
+   is off.
 
 Run the automated checks before a hardware pass:
 

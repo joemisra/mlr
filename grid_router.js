@@ -27,7 +27,8 @@ outlets = 4;
  *            - applyPageColors [1-4]          (apply an initial page palette)
  *            - initializePageColorPresets      (rebuild page slots after reset)
  *            - autoPageColors 0|1             (disable/enable palettes)
- *            - editorBrightnessColors 0|1     (optional level-linked editor color)
+ *            - editorColors 0|1               (optional semantic editor colors)
+ *            - editorBrightnessColors 0|1     (backward-compatible alias)
  *            - clearEditorTargetData / clearEditorAllData
  *                                              (reset extended-editor data)
  *            - rgbCell/rgbAll, level8Cell/level8All, intensity8
@@ -382,6 +383,49 @@ var GROUP_COLORS = [
 	[0, 195, 210], [35, 125, 255], [135, 75, 255], [235, 55, 190]
 ];
 
+var SEQUENCE64_COLORS = {
+	neutral: [18, 46, 70],
+	unavailable: [8, 12, 18],
+	trigger: [0, 210, 255],
+	triggerGate: [45, 230, 105],
+	lock: [255, 180, 20],
+	triggerLock: [210, 65, 255],
+	gateTail: [70, 90, 225],
+	playhead: [255, 255, 255],
+	held: [255, 105, 25],
+	length: [45, 190, 255],
+	bar: [90, 115, 255],
+	add: [45, 230, 95],
+	remove: [255, 55, 45],
+	run: [35, 235, 90],
+	record: [255, 45, 110],
+	motion: [255, 135, 25],
+	restore: [45, 140, 255],
+	sequence: [0, 210, 255],
+	setup: [255, 175, 25],
+	exit: [255, 55, 45],
+	volume: [50, 225, 100],
+	octave: [85, 125, 255],
+	reverse: [255, 65, 40],
+	random: [220, 55, 255],
+	division: [20, 190, 220],
+	loopStart: [35, 220, 100],
+	loopEnd: [255, 100, 35],
+	latch: [255, 165, 25],
+	stretch: [0, 205, 235],
+	mute: [255, 45, 45]
+};
+
+var SEQUENCE64_PARAMETER_COLORS = [
+	[0, 210, 255], [245, 205, 30], [50, 225, 100], [255, 135, 25],
+	[255, 65, 40], [125, 95, 255], [20, 190, 220], [235, 55, 190]
+];
+
+var SEQUENCE64_BEHAVIOR_COLORS = [
+	[235, 235, 255], [0, 210, 255], [255, 125, 25],
+	[155, 75, 255], [45, 230, 105], [235, 55, 190]
+];
+
 var initialPageColorTask = new Task(function () {
 	if (s.autoPageColors) initializePageColorPresets();
 }, this);
@@ -477,8 +521,7 @@ function invalidateEditorColorCache() {
 	for (var i = 0; i < editorColorCache.length; i++) editorColorCache[i] = "";
 }
 
-function emitEditorBrightnessColor(x, y, level) {
-	if (!s.editorBrightnessColors || y < EDITOR_FIRST_ROW) return;
+function editorBrightnessRgb(level) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var colorId = sequence64LayoutEnabled() ? workspace.view64 : workspace.editorId;
 	var range = EDITOR_COLOR_RANGES[colorId] || EDITOR_COLOR_RANGES.step;
@@ -488,18 +531,51 @@ function emitEditorBrightnessColor(x, y, level) {
 		rgb[channel] = clamp8(Math.round(range[0][channel] +
 			(range[1][channel] - range[0][channel]) * amount));
 	}
-	var cacheIndex = editorLevelIndex(x, y);
-	var signature = rgb.join(",");
-	if (editorColorCache[cacheIndex] === signature) return;
-	editorColorCache[cacheIndex] = signature;
-	outlet(1, "colorcell", x, y, rgb[0], rgb[1], rgb[2]);
+	return rgb;
 }
 
-function editorLed(x, y, level, emitBrightnessColor) {
+function removeQueuedEditorColorCell(x, y) {
+	for (var queued = pageColorQueue.length - 1; queued >= 0; queued--) {
+		var command = pageColorQueue[queued];
+		if (command[0] === "colorcell" && command[1] === x && command[2] === y) {
+			pageColorQueue.splice(queued, 1);
+		}
+	}
+}
+
+function clearQueuedEditorShellColors() {
+	for (var queued = pageColorQueue.length - 1; queued >= 0; queued--) {
+		var command = pageColorQueue[queued];
+		if (command[0] === "colorcell" && command[2] >= EDITOR_FIRST_ROW) {
+			editorColorCache[editorLevelIndex(command[1], command[2])] = "";
+			pageColorQueue.splice(queued, 1);
+		}
+	}
+}
+
+function emitEditorColor(x, y, rgb) {
+	if (!s.editorBrightnessColors || y < EDITOR_FIRST_ROW || !rgb) return;
+	var normalized = [clamp8(rgb[0]), clamp8(rgb[1]), clamp8(rgb[2])];
+	var cacheIndex = editorLevelIndex(x, y);
+	var signature = normalized.join(",");
+	if (editorColorCache[cacheIndex] === signature) return;
+	editorColorCache[cacheIndex] = signature;
+	removeQueuedEditorColorCell(x, y);
+	outlet(1, "colorcell", x, y, normalized[0], normalized[1], normalized[2]);
+}
+
+function emitEditorBrightnessColor(x, y, level) {
+	emitEditorColor(x, y, editorBrightnessRgb(level));
+}
+
+function editorLed(x, y, level, emitBrightnessColor, rgb) {
 	var normalized = clamp(level | 0, 0, 15);
 	editorLevelCache[editorLevelIndex(x, y)] = normalized;
 	led(x, y, normalized);
-	if (emitBrightnessColor) emitEditorBrightnessColor(x, y, normalized);
+	if (emitBrightnessColor) {
+		if (rgb) emitEditorColor(x, y, rgb);
+		else emitEditorBrightnessColor(x, y, normalized);
+	}
 }
 
 function applyEditorLevelDiff(changes) {
@@ -511,7 +587,17 @@ function applyEditorLevelDiff(changes) {
 		var y = change[1] | 0;
 		var level = clamp(change[2] | 0, 0, 15);
 		if (x < 0 || x >= 16 || y < 0 || y >= 16) continue;
-		if (editorLevelCache[editorLevelIndex(x, y)] !== level) pending.push([x, y, level]);
+		var cacheIndex = editorLevelIndex(x, y);
+		var levelChanged = editorLevelCache[cacheIndex] !== level;
+		var rgb = null;
+		var colorChanged = false;
+		if (s.editorBrightnessColors) {
+			rgb = change.length > 3 && change[3] ? change[3] : editorBrightnessRgb(level);
+			colorChanged = editorColorCache[cacheIndex] !== rgb.join(",");
+		}
+		if (levelChanged || colorChanged) {
+			pending.push([x, y, level, levelChanged, rgb, colorChanged]);
+		}
 	}
 	if (!pending.length) return 0;
 
@@ -519,7 +605,8 @@ function applyEditorLevelDiff(changes) {
 	try {
 		withEditorOverlayDraw(function () {
 			for (var p = 0; p < pending.length; p++) {
-				editorLed(pending[p][0], pending[p][1], pending[p][2], true);
+				if (pending[p][3]) editorLed(pending[p][0], pending[p][1], pending[p][2], false);
+				if (pending[p][5]) emitEditorColor(pending[p][0], pending[p][1], pending[p][4]);
 			}
 		});
 	} finally {
@@ -531,6 +618,7 @@ function applyEditorLevelDiff(changes) {
 function redrawEditorWorkspaceFrame() {
 	if (s.kmod !== 2) return;
 	invalidateEditorLevelCache();
+	if (s.editorBrightnessColors) clearQueuedEditorShellColors();
 	messnamed("togridmatrixanim", "clear_anim");
 	outlet(1, "beginframe");
 	try {
@@ -1037,6 +1125,179 @@ function setEditorShellLevel(levels, x, y, level) {
 	levels[editorShellLevelIndex(x, y)] = clamp(level | 0, 0, 15);
 }
 
+function createEditorShellColors(defaultColor) {
+	var colors = new Array(16 * 8);
+	var fallback = defaultColor || SEQUENCE64_COLORS.neutral;
+	for (var i = 0; i < colors.length; i++) colors[i] = fallback;
+	return colors;
+}
+
+function setEditorShellColor(colors, x, y, rgb) {
+	if (x < 0 || x >= 16 || y < EDITOR_FIRST_ROW || y > EDITOR_NAV_ROW || !rgb) return;
+	colors[editorShellLevelIndex(x, y)] = rgb;
+}
+
+function sequence64GateTailMap(bar) {
+	var tails = new Array(64).fill(0);
+	if (!bar) return tails;
+	for (var source = 0; source < bar.length; source++) {
+		var step = bar.steps[source];
+		if (!step.cut || step.cut.gateLength <= 1) continue;
+		for (var tail = 1; tail < step.cut.gateLength && tail < bar.length; tail++) {
+			tails[(source + tail) % bar.length] = 1;
+		}
+	}
+	return tails;
+}
+
+function renderSequence64StepColors(colors, pattern, bar, playback) {
+	var tails = sequence64GateTailMap(bar);
+	for (var stepIndex = 0; stepIndex < 64; stepIndex++) {
+		var coords = sequence64StepCoords(stepIndex);
+		var step = bar.steps[stepIndex];
+		var rgb = stepIndex < bar.length ? SEQUENCE64_COLORS.neutral : SEQUENCE64_COLORS.unavailable;
+		if (tails[stepIndex]) rgb = SEQUENCE64_COLORS.gateTail;
+		if (sequence64StepHasLocks(step)) rgb = SEQUENCE64_COLORS.lock;
+		if (step.cut) {
+			rgb = step.cut.gateLength > 1 ? SEQUENCE64_COLORS.triggerGate : SEQUENCE64_COLORS.trigger;
+		}
+		if (step.cut && sequence64StepHasLocks(step)) rgb = SEQUENCE64_COLORS.triggerLock;
+		if (pattern.running && playback.bar === pattern.currentBar && playback.step === stepIndex) {
+			rgb = SEQUENCE64_COLORS.playhead;
+		}
+		if (sequence64HeldStep === stepIndex) rgb = SEQUENCE64_COLORS.held;
+		setEditorShellColor(colors, coords[0], coords[1], rgb);
+	}
+}
+
+function renderSequence64ControlColors(colors) {
+	if (sequence64HeldStep >= 0) {
+		var parameterIndex = SEQUENCE64_PARAMETERS.indexOf(sequence64EditParameter);
+		if (parameterIndex < 0) parameterIndex = 0;
+		for (var parameter = 0; parameter < SEQUENCE64_PARAMETERS.length; parameter++) {
+			setEditorShellColor(colors, parameter, SEQUENCE64_LENGTH_ROW,
+				SEQUENCE64_PARAMETER_COLORS[parameter]);
+		}
+		var maxValueColumn = 15;
+		if (sequence64EditParameter === "octave") maxValueColumn = 6;
+		else if (sequence64EditParameter === "loopDivision") maxValueColumn = 7;
+		for (var value = 0; value <= maxValueColumn; value++) {
+			setEditorShellColor(colors, value, SEQUENCE64_TRANSPORT_ROW,
+				SEQUENCE64_PARAMETER_COLORS[parameterIndex]);
+		}
+		if (sequence64EditParameter === "volume" || sequence64EditParameter === "filter") {
+			for (var behavior = 0; behavior < SEQUENCE64_BEHAVIORS.length; behavior++) {
+				setEditorShellColor(colors, behavior, SEQUENCE64_TOOLS_ROW,
+					SEQUENCE64_BEHAVIOR_COLORS[behavior]);
+			}
+		}
+		setEditorShellColor(colors, 15, SEQUENCE64_TOOLS_ROW, SEQUENCE64_COLORS.remove);
+		return;
+	}
+
+	for (var lengthIndex = 0; lengthIndex < SEQUENCE64_LENGTHS.length; lengthIndex++) {
+		setEditorShellColor(colors, lengthIndex, SEQUENCE64_LENGTH_ROW, SEQUENCE64_COLORS.length);
+	}
+	for (var barButton = 0; barButton < SEQUENCE64_MAX_BARS; barButton++) {
+		setEditorShellColor(colors, barButton + 4, SEQUENCE64_LENGTH_ROW, SEQUENCE64_COLORS.bar);
+	}
+	setEditorShellColor(colors, 12, SEQUENCE64_LENGTH_ROW, SEQUENCE64_COLORS.bar);
+	setEditorShellColor(colors, 13, SEQUENCE64_LENGTH_ROW, SEQUENCE64_COLORS.bar);
+	setEditorShellColor(colors, 14, SEQUENCE64_LENGTH_ROW, SEQUENCE64_COLORS.add);
+	setEditorShellColor(colors, 15, SEQUENCE64_LENGTH_ROW, SEQUENCE64_COLORS.remove);
+	setEditorShellColor(colors, 0, SEQUENCE64_TRANSPORT_ROW, SEQUENCE64_COLORS.run);
+	setEditorShellColor(colors, 1, SEQUENCE64_TRANSPORT_ROW, SEQUENCE64_COLORS.record);
+	setEditorShellColor(colors, 15, SEQUENCE64_TRANSPORT_ROW, SEQUENCE64_COLORS.remove);
+	setEditorShellColor(colors, 0, SEQUENCE64_TOOLS_ROW, SEQUENCE64_COLORS.motion);
+	setEditorShellColor(colors, 1, SEQUENCE64_TOOLS_ROW, SEQUENCE64_COLORS.restore);
+}
+
+function renderSequence64NavigationColors(colors) {
+	setEditorShellColor(colors, 0, SEQUENCE64_NAV_ROW, SEQUENCE64_COLORS.sequence);
+	setEditorShellColor(colors, 1, SEQUENCE64_NAV_ROW, SEQUENCE64_COLORS.setup);
+	setEditorShellColor(colors, 15, SEQUENCE64_NAV_ROW, SEQUENCE64_COLORS.exit);
+}
+
+function renderSequence64SetupColors(colors) {
+	for (var group = 0; group < s.NUM_CHANNELS; group++) {
+		setEditorShellColor(colors, group, 8, GROUP_COLORS[group]);
+	}
+	for (var volume = 0; volume < 16; volume++) {
+		setEditorShellColor(colors, volume, 9, SEQUENCE64_COLORS.volume);
+	}
+	for (var octave = 0; octave < 7; octave++) {
+		setEditorShellColor(colors, octave, 10, SEQUENCE64_COLORS.octave);
+	}
+	setEditorShellColor(colors, 0, 11, SEQUENCE64_COLORS.reverse);
+	setEditorShellColor(colors, 1, 11, SEQUENCE64_COLORS.random);
+	for (var division = 0; division < TRACK_SUB_LOOP_OPTIONS.length; division++) {
+		setEditorShellColor(colors, division + 2, 11, SEQUENCE64_COLORS.division);
+	}
+	for (var loopCell = 0; loopCell < 16; loopCell++) {
+		setEditorShellColor(colors, loopCell, 12, SEQUENCE64_COLORS.loopStart);
+		setEditorShellColor(colors, loopCell, 13, SEQUENCE64_COLORS.loopEnd);
+	}
+	setEditorShellColor(colors, 0, 14, SEQUENCE64_COLORS.loopStart);
+	setEditorShellColor(colors, 1, 14, SEQUENCE64_COLORS.latch);
+	setEditorShellColor(colors, 2, 14, SEQUENCE64_COLORS.stretch);
+	setEditorShellColor(colors, 3, 14, SEQUENCE64_COLORS.mute);
+	renderSequence64NavigationColors(colors);
+}
+
+function buildEditorShellColors(levels) {
+	var colors = createEditorShellColors();
+	var workspace = ensureEditorWorkspaceDefaults();
+	if (sequence64LayoutEnabled()) {
+		if (workspace.view64 === "setup") {
+			renderSequence64SetupColors(colors);
+		} else {
+			var pattern = currentSequence64Pattern();
+			if (pattern) {
+				var bar = currentSequence64EditBar(pattern);
+				renderSequence64StepColors(colors, pattern, bar,
+					sequence64PlaybackLocation(pattern));
+				renderSequence64ControlColors(colors);
+				renderSequence64NavigationColors(colors);
+			}
+		}
+		return colors;
+	}
+
+	for (var y = EDITOR_FIRST_ROW; y <= EDITOR_NAV_ROW; y++) {
+		for (var x = 0; x < 16; x++) {
+			var level = levels[editorShellLevelIndex(x, y)];
+			setEditorShellColor(colors, x, y, editorBrightnessRgb(level));
+		}
+	}
+	return colors;
+}
+
+function queueEditorShellColors(colors) {
+	if (!s.editorBrightnessColors || !colors) return 0;
+	var queuedCount = 0;
+	for (var y = EDITOR_FIRST_ROW; y <= EDITOR_NAV_ROW; y++) {
+		for (var x = 0; x < 16; x++) {
+			var rgb = colors[editorShellLevelIndex(x, y)];
+			var signature = rgb.join(",");
+			var cacheIndex = editorLevelIndex(x, y);
+			if (editorColorCache[cacheIndex] === signature) continue;
+			editorColorCache[cacheIndex] = signature;
+			queueColorCellFrom(x, y, rgb);
+			queuedCount++;
+		}
+	}
+	if (queuedCount) startPageColorQueue();
+	return queuedCount;
+}
+
+function queueCurrentEditorShellColors(resetCache) {
+	var workspace = ensureEditorWorkspaceDefaults();
+	if (!s.editorBrightnessColors || s.kmod !== 2 || !workspace.active || workspace.choosing) return 0;
+	if (resetCache) invalidateEditorColorCache();
+	var levels = buildEditorShellLevels();
+	return queueEditorShellColors(buildEditorShellColors(levels));
+}
+
 function renderEditorStepPage(levels) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	workspace.stepPlayhead = currentEditorClockStep();
@@ -1340,21 +1601,25 @@ function buildEditorShellLevels() {
 
 function drawEditorShell() {
 	var levels = buildEditorShellLevels();
+	var colors = s.editorBrightnessColors ? buildEditorShellColors(levels) : null;
 	for (var y = EDITOR_FIRST_ROW; y <= EDITOR_NAV_ROW; y++) {
 		for (var x = 0; x < 16; x++) {
 			editorLed(x, y, levels[editorShellLevelIndex(x, y)]);
 		}
 	}
+	if (colors) queueEditorShellColors(colors);
 }
 
 function redrawEditorShellDiff() {
 	var workspace = ensureEditorWorkspaceDefaults();
 	if (!editorWorkspaceAvailable() || !workspace.active || workspace.choosing) return 0;
 	var levels = buildEditorShellLevels();
+	var colors = s.editorBrightnessColors ? buildEditorShellColors(levels) : null;
 	var changes = [];
 	for (var y = EDITOR_FIRST_ROW; y <= EDITOR_NAV_ROW; y++) {
 		for (var x = 0; x < 16; x++) {
-			changes.push([x, y, levels[editorShellLevelIndex(x, y)]]);
+			var shellIndex = editorShellLevelIndex(x, y);
+			changes.push([x, y, levels[shellIndex], colors ? colors[shellIndex] : null]);
 		}
 	}
 	return applyEditorLevelDiff(changes);
@@ -2496,11 +2761,17 @@ function editorLayout(mode) {
 function editorBrightnessColors(enabled) {
 	s.editorBrightnessColors = parseInt(enabled, 10) ? 1 : 0;
 	invalidateEditorColorCache();
-	if (!s.editorBrightnessColors && s.kmod === 2 && s.autoPageColors && pageColorPresetReady[1]) {
-		recallColorPreset(1);
+	if (!s.editorBrightnessColors) {
+		resetPageColorQueue();
+		if (s.kmod === 2 && s.autoPageColors && pageColorPresetReady[1]) recallColorPreset(1);
 	}
-	post("[grid_router] editor brightness colors " +
+	if (s.kmod === 2 && ensureEditorWorkspaceDefaults().active) redrawEditorWorkspaceFrame();
+	post("[grid_router] editor semantic colors " +
 		(s.editorBrightnessColors ? "enabled" : "disabled") + "\n");
+}
+
+function editorColors(enabled) {
+	editorBrightnessColors(enabled);
 }
 
 function clearEditorTargetData() {
@@ -2903,6 +3174,7 @@ function applyPageColors(page) {
 	pageColorPresetReady[target - 1] = 0;
 	buildPageColorPalette(target);
 	queuePageColorCommand("colorpresetstore", target - 1);
+	if (target === 2 && s.kmod === 2) queueCurrentEditorShellColors(true);
 	startPageColorQueue();
 }
 
@@ -2917,6 +3189,7 @@ function initializePageColorPresets() {
 		queuePageColorCommand("colorpresetstore", page - 1);
 	}
 	queuePageColorCommand("colorpresetrecall", clamp(s.kmod, 1, 4) - 1);
+	queueCurrentEditorShellColors(true);
 	startPageColorQueue();
 }
 
@@ -3275,6 +3548,10 @@ function onKmodChange(prev, next) {
 	outlet(1, "beginframe");
 	try {
 		if (s.autoPageColors) activatePageColors(next);
+		if (s.editorBrightnessColors) {
+			clearQueuedEditorShellColors();
+			invalidateEditorColorCache();
+		}
 
 		// Kmod page indicators: [col, brightness]
 		var kmodIndicators = [
