@@ -40,6 +40,8 @@ Audio Engine (p chnls / playback heads)
   │      → probability → persistent parameter locks → quantized cut trigger
   │      (one step at tr_pulse, three scheduled at measured quarter-pulse
   │       intervals: four steps/pulse, eight times the prototype rate)
+  │      (next tr_pulse reconciles any late scheduled subdivisions, preserving
+  │       exactly 64 steps/bar and preventing cumulative section phase drift)
   │      (Run resets off whenever a target is selected; Stop releases Gate
   │       shapes but leaves ordinary MLR cuts and Set locks latched)
   │    main-page hold col 14 + matching cut → wait for quantized chRowPos

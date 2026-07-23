@@ -93,7 +93,7 @@ selects **Setup**, and column 16 exits.
 
 | Grid cells | Function |
 |------------|----------|
-| Rows 9–12 | Steps 1–64, in row-major order |
+| Rows 9–12 | One bar: steps 1–16, 17–32, 33–48, and 49–64 |
 | Row 13, columns 1–4 | Pattern length 16 / 32 / 48 / 64 |
 | Row 14, column 1 | Run/Stop; Run is always explicitly opt-in |
 | Row 14, column 2 | Momentary parameter-lock record button |
@@ -105,7 +105,8 @@ The Sequence clock runs four evenly spaced steps per `tr_pulse`: one on the
 pulse and three at quarter-pulse intervals derived from the measured clock.
 This is eight times the checkpointed prototype rate. A 64-step pattern
 therefore occupies 16 master pulses. Its four 16-step parts are already visible
-together on rows 9–12.
+together on rows 9–12; those rows are four quarters of one bar, not four
+independent pattern passes.
 
 Tap and release a step to add or remove its cut trigger. Hold a step to replace
 rows 13–15 with its lock editor:

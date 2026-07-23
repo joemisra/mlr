@@ -56,6 +56,15 @@ incoming pulse and three at measured quarter-pulse intervals. This is eight
 times the six-page prototype rate, so all 64 steps occupy 16 master pulses. The
 four 16-step parts remain simultaneously visible on rows 9–12. On a step:
 
+- Row 9 is bar subdivisions 1–16.
+- Row 10 is subdivisions 17–32.
+- Row 11 is subdivisions 33–48.
+- Row 12 is subdivisions 49–64.
+
+If Max delivers a scheduled quarter-pulse callback late, the next master pulse
+accounts for the missing subdivision before advancing. This keeps every bar at
+exactly 64 steps instead of allowing alternate 16-step sections to drift.
+
 1. Test the step probability.
 2. Apply persistent track locks and start or replace parameter shapes.
 3. Send the cut press/release pair to the resolved track.

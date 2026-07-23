@@ -852,6 +852,54 @@ test('sequence64 advances four evenly spaced steps per tr_pulse', () => {
 		message[0] === '2input' && message[1] === 15 && message[2] === 1), true);
 });
 
+test('sequence64 catches up late scheduled subdivisions without accumulating phase error', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	for (let step = 1; step <= 5; step++) {
+		pattern.steps[step].cut = { track: 0, slice: step, gateLength: 1 };
+	}
+	router.dispatch(0, 13, 1);
+	harness.clearLog();
+
+	router.clockTick();
+	router.sequence64QuarterPulse();
+	assert.equal(router.sequence64ClockPosition, 2);
+
+	// Simulate Max delivering the next tr_pulse before the half- and
+	// three-quarter-pulse Tasks. The new pulse must account for steps 3–4
+	// before beginning step 5, rather than dropping two subdivisions.
+	harness.clearLog();
+	router.clockTick();
+	assert.equal(router.sequence64ClockPosition, 5);
+	for (const slice of [3, 4, 5]) {
+		assert.equal(harness.namedMessages.some((message) =>
+			message[0] === '2input' && message[1] === slice && message[2] === 1), true);
+	}
+});
+
+test('sequence64 maps one complete bar across the four 16-cell rows', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+
+	for (let pulse = 0; pulse < 16; pulse++) {
+		router.clockTick();
+		router.sequence64QuarterPulse();
+		router.sequence64HalfPulse();
+		router.sequence64ThreeQuarterPulse();
+	}
+
+	assert.equal(router.sequence64ClockPosition, 64);
+	assert.equal(router.currentSequence64StepIndex(), 0);
+	assert.deepEqual(Array.from(router.sequence64StepCoords(0)), [0, 8]);
+	assert.deepEqual(Array.from(router.sequence64StepCoords(16)), [0, 9]);
+	assert.deepEqual(Array.from(router.sequence64StepCoords(32)), [0, 10]);
+	assert.deepEqual(Array.from(router.sequence64StepCoords(48)), [0, 11]);
+});
+
 test('sequence64 parameter Set locks latch and Stop releases only active Gate shapes', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
@@ -934,7 +982,7 @@ test('one-shot shape tails continue after sequence Stop and last event replaces 
 	router.dispatch(0, 13, 1);
 	router.sequence64ClockPosition = 1;
 	router.s.editorWorkspace.lastSequencedStep = 1;
-	router.sequence64QuarterPulse();
+	router.sequence64HalfPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	assert.equal(router.sequence64ActiveShapes[0].behavior, 'pluck');
 });
