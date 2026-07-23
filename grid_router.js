@@ -290,7 +290,7 @@ var EDITOR_NAV_ROW = 15;          // physical row 16
 var EDITOR_AVAILABLE_LEVEL = 3;
 var EDITOR_PLAYHEAD_LEVEL = 8;
 var EDITOR_SELECTED_LEVEL = 15;
-var EDITOR_STEP_TICKS = 2;        // 32 tr_pulse ticks/bar -> 16 visual steps/bar
+var EDITOR_STEP_TICKS = 2;        // legacy six-page prototype only
 var EDITOR_CONTENT_LAST_ROW = 14; // physical row 15; row 16 is navigation
 var EDITOR_VALUE_LEVELS = [15, 12, 10, 8, 5, 2, 0];
 var EDITOR_FX_LEVELS = [15, 12, 8, 5, 2, 0];
@@ -305,7 +305,8 @@ var SEQUENCE64_TOOLS_ROW = 14;
 var SEQUENCE64_NAV_ROW = 15;
 var SEQUENCE64_PARAMETERS = ["slice", "probability", "volume", "filter", "reverse", "octave", "loopDivision", "gateLength"];
 var SEQUENCE64_BEHAVIORS = ["set", "glide", "pluck", "swell", "gate", "pulse"];
-var SEQUENCE64_SHAPE_TICKS = { set: 0, glide: 8, pluck: 8, swell: 16, gate: 0, pulse: 8 };
+var SEQUENCE64_STEPS_PER_PULSE = 2; // 4x faster than the prototype's 0.5 step/pulse
+var SEQUENCE64_SHAPE_STEPS = { set: 0, glide: 4, pluck: 4, swell: 8, gate: 0, pulse: 4 };
 var EDITOR_COLOR_RANGES = {
 	step: [[12, 35, 75], [30, 220, 255]],
 	sequence: [[8, 38, 58], [25, 225, 255]],
@@ -327,6 +328,10 @@ var sequence64ActiveShapes = [];
 var sequence64ClearArmedUntil = 0;
 var sequence64PlaybackCaptureGuard = null;
 var sequence64PendingLiveCut = null;
+var sequence64ClockPosition = Math.max(0, (s.automation.tick || 0) * SEQUENCE64_STEPS_PER_PULSE);
+var sequence64LastMasterPulseMs = 0;
+var sequence64MasterPulseIntervalMs = 125;
+var sequence64MidPulseTask = new Task(sequence64MidPulse, this);
 var editorLevelCache = new Array(16 * 16).fill(-1);
 var editorColorCache = new Array(16 * 16).fill("");
 var playbackBg = createPlaybackBg();
@@ -643,7 +648,7 @@ function currentSequence64Pattern() {
 function currentSequence64StepIndex() {
 	var pattern = currentSequence64Pattern();
 	var length = pattern ? pattern.length : 64;
-	return Math.floor((s.automation.tick || 0) / EDITOR_STEP_TICKS) % length;
+	return sequence64ClockPosition % length;
 }
 
 function sequence64GridStep(col, row) {
@@ -1447,8 +1452,7 @@ function sequence64ShapeKey(targetKey, parameter) {
 }
 
 function sequence64ShapeRampMs() {
-	var parsed = parseFloat(s.timeMs);
-	return isFinite(parsed) && parsed > 0 ? clamp(Math.round(parsed), 8, 250) : 20;
+	return clamp(Math.round(sequence64MasterPulseIntervalMs / SEQUENCE64_STEPS_PER_PULSE), 8, 250);
 }
 
 function emitSequence64Parameter(targetType, targetId, parameter, value, channelIdx, rampMs) {
@@ -1503,7 +1507,7 @@ function startSequence64Shape(parameter, lock, gateLength, trackIdx) {
 	}
 
 	if (behavior === "glide") values[parameter] = targetValue;
-	var duration = behavior === "gate" ? Math.max(1, gateLength || 1) * EDITOR_STEP_TICKS : SEQUENCE64_SHAPE_TICKS[behavior];
+	var duration = behavior === "gate" ? Math.max(1, gateLength || 1) : SEQUENCE64_SHAPE_STEPS[behavior];
 	sequence64ActiveShapes.push({
 		key: sequence64ShapeKey(targetKey, parameter),
 		targetKey: targetKey,
@@ -1513,8 +1517,8 @@ function startSequence64Shape(parameter, lock, gateLength, trackIdx) {
 		behavior: behavior,
 		startValue: startValue,
 		targetValue: targetValue,
-		startTick: s.automation.tick || 0,
-		durationTicks: Math.max(1, duration || 1),
+		startStep: sequence64ClockPosition,
+		durationSteps: Math.max(1, duration || 1),
 		channelIdx: channelIdx
 	});
 	advanceSequence64Shapes();
@@ -1546,10 +1550,10 @@ function sequence64ShapeValue(shape, progress) {
 }
 
 function advanceSequence64Shapes() {
-	var now = s.automation.tick || 0;
+	var now = sequence64ClockPosition;
 	for (var i = sequence64ActiveShapes.length - 1; i >= 0; i--) {
 		var shape = sequence64ActiveShapes[i];
-		var progress = (now - shape.startTick) / shape.durationTicks;
+		var progress = (now - shape.startStep) / shape.durationSteps;
 		var value = sequence64ShapeValue(shape, progress);
 		emitSequence64Parameter(shape.targetType, shape.targetId, shape.parameter,
 			value, shape.channelIdx, sequence64ShapeRampMs());
@@ -1712,7 +1716,8 @@ function runSequence64Step(stepIndex) {
 	return 1;
 }
 
-function updateSequence64Clock() {
+function advanceSequence64ClockSubstep() {
+	sequence64ClockPosition++;
 	var workspace = ensureEditorWorkspaceDefaults();
 	if (!workspace.active) return 0;
 	advanceSequence64Shapes();
@@ -1724,6 +1729,38 @@ function updateSequence64Clock() {
 		return redrawEditorShellDiff();
 	}
 	return fired;
+}
+
+function sequence64MidPulse() {
+	if (!sequence64LayoutEnabled()) return 0;
+	return advanceSequence64ClockSubstep();
+}
+
+function updateSequence64Clock() {
+	var now = Date.now();
+	if (sequence64LastMasterPulseMs > 0) {
+		var measuredInterval = now - sequence64LastMasterPulseMs;
+		if (measuredInterval >= 10 && measuredInterval <= 2000) {
+			sequence64MasterPulseIntervalMs =
+				(sequence64MasterPulseIntervalMs * 0.75) + (measuredInterval * 0.25);
+		}
+	} else {
+		var quarterNoteMs = parseFloat(s.timeMs);
+		if (isFinite(quarterNoteMs) && quarterNoteMs > 0) {
+			sequence64MasterPulseIntervalMs = quarterNoteMs / 4;
+		}
+	}
+	sequence64LastMasterPulseMs = now;
+	sequence64MidPulseTask.cancel();
+	if (!ensureEditorWorkspaceDefaults().active) {
+		sequence64ClockPosition += SEQUENCE64_STEPS_PER_PULSE;
+		return 0;
+	}
+	var result = advanceSequence64ClockSubstep();
+	sequence64MidPulseTask.schedule(
+		Math.max(1, sequence64MasterPulseIntervalMs / SEQUENCE64_STEPS_PER_PULSE)
+	);
+	return result;
 }
 
 function updateEditorClock() {
@@ -2218,6 +2255,11 @@ function editorLayout(mode) {
 	resetEditorWorkspaceState(true);
 	workspace.layoutMode = normalized;
 	workspace.view64 = "sequence";
+	if (normalized === "sequence64") {
+		sequence64ClockPosition = Math.max(0,
+			(s.automation.tick || 0) * SEQUENCE64_STEPS_PER_PULSE);
+		sequence64LastMasterPulseMs = 0;
+	} else sequence64MidPulseTask.cancel();
 	post("[grid_router] editor layout " + normalized + "\n");
 	if (s.kmod === 2) redrawEditorWorkspaceFrame();
 }

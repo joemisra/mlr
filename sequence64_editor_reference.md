@@ -51,7 +51,11 @@ target again resets Run while preserving its pattern.
 
 ## Event semantics
 
-The clock advances one sequence step every two `tr_pulse` ticks. On a step:
+The clock advances two evenly spaced sequence steps per `tr_pulse`: one at the
+incoming pulse and one halfway to the next pulse, using the measured pulse
+interval. This is four times the six-page prototype rate, so all 64 steps occupy
+32 master pulses. The four 16-step parts remain simultaneously visible on rows
+9–12. On a step:
 
 1. Test the step probability.
 2. Apply persistent track locks and start or replace parameter shapes.

@@ -11,6 +11,7 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 	const outlets = [];
 	const namedMessages = [];
 	const posts = [];
+	const tasks = [];
 	const globalStores = sharedGlobalStores || Object.create(null);
 
 	function Global(name) {
@@ -23,9 +24,17 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 		this.owner = owner;
 		this.interval = 0;
 		this.running = false;
+		this.scheduledDelay = null;
+		tasks.push(this);
 	}
-	Task.prototype.schedule = function () {};
-	Task.prototype.cancel = function () { this.running = false; };
+	Task.prototype.schedule = function (delay) {
+		this.scheduledDelay = delay;
+		this.running = true;
+	};
+	Task.prototype.cancel = function () {
+		this.running = false;
+		this.scheduledDelay = null;
+	};
 	Task.prototype.repeat = function () { this.running = true; };
 
 	const context = vm.createContext({
@@ -61,6 +70,7 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 		namedMessages,
 		outlets,
 		posts,
+		tasks,
 		clearLog() {
 			namedMessages.length = 0;
 			outlets.length = 0;
@@ -786,6 +796,7 @@ test('sequence64 Run is opt-in and leaves a triggered MLR cut latched after Stop
 	assert.equal(harness.namedMessages.some((message) => message[0] === '2input'), false);
 
 	router.s.automation.tick = 0;
+	router.sequence64ClockPosition = 0;
 	router.s.editorWorkspace.lastSequencedStep = 0;
 	router.dispatch(0, 13, 1);
 	harness.clearLog();
@@ -798,6 +809,31 @@ test('sequence64 Run is opt-in and leaves a triggered MLR cut latched after Stop
 	assert.equal(router.s.editorWorkspace.patterns64['track:0'].running, 0);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 0), false);
+});
+
+test('sequence64 advances two evenly spaced steps per tr_pulse', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	pattern.steps[1].cut = { track: 0, slice: 3, gateLength: 1 };
+	pattern.steps[2].cut = { track: 0, slice: 7, gateLength: 1 };
+	router.timeMsUpdate(600);
+	router.dispatch(0, 13, 1);
+	harness.clearLog();
+
+	router.clockTick();
+	assert.equal(router.sequence64ClockPosition, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 3 && message[2] === 1), true);
+	assert.equal(router.sequence64MidPulseTask.scheduledDelay, 75);
+
+	harness.clearLog();
+	router.sequence64MidPulse();
+	assert.equal(router.sequence64ClockPosition, 2);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 7 && message[2] === 1), true);
 });
 
 test('sequence64 parameter Set locks latch and Stop releases only active Gate shapes', () => {
@@ -822,11 +858,10 @@ test('sequence64 parameter Set locks latch and Stop releases only active Gate sh
 
 	pattern.steps[2].locks.volume = { value: 2, behavior: 'gate' };
 	pattern.steps[2].cut = { track: 0, slice: 2, gateLength: 4 };
-	router.s.automation.tick = 2;
+	router.sequence64ClockPosition = 1;
 	router.s.editorWorkspace.lastSequencedStep = 1;
 	router.dispatch(0, 13, 1);
 	harness.clearLog();
-	router.clockTick();
 	router.clockTick();
 	assert.equal(router.sequence64ActiveShapes.some((shape) => shape.behavior === 'gate'), true);
 	harness.clearLog();
@@ -873,19 +908,17 @@ test('one-shot shape tails continue after sequence Stop and last event replaces 
 	pattern.steps[2].locks.volume = { value: 11, behavior: 'pluck' };
 	router.dispatch(0, 13, 1);
 	router.clockTick();
-	router.clockTick();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	router.dispatch(0, 13, 1);
-	router.clockTick();
-	router.clockTick();
+	router.sequence64MidPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	assert.equal(router.sequence64ActiveShapes[0].behavior, 'swell');
 
 	// Restart at step 2: its pluck replaces the still-running swell voice.
 	router.dispatch(0, 13, 1);
+	router.sequence64ClockPosition = 1;
 	router.s.editorWorkspace.lastSequencedStep = 1;
-	router.s.automation.tick = 3;
-	router.clockTick();
+	router.sequence64MidPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	assert.equal(router.sequence64ActiveShapes[0].behavior, 'pluck');
 });

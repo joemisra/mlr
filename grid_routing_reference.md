@@ -38,6 +38,8 @@ Audio Engine (p chnls / playback heads)
   │      (same atomic flush, without clearing the existing matrix)
   │    64-step editor clock → advance independent shape voices
   │      → probability → persistent parameter locks → quantized cut trigger
+  │      (one step at tr_pulse, one scheduled halfway to the next measured
+  │       pulse: two steps/pulse, four times the prototype rate)
   │      (Run resets off whenever a target is selected; Stop releases Gate
   │       shapes but leaves ordinary MLR cuts and Set locks latched)
   │    main-page hold col 14 + matching cut → wait for quantized chRowPos
