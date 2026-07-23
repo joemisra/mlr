@@ -101,10 +101,11 @@ selects **Setup**, and column 16 exits.
 | Row 15, column 1 | Clear Motion: end shapes and release gates, keep latched values |
 | Row 15, column 2 | Restore Start State captured when Run was pressed |
 
-The Sequence clock runs two evenly spaced steps per `tr_pulse`: one on the
-pulse and one halfway to the next measured pulse. This is four times the
-checkpointed prototype rate. A 64-step pattern therefore occupies 32 master
-pulses. Its four 16-step parts are already visible together on rows 9–12.
+The Sequence clock runs four evenly spaced steps per `tr_pulse`: one on the
+pulse and three at quarter-pulse intervals derived from the measured clock.
+This is eight times the checkpointed prototype rate. A 64-step pattern
+therefore occupies 16 master pulses. Its four 16-step parts are already visible
+together on rows 9–12.
 
 Tap and release a step to add or remove its cut trigger. Hold a step to replace
 rows 13–15 with its lock editor:

@@ -305,7 +305,7 @@ var SEQUENCE64_TOOLS_ROW = 14;
 var SEQUENCE64_NAV_ROW = 15;
 var SEQUENCE64_PARAMETERS = ["slice", "probability", "volume", "filter", "reverse", "octave", "loopDivision", "gateLength"];
 var SEQUENCE64_BEHAVIORS = ["set", "glide", "pluck", "swell", "gate", "pulse"];
-var SEQUENCE64_STEPS_PER_PULSE = 2; // 4x faster than the prototype's 0.5 step/pulse
+var SEQUENCE64_STEPS_PER_PULSE = 4; // 8x faster than the prototype's 0.5 step/pulse
 var SEQUENCE64_SHAPE_STEPS = { set: 0, glide: 4, pluck: 4, swell: 8, gate: 0, pulse: 4 };
 var EDITOR_COLOR_RANGES = {
 	step: [[12, 35, 75], [30, 220, 255]],
@@ -331,7 +331,9 @@ var sequence64PendingLiveCut = null;
 var sequence64ClockPosition = Math.max(0, (s.automation.tick || 0) * SEQUENCE64_STEPS_PER_PULSE);
 var sequence64LastMasterPulseMs = 0;
 var sequence64MasterPulseIntervalMs = 125;
-var sequence64MidPulseTask = new Task(sequence64MidPulse, this);
+var sequence64QuarterPulseTask = new Task(sequence64QuarterPulse, this);
+var sequence64HalfPulseTask = new Task(sequence64HalfPulse, this);
+var sequence64ThreeQuarterPulseTask = new Task(sequence64ThreeQuarterPulse, this);
 var editorLevelCache = new Array(16 * 16).fill(-1);
 var editorColorCache = new Array(16 * 16).fill("");
 var playbackBg = createPlaybackBg();
@@ -1731,9 +1733,25 @@ function advanceSequence64ClockSubstep() {
 	return fired;
 }
 
-function sequence64MidPulse() {
+function sequence64QuarterPulse() {
 	if (!sequence64LayoutEnabled()) return 0;
 	return advanceSequence64ClockSubstep();
+}
+
+function sequence64HalfPulse() {
+	if (!sequence64LayoutEnabled()) return 0;
+	return advanceSequence64ClockSubstep();
+}
+
+function sequence64ThreeQuarterPulse() {
+	if (!sequence64LayoutEnabled()) return 0;
+	return advanceSequence64ClockSubstep();
+}
+
+function cancelSequence64SubPulseTasks() {
+	sequence64QuarterPulseTask.cancel();
+	sequence64HalfPulseTask.cancel();
+	sequence64ThreeQuarterPulseTask.cancel();
 }
 
 function updateSequence64Clock() {
@@ -1751,15 +1769,17 @@ function updateSequence64Clock() {
 		}
 	}
 	sequence64LastMasterPulseMs = now;
-	sequence64MidPulseTask.cancel();
+	cancelSequence64SubPulseTasks();
 	if (!ensureEditorWorkspaceDefaults().active) {
 		sequence64ClockPosition += SEQUENCE64_STEPS_PER_PULSE;
 		return 0;
 	}
 	var result = advanceSequence64ClockSubstep();
-	sequence64MidPulseTask.schedule(
-		Math.max(1, sequence64MasterPulseIntervalMs / SEQUENCE64_STEPS_PER_PULSE)
-	);
+	var subdivisionMs = Math.max(1,
+		sequence64MasterPulseIntervalMs / SEQUENCE64_STEPS_PER_PULSE);
+	sequence64QuarterPulseTask.schedule(subdivisionMs);
+	sequence64HalfPulseTask.schedule(subdivisionMs * 2);
+	sequence64ThreeQuarterPulseTask.schedule(subdivisionMs * 3);
 	return result;
 }
 
@@ -2259,7 +2279,7 @@ function editorLayout(mode) {
 		sequence64ClockPosition = Math.max(0,
 			(s.automation.tick || 0) * SEQUENCE64_STEPS_PER_PULSE);
 		sequence64LastMasterPulseMs = 0;
-	} else sequence64MidPulseTask.cancel();
+	} else cancelSequence64SubPulseTasks();
 	post("[grid_router] editor layout " + normalized + "\n");
 	if (s.kmod === 2) redrawEditorWorkspaceFrame();
 }

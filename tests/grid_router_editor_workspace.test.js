@@ -811,7 +811,7 @@ test('sequence64 Run is opt-in and leaves a triggered MLR cut latched after Stop
 		message[0] === '2input' && message[1] === 0), false);
 });
 
-test('sequence64 advances two evenly spaced steps per tr_pulse', () => {
+test('sequence64 advances four evenly spaced steps per tr_pulse', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
@@ -819,6 +819,8 @@ test('sequence64 advances two evenly spaced steps per tr_pulse', () => {
 	const pattern = router.s.editorWorkspace.patterns64['track:0'];
 	pattern.steps[1].cut = { track: 0, slice: 3, gateLength: 1 };
 	pattern.steps[2].cut = { track: 0, slice: 7, gateLength: 1 };
+	pattern.steps[3].cut = { track: 0, slice: 11, gateLength: 1 };
+	pattern.steps[4].cut = { track: 0, slice: 15, gateLength: 1 };
 	router.timeMsUpdate(600);
 	router.dispatch(0, 13, 1);
 	harness.clearLog();
@@ -827,13 +829,27 @@ test('sequence64 advances two evenly spaced steps per tr_pulse', () => {
 	assert.equal(router.sequence64ClockPosition, 1);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 3 && message[2] === 1), true);
-	assert.equal(router.sequence64MidPulseTask.scheduledDelay, 75);
+	assert.equal(router.sequence64QuarterPulseTask.scheduledDelay, 37.5);
+	assert.equal(router.sequence64HalfPulseTask.scheduledDelay, 75);
+	assert.equal(router.sequence64ThreeQuarterPulseTask.scheduledDelay, 112.5);
 
 	harness.clearLog();
-	router.sequence64MidPulse();
+	router.sequence64QuarterPulse();
 	assert.equal(router.sequence64ClockPosition, 2);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 7 && message[2] === 1), true);
+
+	harness.clearLog();
+	router.sequence64HalfPulse();
+	assert.equal(router.sequence64ClockPosition, 3);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 11 && message[2] === 1), true);
+
+	harness.clearLog();
+	router.sequence64ThreeQuarterPulse();
+	assert.equal(router.sequence64ClockPosition, 4);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 15 && message[2] === 1), true);
 });
 
 test('sequence64 parameter Set locks latch and Stop releases only active Gate shapes', () => {
@@ -910,7 +926,7 @@ test('one-shot shape tails continue after sequence Stop and last event replaces 
 	router.clockTick();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	router.dispatch(0, 13, 1);
-	router.sequence64MidPulse();
+	router.sequence64QuarterPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	assert.equal(router.sequence64ActiveShapes[0].behavior, 'swell');
 
@@ -918,7 +934,7 @@ test('one-shot shape tails continue after sequence Stop and last event replaces 
 	router.dispatch(0, 13, 1);
 	router.sequence64ClockPosition = 1;
 	router.s.editorWorkspace.lastSequencedStep = 1;
-	router.sequence64MidPulse();
+	router.sequence64QuarterPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	assert.equal(router.sequence64ActiveShapes[0].behavior, 'pluck');
 });
