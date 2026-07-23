@@ -143,13 +143,20 @@ the planned filter DSP stage is added.
 #### Live recording and Setup
 
 With a target selected, return to the main page and hold row 1 column 14 while
-performing cuts. mlr stores the actual quantized `chRowPos` result at the current
-playing bar and step, rather than the viewed bar or raw key coordinate. A track
-target accepts only that track. A group target accepts tracks assigned to that
-group and stores the exact played track/slice. Releasing column 14 stops
-accepting new cuts; a cut already sent while it was held may still commit when
-its quantized position arrives. Without a selected target the gesture remains a
-no-op.
+performing cuts. The first accepted, quantized `chRowPos` starts a take;
+releasing column 14 ends it. The elapsed time is rounded to the nearest 16-step
+beat, with a one-beat minimum. mlr automatically creates full 64-step bars plus
+a 16/32/48/64-step final bar, up to eight bars. For example, a six-beat take
+becomes one 64-step bar followed by a 32-step bar.
+
+The finalized take replaces the target's previous cut triggers while preserving
+probability, parameter locks, and gate length at newly recorded positions. A
+recorded slice replaces an older slice edit at that position. The take remains
+aligned to the global sequence clock, and Run remains explicitly opt-in. A
+track target accepts only that track; a group target accepts tracks assigned to
+that group and stores the exact played track/slice. A cut sent while record was
+held may still commit after release when its quantized position arrives. If no
+matching cut arrives during the gesture, the saved pattern is unchanged.
 
 The Setup view consolidates direct controls:
 

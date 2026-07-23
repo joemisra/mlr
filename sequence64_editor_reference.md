@@ -54,10 +54,10 @@ For a manual group step, `track: -1` resolves the group's active track when the
 step plays. Live recording always writes an exact track. A direct-track pattern
 always resolves to its selected track.
 
-`running`, held buttons, chooser state, live-record state, active shapes, and
-clear/remove confirmation are runtime state. The viewed bar is saved per target.
-A JS reload closes the editor; choosing a target again resets Run while
-preserving its pattern.
+`running`, held buttons, chooser state, the in-progress live take, active
+shapes, and clear/remove confirmation are runtime state. The viewed bar is saved
+per target. A JS reload closes the editor; choosing a target again resets Run
+while preserving its pattern.
 
 ## Event semantics
 
@@ -79,10 +79,23 @@ exactly 64 steps instead of allowing alternate 16-step sections to drift.
 One bar is the default. Up to eight bars may be added; playback traverses their
 active lengths consecutively and then loops to bar 1. Row 13 selects the viewed
 bar independently of the playing bar, so another bar can be inspected or edited
-without interrupting Run. Live recording and momentary Setup lock recording
-always write the playing bar and step. Adding or removing a bar stops Run;
-removal and clearing the viewed bar each require a second press within 1.2
-seconds.
+without interrupting Run. Momentary Setup lock recording always writes the
+playing bar and step. Adding or removing a bar stops Run; removal and clearing
+the viewed bar each require a second press within 1.2 seconds.
+
+Main-page live recording is take-based. Holding row 1 column 14 arms it, and the
+first matching quantized `chRowPos` establishes the take start. Release measures
+from that first audible event and rounds to the nearest 16-step beat, with a
+minimum of 16 and maximum of 512 steps. Finalization creates as many full
+64-step bars as needed and gives the last bar a 16/32/48/64-step length. Buffered
+events prevent a take longer than the currently allocated pattern from wrapping
+and overwriting its first bar before finalization.
+
+A completed take replaces cut triggers but preserves probabilities, parameter
+locks, and gate length at re-recorded positions; its exact quantized slice wins
+over an older slice edit. Events retain global clock phase. An empty gesture
+does nothing, a pending quantized cut may finish just after release, and
+recording does not implicitly enable Run.
 
 1. Test the step probability.
 2. Apply persistent track locks and start or replace parameter shapes.
@@ -128,11 +141,12 @@ send `N[filterfx]level <normalized-value> <ramp-ms>` as a future DSP hook.
    Swell, Gate, and Pulse; confirm the visible gate tail and audible modulation.
 6. Stop during a Gate and during a Swell. Gate should release; Swell should
    finish. Press Clear Motion, then Restore Start State.
-7. Return to the main page. Hold row 1 column 14 and perform cuts slightly ahead
-   of the beat. Confirm the stored step uses the audible quantized slice and the
-   playing bar, even if another bar is viewed. For a group target, play two
-   tracks in the same group and one in another group; only the first two should
-   record.
+7. Return to the main page. Hold row 1 column 14 and perform a one-bar take,
+   releasing near its end. Confirm it becomes 64 steps and uses the audible
+   quantized slices. Repeat for six beats and confirm a 64-step bar plus a
+   32-step final bar. For a group target, play two tracks in the same group and
+   one in another group; only the first two should record. Briefly hold/release
+   without playing and confirm the saved take is unchanged.
 8. In Sequence, hold row 14 column 2 and press Setup on row 16. Change volume,
    octave, and loop division, then release row 14 column 2. Confirm Set locks
    appear at the current sequence step. During this gesture the volume row

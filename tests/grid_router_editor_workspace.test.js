@@ -1119,9 +1119,82 @@ test('a cut pressed while live record is held may commit after the button is rel
 	router.chRowPos(2, 9);
 
 	assert.equal(router.s.editorWorkspace.patterns64['track:0'].steps[0].cut.slice, 9);
+	assert.equal(router.s.editorWorkspace.patterns64['track:0'].length, 16);
 });
 
-test('live recording writes into the currently playing bar rather than the viewed bar', () => {
+test('a live take rounds its release to the nearest 16-step beat', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	router.setKmod(1);
+	router.sequence64ClockPosition = 0;
+	router.dispatch(13, 0, 1);
+	router.dispatch(4, 1, 1);
+	router.chRowPos(2, 4);
+	router.sequence64ClockPosition = 65;
+	router.dispatch(13, 0, 0);
+
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	assert.equal(pattern.bars.length, 1);
+	assert.equal(pattern.bars[0].length, 64);
+	assert.equal(pattern.bars[0].steps[0].cut.slice, 4);
+});
+
+test('a longer live take creates full bars and a partial final bar without early wrapping', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	pattern.steps[5].cut = { track: 0, slice: 1, gateLength: 4 };
+	pattern.steps[5].locks.slice = { value: 1, behavior: 'set' };
+	pattern.steps[5].locks.volume = { value: 7, behavior: 'set' };
+	pattern.steps[20].cut = { track: 0, slice: 12, gateLength: 1 };
+	router.setKmod(1);
+
+	router.sequence64ClockPosition = 5;
+	router.dispatch(13, 0, 1);
+	router.dispatch(3, 1, 1);
+	router.chRowPos(2, 3);
+	router.sequence64ClockPosition = 70;
+	router.dispatch(8, 1, 1);
+	router.chRowPos(2, 8);
+	router.sequence64ClockPosition = 101;
+	router.dispatch(13, 0, 0);
+
+	assert.equal(pattern.bars.length, 2);
+	assert.equal(pattern.bars[0].length, 64);
+	assert.equal(pattern.bars[1].length, 32);
+	assert.equal(pattern.bars[0].steps[5].cut.slice, 3);
+	assert.equal(pattern.bars[0].steps[5].cut.gateLength, 4);
+	assert.equal(pattern.bars[0].steps[5].locks.slice, undefined);
+	assert.equal(pattern.bars[0].steps[5].locks.volume.value, 7);
+	assert.equal(pattern.bars[0].steps[20].cut, null);
+	assert.equal(pattern.bars[1].steps[6].cut.slice, 8);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 2 && message[1] === 'editor_live_take' &&
+		message[4] === 96 && message[5] === 2 && message[6] === 2), true);
+});
+
+test('an empty live-record gesture leaves the saved pattern unchanged', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	pattern.steps[12].cut = { track: 0, slice: 6, gateLength: 1 };
+	router.setKmod(1);
+	router.dispatch(13, 0, 1);
+	router.sequence64ClockPosition = 80;
+	router.dispatch(13, 0, 0);
+
+	assert.equal(pattern.bars.length, 1);
+	assert.equal(pattern.length, 64);
+	assert.equal(pattern.steps[12].cut.slice, 6);
+});
+
+test('live recording previews into the currently playing bar rather than the viewed bar', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;

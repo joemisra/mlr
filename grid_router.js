@@ -309,6 +309,8 @@ var SEQUENCE64_NAV_ROW = 15;
 var SEQUENCE64_PARAMETERS = ["slice", "probability", "volume", "filter", "reverse", "octave", "loopDivision", "gateLength"];
 var SEQUENCE64_BEHAVIORS = ["set", "glide", "pluck", "swell", "gate", "pulse"];
 var SEQUENCE64_STEPS_PER_PULSE = 4; // 8x faster than the prototype's 0.5 step/pulse
+var SEQUENCE64_STEPS_PER_BEAT = 16;
+var SEQUENCE64_MAX_BARS = 8;
 var SEQUENCE64_SHAPE_STEPS = { set: 0, glide: 4, pluck: 4, swell: 8, gate: 0, pulse: 4 };
 var EDITOR_COLOR_RANGES = {
 	step: [[12, 35, 75], [30, 220, 255]],
@@ -332,6 +334,8 @@ var sequence64ClearArmedUntil = 0;
 var sequence64RemoveBarArmedUntil = 0;
 var sequence64PlaybackCaptureGuard = null;
 var sequence64PendingLiveCut = null;
+var sequence64LiveRecordTake = null;
+var sequence64LiveRecordTakeSerial = 0;
 var sequence64ClockPosition = Math.max(0, (s.automation.tick || 0) * SEQUENCE64_STEPS_PER_PULSE);
 var sequence64LastMasterPulseMs = 0;
 var sequence64MasterPulseIntervalMs = 125;
@@ -340,6 +344,7 @@ var sequence64SubstepsThisPulse = 0;
 var sequence64QuarterPulseTask = new Task(sequence64QuarterPulse, this);
 var sequence64HalfPulseTask = new Task(sequence64HalfPulse, this);
 var sequence64ThreeQuarterPulseTask = new Task(sequence64ThreeQuarterPulse, this);
+var sequence64LiveRecordFinalizeTask = new Task(sequence64LiveRecordPendingTimeout, this);
 var editorLevelCache = new Array(16 * 16).fill(-1);
 var editorColorCache = new Array(16 * 16).fill("");
 var playbackBg = createPlaybackBg();
@@ -433,6 +438,8 @@ function resetEditorWorkspaceState(clearTarget) {
 	sequence64LiveRecordHeld = false;
 	sequence64LockRecordHeld = false;
 	sequence64PendingLiveCut = null;
+	sequence64LiveRecordTake = null;
+	sequence64LiveRecordFinalizeTask.cancel();
 	cancelSequence64SubPulseTasks();
 	sequence64PulseStarted = false;
 	sequence64SubstepsThisPulse = 0;
@@ -667,7 +674,7 @@ function ensureSequence64Pattern(targetType, targetId) {
 				barIndex === 0 ? pattern.length : 64);
 		}
 	}
-	if (pattern.bars.length > 8) pattern.bars.length = 8;
+	if (pattern.bars.length > SEQUENCE64_MAX_BARS) pattern.bars.length = SEQUENCE64_MAX_BARS;
 	pattern.steps = pattern.bars[0].steps;
 	pattern.length = pattern.bars[0].length;
 	pattern.currentBar = clamp(parseInt(pattern.currentBar, 10) || 0, 0, pattern.bars.length - 1);
@@ -690,9 +697,10 @@ function sequence64PatternTotalLength(pattern) {
 	return Math.max(1, total);
 }
 
-function sequence64PlaybackLocation(pattern) {
+function sequence64PatternLocationAtFlat(pattern, flatPosition) {
 	if (!pattern) return { bar: 0, step: 0, flat: 0 };
-	var flat = sequence64ClockPosition % sequence64PatternTotalLength(pattern);
+	var total = sequence64PatternTotalLength(pattern);
+	var flat = ((parseInt(flatPosition, 10) || 0) % total + total) % total;
 	var remaining = flat;
 	for (var barIndex = 0; barIndex < pattern.bars.length; barIndex++) {
 		if (remaining < pattern.bars[barIndex].length) {
@@ -701,6 +709,10 @@ function sequence64PlaybackLocation(pattern) {
 		remaining -= pattern.bars[barIndex].length;
 	}
 	return { bar: 0, step: 0, flat: 0 };
+}
+
+function sequence64PlaybackLocation(pattern) {
+	return sequence64PatternLocationAtFlat(pattern, sequence64ClockPosition);
 }
 
 function currentSequence64StepIndex() {
@@ -1225,7 +1237,7 @@ function renderSequence64View(levels) {
 			setEditorShellLevel(levels, lengthIndex, SEQUENCE64_LENGTH_ROW,
 				bar.length === SEQUENCE64_LENGTHS[lengthIndex] ? 15 : 3);
 		}
-		for (var barButton = 0; barButton < 8; barButton++) {
+		for (var barButton = 0; barButton < SEQUENCE64_MAX_BARS; barButton++) {
 			var barLevel = 0;
 			if (barButton < pattern.bars.length) {
 				barLevel = barButton === pattern.currentBar ? 15 :
@@ -1235,7 +1247,8 @@ function renderSequence64View(levels) {
 		}
 		setEditorShellLevel(levels, 12, SEQUENCE64_LENGTH_ROW, pattern.bars.length > 1 ? 6 : 2);
 		setEditorShellLevel(levels, 13, SEQUENCE64_LENGTH_ROW, pattern.bars.length > 1 ? 6 : 2);
-		setEditorShellLevel(levels, 14, SEQUENCE64_LENGTH_ROW, pattern.bars.length < 8 ? 6 : 2);
+		setEditorShellLevel(levels, 14, SEQUENCE64_LENGTH_ROW,
+			pattern.bars.length < SEQUENCE64_MAX_BARS ? 6 : 2);
 		setEditorShellLevel(levels, 15, SEQUENCE64_LENGTH_ROW,
 			sequence64RemoveBarArmedUntil > Date.now() ? 12 : (pattern.bars.length > 1 ? 5 : 2));
 		setEditorShellLevel(levels, 0, SEQUENCE64_TRANSPORT_ROW, pattern.running ? 15 : 4);
@@ -2139,7 +2152,7 @@ function selectSequence64Bar(barIndex) {
 
 function addSequence64Bar() {
 	var pattern = currentSequence64Pattern();
-	if (!pattern || pattern.bars.length >= 8) return false;
+	if (!pattern || pattern.bars.length >= SEQUENCE64_MAX_BARS) return false;
 	pattern.bars.push(normalizeSequence64Bar(null, null, 64));
 	pattern.currentBar = pattern.bars.length - 1;
 	pattern.running = 0;
@@ -3243,9 +3256,10 @@ function onKmodChange(prev, next) {
 		workspace.choosing = false;
 		sequence64HeldStep = -1;
 		sequence64HeldStepChanged = false;
-		sequence64LiveRecordHeld = false;
+		if (sequence64LiveRecordHeld || sequence64LiveRecordTake) {
+			releaseSequence64LiveRecording(true);
+		}
 		sequence64LockRecordHeld = false;
-		sequence64PendingLiveCut = null;
 	} else if (next !== 2) resetEditorWorkspaceState(true);
 
 	// 1. Broadcast kmod FIRST (synchronous via messnamed) so all downstream
@@ -3290,7 +3304,8 @@ function dispatch(col, row, state) {
 
 	if (sequence64LayoutEnabled() && s.kmod === 1 && col === EDITOR_BUTTON_COL && row === 0 &&
 		ensureEditorWorkspaceDefaults().active) {
-		sequence64LiveRecordHeld = state === 1;
+		if (state === 1) beginSequence64LiveRecording();
+		else releaseSequence64LiveRecording(false);
 		led(EDITOR_BUTTON_COL, 0, sequence64LiveRecordHeld ? 15 : 6);
 		outlet(2, "editor_live_record", sequence64LiveRecordHeld ? 1 : 0);
 		return;
@@ -3432,14 +3447,23 @@ function captureSequence64RowPosition(trackIdx, pos) {
 	if (workspace.targetType === "group" && trackChannelIndex(trackIdx) !== workspace.targetId) return false;
 	var pattern = currentSequence64Pattern();
 	if (!pattern) return false;
+	var take = sequence64LiveRecordTake;
+	var eventClock = sequence64ClockPosition;
+	if (take && sequence64PendingLiveCut.takeId === take.id &&
+		take.targetKey === currentEditorTargetKey()) {
+		if (take.startClock === null) take.startClock = eventClock;
+		take.events.push({ clock: eventClock, track: trackIdx, slice: position });
+	}
 	var playback = sequence64PlaybackLocation(pattern);
 	var stepIndex = playback.step;
 	var step = pattern.bars[playback.bar].steps[stepIndex];
 	var existingGateLength = step.cut ? step.cut.gateLength : 1;
+	delete step.locks.slice;
 	step.cut = { track: trackIdx, slice: position, gateLength: existingGateLength };
 	sequence64PendingLiveCut = null;
 	outlet(2, "editor_live_cut", workspace.targetType, workspace.targetId + 1,
 		playback.bar + 1, stepIndex + 1, trackIdx + 1, position + 1);
+	if (take && take.releaseClock !== null) finishSequence64LiveRecording();
 	return true;
 }
 
@@ -3499,6 +3523,7 @@ function handleNormalMode(col, row, state) {
 			sequence64PendingLiveCut = {
 				track: trackIdx,
 				rawSlice: col,
+				takeId: sequence64LiveRecordTake ? sequence64LiveRecordTake.id : -1,
 				expiresTick: (s.automation.tick || 0) + 2
 			};
 		}
@@ -3938,6 +3963,155 @@ function handleOldPatternOut() {
 	var row = parseInt(arguments[2], 10) - 1;
 	kfping(col, row, 15);
 
+}
+
+function beginSequence64LiveRecording() {
+	if (sequence64LiveRecordHeld) return;
+	if (sequence64LiveRecordTake) {
+		sequence64LiveRecordTake.releaseClock = sequence64ClockPosition;
+		sequence64PendingLiveCut = null;
+		finishSequence64LiveRecording();
+	}
+	sequence64LiveRecordFinalizeTask.cancel();
+	sequence64PendingLiveCut = null;
+	var workspace = ensureEditorWorkspaceDefaults();
+	sequence64LiveRecordTake = {
+		id: ++sequence64LiveRecordTakeSerial,
+		targetKey: currentEditorTargetKey(),
+		targetType: workspace.targetType,
+		targetId: workspace.targetId,
+		startClock: null,
+		releaseClock: null,
+		events: []
+	};
+	sequence64LiveRecordHeld = true;
+	outlet(2, "editor_live_take_armed", workspace.targetType, workspace.targetId + 1);
+}
+
+function releaseSequence64LiveRecording(finalizeImmediately) {
+	sequence64LiveRecordHeld = false;
+	var take = sequence64LiveRecordTake;
+	if (!take) {
+		sequence64PendingLiveCut = null;
+		return false;
+	}
+	if (take.releaseClock === null) take.releaseClock = sequence64ClockPosition;
+	var pendingForTake = sequence64PendingLiveCut &&
+		sequence64PendingLiveCut.takeId === take.id;
+	if (finalizeImmediately || !pendingForTake) {
+		if (finalizeImmediately) sequence64PendingLiveCut = null;
+		return finishSequence64LiveRecording();
+	}
+	var finalizeDelay = Math.max(75, sequence64MasterPulseIntervalMs * 3);
+	sequence64LiveRecordFinalizeTask.schedule(finalizeDelay);
+	return false;
+}
+
+function sequence64LiveRecordPendingTimeout() {
+	var take = sequence64LiveRecordTake;
+	if (!take || take.releaseClock === null) return false;
+	if (sequence64PendingLiveCut && sequence64PendingLiveCut.takeId === take.id) {
+		sequence64PendingLiveCut = null;
+	}
+	return finishSequence64LiveRecording();
+}
+
+function sequence64LiveTakeLength(take) {
+	if (!take || take.startClock === null || !take.events.length) return 0;
+	var endClock = take.releaseClock === null ? sequence64ClockPosition : take.releaseClock;
+	var lastEventClock = take.events[take.events.length - 1].clock;
+	endClock = Math.max(endClock, lastEventClock + 1);
+	var elapsedSteps = Math.max(1, endClock - take.startClock);
+	var beatCount = Math.round(elapsedSteps / SEQUENCE64_STEPS_PER_BEAT);
+	beatCount = clamp(beatCount, 1,
+		(SEQUENCE64_MAX_BARS * 64) / SEQUENCE64_STEPS_PER_BEAT);
+	return beatCount * SEQUENCE64_STEPS_PER_BEAT;
+}
+
+function sequence64GateLengthsByFlatStep(pattern) {
+	var gateLengths = {};
+	var flat = 0;
+	if (!pattern || !pattern.bars) return gateLengths;
+	for (var barIndex = 0; barIndex < pattern.bars.length; barIndex++) {
+		var bar = pattern.bars[barIndex];
+		for (var stepIndex = 0; stepIndex < bar.length; stepIndex++) {
+			var step = bar.steps[stepIndex];
+			if (step && step.cut) gateLengths[flat] = step.cut.gateLength;
+			flat++;
+		}
+	}
+	return gateLengths;
+}
+
+function resizeSequence64PatternForTake(pattern, totalSteps) {
+	var clampedTotal = clamp(parseInt(totalSteps, 10) || SEQUENCE64_STEPS_PER_BEAT,
+		SEQUENCE64_STEPS_PER_BEAT, SEQUENCE64_MAX_BARS * 64);
+	var barCount = Math.ceil(clampedTotal / 64);
+	var finalBarLength = clampedTotal - ((barCount - 1) * 64);
+	while (pattern.bars.length < barCount) {
+		pattern.bars.push(normalizeSequence64Bar(null, null, 64));
+	}
+	if (pattern.bars.length > barCount) pattern.bars.length = barCount;
+	for (var barIndex = 0; barIndex < pattern.bars.length; barIndex++) {
+		pattern.bars[barIndex].length =
+			barIndex === pattern.bars.length - 1 ? finalBarLength : 64;
+	}
+	pattern.currentBar = clamp(pattern.currentBar, 0, pattern.bars.length - 1);
+	pattern.steps = pattern.bars[0].steps;
+	pattern.length = pattern.bars[0].length;
+	return clampedTotal;
+}
+
+function finishSequence64LiveRecording() {
+	var take = sequence64LiveRecordTake;
+	if (!take) return false;
+	sequence64LiveRecordFinalizeTask.cancel();
+	if (sequence64PendingLiveCut && sequence64PendingLiveCut.takeId === take.id) {
+		sequence64PendingLiveCut = null;
+	}
+	sequence64LiveRecordTake = null;
+	if (!take.events.length || take.startClock === null) {
+		outlet(2, "editor_live_take_empty", take.targetType, take.targetId + 1);
+		return false;
+	}
+
+	var pattern = ensureSequence64Pattern(take.targetType, take.targetId);
+	if (!pattern) return false;
+	var gateLengths = sequence64GateLengthsByFlatStep(pattern);
+	var totalSteps = resizeSequence64PatternForTake(pattern, sequence64LiveTakeLength(take));
+
+	// A new performance replaces cut triggers like the original MLR recorder,
+	// while parameter locks, probabilities, and gate-length programming survive.
+	for (var barIndex = 0; barIndex < pattern.bars.length; barIndex++) {
+		for (var stepIndex = 0; stepIndex < 64; stepIndex++) {
+			pattern.bars[barIndex].steps[stepIndex].cut = null;
+		}
+	}
+	for (var eventIndex = 0; eventIndex < take.events.length; eventIndex++) {
+		var event = take.events[eventIndex];
+		var flatStep = ((event.clock % totalSteps) + totalSteps) % totalSteps;
+		var location = sequence64PatternLocationAtFlat(pattern, flatStep);
+		var step = pattern.bars[location.bar].steps[location.step];
+		delete step.locks.slice;
+		step.cut = {
+			track: event.track,
+			slice: event.slice,
+			gateLength: gateLengths[flatStep] || 1
+		};
+	}
+
+	var workspace = ensureEditorWorkspaceDefaults();
+	if (currentEditorTargetKey() === take.targetKey) {
+		var playback = sequence64PlaybackLocation(pattern);
+		workspace.lastSequencedBar = playback.bar;
+		workspace.lastSequencedStep = playback.step;
+	}
+	outlet(2, "editor_live_take", take.targetType, take.targetId + 1,
+		totalSteps, pattern.bars.length, take.events.length);
+	post("[grid_router] live take " + take.targetKey + " length=" + totalSteps +
+		" steps bars=" + pattern.bars.length + " events=" + take.events.length + "\n");
+	if (editorWorkspaceAvailable() && workspace.active) redrawEditorShellDiff();
+	return true;
 }
 
 function drawChannelsPlaying() {
