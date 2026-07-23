@@ -1,7 +1,7 @@
 # Grid LED Routing Reference
 
 Architecture map for the mlr grid LED and key-press signal flow.
-Updated 2026-03-28.
+Updated 2026-07-22.
 
 ---
 
@@ -32,24 +32,35 @@ Audio Engine (p chnls / playback heads)
   │  grid_router.js:
   │    boxled / boxledrow / boxledcol  → led(x,y,level)
   │      → outlet(1, "setcell", x, y, level)
-  │    onKmodChange → messnamed("togridmatrixio", "clear"/"flush")
+  │    onKmodChange → beginframe → draw complete page → endframe
+  │      (bridge suppresses intermediate flushes; no blank page is transmitted)
+  │    editor cell diff → beginupdate → changed setcell(s) → endupdate
+  │      (same atomic flush, without clearing the existing matrix)
+  │    editor clock → target automation → gate FX → probability/gate trigger
+  │      (all three transports reset off whenever a target is selected)
+  │    optional editorBrightnessColors → colorcell beside changed level cells
+  │      (off by default; legacy 0–15 levels remain authoritative)
   │    drawModPage / animateLeds → led() calls (kmod 2 only)
   │
   │  Outlet 1 → s togridmatrixio
   │
        ▼
   grid_matrix_io.maxpat  (contains grid_matrix_bridge.js + grid_anim_engine.js)
-  │  Inlet 0: r togridmatrixio  — setcell / flush / clear / edition / dual128
+  │  Inlet 0: r togridmatrixio  — setcell / flush / clear / beginframe / endframe
+  │                               / beginupdate / endupdate
+  │                               / edition / dual128 / color extension commands
   │  Inlet 1: toggle            — qmetro 33ms periodic flush (manual enable)
   │  Inlet 2: button            — anim engine tick (manual / undriven)
   │  Inlet 3: r togridmatrixanim — kf / line animation commands
   │
   │  Internal wiring:
   │    inlet 0 ──► grid_matrix_bridge.js (setcell writes to jit.matrix)
+  │      beginframe clears before drawing; beginupdate preserves both planes
   │    inlet 1 ──► toggle → qmetro 33 → [t b b] out1 → "flush" msg → bridge
   │    inlet 2 ──► "tick" msg → grid_anim_engine.js
   │    inlet 3 ──► grid_anim_engine.js (kf / line)
-  │    anim_engine outlet 0 ──► "flush" msg → bridge  (triggers flush on dirty)
+  │    anim_engine outlet 0 ──► "flush" msg → bridge  (triggers flush on dirty;
+  │      completed cells are retired so later animations reread matrix state)
   │    bridge outlet 0 ──► grid_matrix_io outlet 0
   │    bridge outlet 1 ──► grid_matrix_io outlet 1
   │

@@ -20,6 +20,143 @@ For full operation details, see `mlr_info.txt` (opens from within the patch via 
 
 ## Developer Tooling
 
+### MechaTrellis color and 8-bit LED helpers
+
+`grid_router.js` exposes private MechaTrellis LED commands through the existing
+`gridrouter` message bus. Persistent color helpers do not change a cell's
+legacy brightness or state, so the existing mlr drawing and animation paths
+continue to use their standard 0–15 levels.
+
+Send these messages to `s gridrouter` (or directly to `grid_router_io`):
+
+```text
+colorCell x y r g b
+colorAll r g b
+colorRow y r g b
+colorCol x r g b
+colorRect x0 y0 x1 y1 r g b
+applyPageColors [page]
+storeColorPreset slot
+recallColorPreset slot
+initializePageColorPresets
+autoPageColors 0|1
+```
+
+Automatic starter palettes are enabled by default for kmod pages 1–4. On
+startup mlr uploads them at a safe pace and stores them in firmware slots 0–3.
+Later page changes send a single preset-recall packet. Their RGB values live in
+`PAGE_COLORS` and `GROUP_COLORS` near the top of `grid_router.js`.
+
+Send `autoPageColors 0` to keep manual colors across page changes, or
+`applyPageColors 1` through `applyPageColors 4` to rebuild and store one page.
+Because firmware slots live in RAM, send `initializePageColorPresets` after a
+MechaTrellis reset that occurs while mlr remains open. Palette uploads remain
+paced so they do not crowd legacy LED frames out of serialosc's nonblocking
+serial connection.
+
+The remaining private commands are also available when direct 8-bit control is
+needed:
+
+```text
+rgbCell x y r g b
+rgbAll r g b
+level8Cell x y level
+level8All level
+intensity8 level
+```
+
+Unlike `colorCell` and `colorAll`, the RGB and level8 commands intentionally
+change LED output state. Values are clamped to 0–255 by both mlr and serialosc.
+
+### Mode 2: 16×16 target chooser and extended editor
+
+Grid positions below are one-based. The top grid row is row 1.
+
+On a 16×16 grid, mode-2 row 1 column 14 is the extended-editor button. It stays
+unlit while idle so the legacy page looks unchanged. Hold it to open the target
+chooser; releasing it always closes the chooser:
+
+- Row 1, columns 1–8 select groups 1–8.
+- Column 16, rows 2–16 select tracks 1–15.
+- The chooser temporarily owns those cells, so selecting a group does not mute
+  it and selecting a track does not toggle reverse.
+- Selecting a target changes UI state only; it sends no audio-engine command.
+- The chooser remains visible while column 14 is held, so another group or track
+  can be selected immediately.
+- Pressing the currently selected group or track clears the editor selection,
+  like the bottom-right exit button, while leaving the chooser visible until
+  column 14 is released.
+
+After target selection, rows 9–16 become the editor workspace. Row 16 always
+selects Step, Loop, Parameter, Automation, Probability, and FX in columns 1–6;
+column 16 exits. Saved data is independent for every group and track. Selecting
+a target never starts a clocked feature: Step Run, Automation Play/Record, and
+FX Run all reset off and must be enabled explicitly.
+
+A group target follows the last track played on that group. If no current track
+exists, its step sequence waits silently. A direct track target always addresses
+that track. Track parameter changes use that track's current group/channel.
+
+| Page | Rows 9–15 |
+|------|------------|
+| Step | Row 9 playhead; row 10 gate steps; row 11 column 1 Run and column 16 clear |
+| Loop | Row 9 span/position; row 10 start; row 11 end; row 12 column 1 on/off and column 16 reset; row 13 divisions 1/4 through 1/48; row 14 channel latch; row 15 target track |
+| Parameter | Row 9 group assignment; row 10 volume; row 11 octave −3 through +3; rows 12–15 column 1 reverse, random offset, timestretch, and mute |
+| Automation | Row 9 event timeline; row 10 columns 1/2/16 record/play/clear; rows 11–15 show loop, volume, pitch/group, switch, and reserved event categories |
+| Probability | Each step is one column; rows 9–15 select probability levels 15, 12, 10, 8, 5, 2, or 0 from top to bottom |
+| FX | Rows 9–14 select per-step gate levels 15, 12, 8, 5, 2, or 0; row 15 column 1 runs the lane and column 16 clears/restores unity |
+
+The playhead advances once every two `tr_pulse` ticks: 16 positions per 32-tick
+bar. A running gate triggers the corresponding 1–16 slice of the resolved track,
+subject to its Probability value. The FX lane drives the existing per-channel
+`[gatefx]level` stage and restores unity when stopped, when the chooser opens,
+on exit, on reload, or on grid reconnect.
+
+Target Automation records Loop and Parameter changes at the current step. Its
+five category rows show which steps contain events; pressing a lit category cell
+deletes that category at that step, while pressing the timeline cell deletes all
+events at that step. Playback reapplies recorded values before FX and gate
+triggering on each step.
+
+Playhead and editor changes use non-clearing renderer transactions, so clock
+movement normally changes only the previous and next cells. All unclaimed
+controls in rows 1–8 continue through the existing mode-2 handlers.
+
+Hold column 14 again whenever the target needs to change. Press row 16 column 16
+while the chooser is closed to exit and restore the complete legacy mode-2
+layout. Leaving mode 2 also closes the workspace. The feature is unavailable on
+8×8 and 16×8 grids. Send `extendedEditors 0` to `gridrouter` to hide and disable
+it, or `extendedEditors 1` to enable it again. `clearEditorTargetData` resets the
+selected target's gates, probabilities, FX, and automation; `clearEditorAllData`
+resets every target.
+
+Optional brightness-linked MechaTrellis color is available with
+`editorBrightnessColors 1` and disabled with `editorBrightnessColors 0`. It
+adds persistent color updates only when editor cell levels change. Standard
+0–15 levels remain authoritative, so monochrome Grid Zero behavior is identical;
+the option defaults off to avoid extra private OSC traffic.
+
+### Mode 2: columns 10–12
+
+| Column | Rows | Function |
+|--------|------|----------|
+| 10 | 2 play/stop; 3 loop; 4–7 length 1/2/4/8 bars; 8 arm/stop record | Clocked grid-button automation |
+| 11 | 2–6 = 1/32, 1/16, 1/8, 1/4, 1/2 | Global input quantize |
+| 12 | 2 onward, one row per track | Cycle that track's short-loop division through 1/4, 1/6, 1/8, 1/12, 1/16, 1/24, 1/32, 1/48 |
+
+The short-loop latch itself is channel-scoped: mode-2 row 5, columns 1–8
+toggle it for channels 1–8. Column 12 only chooses the division for each
+track. Triggering a track on a latched channel reapplies its selected short
+loop at the new playback position.
+
+To test automation, remain on mode 2: select a short length, press column 10
+row 8 to arm, then press a non-automation control such as mute or random
+offset. The first such press starts recording. Press the arm pad again to stop
+early, or let the selected length expire. With loop off, press column 10 row 2
+to play the capture once. Automation currently records press-down events and
+stores grid coordinates rather than page identity, so changing pages during
+recording or playback is not supported.
+
 ### Compact `.maxpat` Analysis
 
 Use the local analyzer to strip UI/layout noise and summarize object topology:
