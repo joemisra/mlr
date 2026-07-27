@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 const BRIDGE_PATH = path.join(__dirname, '..', 'grid_matrix_bridge.js');
 const BRIDGE_SOURCE = fs.readFileSync(BRIDGE_PATH, 'utf8');
+const MAIN_PATCH_PATH = path.join(__dirname, '..', '_mlr.maxpat');
 
 function createHarness() {
 	const matrices = new Map();
@@ -148,6 +149,7 @@ test('4x4 color maps emit one OSC message and remap the lower dual-128 grid', ()
 	const harness = createHarness();
 	const bridge = harness.context;
 	const colors = Array.from({ length: 48 }, (_, index) => index * 7);
+	bridge.mechatrellis(1);
 	harness.clearOutlets();
 
 	bridge.colormap.apply(bridge, [4, 8].concat(colors));
@@ -167,4 +169,44 @@ test('4x4 color maps emit one OSC message and remap the lower dual-128 grid', ()
 	harness.clearOutlets();
 	bridge.colormap.apply(bridge, [4, 6].concat(colors));
 	assert.equal(harness.outlets.length, 0);
+});
+
+test('MechaTrellis private OSC is blocked by default and standard levels remain active', () => {
+	const harness = createHarness();
+	const bridge = harness.context;
+	const colors = Array.from({ length: 48 }, (_, index) => index);
+	harness.clearOutlets();
+
+	bridge.colorcell(1, 2, 3, 4, 5);
+	bridge.colorall(3, 4, 5);
+	bridge.colormap.apply(bridge, [0, 0].concat(colors));
+	bridge.colorpresetstore(1);
+	bridge.colorpresetrecall(1);
+	bridge.rgbcell(1, 2, 3, 4, 5);
+	bridge.rgball(3, 4, 5);
+	bridge.level8cell(1, 2, 127);
+	bridge.level8all(127);
+	bridge.intensity8(127);
+	assert.equal(harness.outlets.length, 0);
+
+	bridge.setcell(1, 2, 9);
+	bridge.flush();
+	assert.equal(harness.outlets.length, 4);
+	assert.equal(harness.outlets.every((message) =>
+		message[1] === '/box/grid/led/level/map'), true);
+
+	bridge.mechatrellis(1);
+	harness.clearOutlets();
+	bridge.colorcell(1, 2, 3, 4, 5);
+	assert.deepEqual(Array.from(harness.outlets[0]),
+		[0, '/box/grid/led/color/set', 1, 2, 3, 4, 5]);
+});
+
+test('main MLR patch explicitly starts with MechaTrellis hardware mode off', () => {
+	const patch = JSON.parse(fs.readFileSync(MAIN_PATCH_PATH, 'utf8'));
+	const loadMessage = patch.patcher.boxes
+		.map((entry) => entry.box)
+		.find((box) => box.id === 'obj-187');
+
+	assert.equal(loadMessage.text, 'loadmess mechatrellis 0');
 });

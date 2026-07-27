@@ -3044,6 +3044,20 @@ function editorColors(enabled) {
 	editorBrightnessColors(enabled);
 }
 
+/**
+ * Explicit hardware safety switch. The bridge defaults private OSC off, so a
+ * normal monome receives only standard level messages unless this is enabled.
+ */
+function mechatrellis(enabled) {
+	var active = parseInt(enabled, 10) ? 1 : 0;
+	outlet(1, "mechatrellis", active);
+	editorBrightnessColors(active);
+	if (active && s.autoPageColors) initializePageColorPresets();
+	else if (!active) resetPageColorQueue();
+	post("[grid_router] MechaTrellis hardware mode " +
+		(active ? "enabled" : "disabled") + "\n");
+}
+
 function clearEditorTargetData() {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var key = currentEditorTargetKey();

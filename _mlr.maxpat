@@ -52,7 +52,7 @@
                     "numoutlets": 1,
                     "outlettype": [ "" ],
                     "patching_rect": [ 648.5, 883.0, 138.0, 22.0 ],
-                    "text": "loadmess editorColors 1"
+                    "text": "loadmess mechatrellis 0"
                 }
             },
             {

@@ -28,6 +28,12 @@ The new lower-half sequencer is documented in `sequence64_editor_reference.md`.
 legacy brightness or state, so the existing mlr drawing and animation paths
 continue to use their standard 0–15 levels.
 
+Private commands are blocked by default. Enable them only for MechaTrellis:
+
+```text
+mechatrellis 1
+```
+
 Send these messages to `s gridrouter` (or directly to `grid_router_io`):
 
 ```text
@@ -45,10 +51,10 @@ autoPageColors 0|1
 ```
 
 `colorMap` assigns a row-major 4×4 block while leaving all legacy LED levels
-unchanged. Automatic starter palettes are enabled by default for kmod pages
-1–4. On startup mlr uploads each 16×16 palette as 16 maps and stores it in
-firmware slots 0–3. Later page changes send a single preset-recall packet.
-Their RGB values live in `PAGE_COLORS` and `GROUP_COLORS` near the top of
+unchanged. Enabling MechaTrellis mode uploads automatic starter palettes for
+kmod pages 1–4, using 16 maps per 16×16 palette, and stores them in firmware
+slots 0–3. Later page changes send a single preset-recall packet. Their RGB
+values live in `PAGE_COLORS` and `GROUP_COLORS` near the top of
 `grid_router.js`.
 
 Send `autoPageColors 0` to keep manual colors across page changes, or
@@ -202,10 +208,16 @@ restores the saved six-page prototype; `editorLayout sequence64` returns to the
 new default. Legacy 16-step data is copied once into the first 16 new steps and
 is never deleted by migration.
 
-Semantic MechaTrellis editor color is available with `editorColors 1` and
-disabled with `editorColors 0`; the older `editorBrightnessColors` name remains
-an alias. Brightness still communicates state through the standard 0–15 levels,
-while hue communicates function:
+MechaTrellis private OSC is disabled by default. Send `mechatrellis 1` to
+`s gridrouter` only when a MechaTrellis is connected; send `mechatrellis 0`
+before switching back to a normal monome. The final OSC bridge blocks every
+private color, RGB, 8-bit, and preset command while this hardware mode is off,
+but standard 0–15 levels continue normally.
+
+Semantic MechaTrellis editor color is enabled with hardware mode. It can also
+be changed with `editorColors 0|1`; the older `editorBrightnessColors` name
+remains an alias. Brightness still communicates state through the standard
+0–15 levels, while hue communicates function:
 
 | Color family | Editor meaning |
 |--------------|----------------|

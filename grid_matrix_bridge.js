@@ -21,6 +21,7 @@ var matrixName = "grid_matrix_io_state";
 var prefix = "/box";
 var edition = 256;
 var dual128Mode = 0;
+var mechatrellisExtensionsEnabled = 0;
 var bg = new Uint8Array(16 * 16);
 var frameBatchDepth = 0;
 
@@ -198,10 +199,17 @@ function clamp(n, lo, hi) {
 	return Math.min(hi, Math.max(lo, n));
 }
 
+function mechatrellis(enabled) {
+	mechatrellisExtensionsEnabled = parseInt(enabled, 10) ? 1 : 0;
+	post("[grid_matrix_bridge] MechaTrellis private OSC " +
+		(mechatrellisExtensionsEnabled ? "enabled" : "disabled") + "\n");
+}
+
 // MechaTrellis private OSC extension. These messages bypass the level matrix:
 // persistent color commands change only the color layer, while RGB/level8
 // commands can be used by callers that intentionally want 8-bit LED control.
 function extension_cell(path, x, y, values) {
+	if (!mechatrellisExtensionsEnabled) return;
 	x = parseInt(x, 10);
 	y = parseInt(y, 10);
 	var wh = dims_for_edition(edition);
@@ -219,12 +227,14 @@ function extension_cell(path, x, y, values) {
 }
 
 function extension_all(path, values) {
+	if (!mechatrellisExtensionsEnabled) return;
 	var args = [prefix + path].concat(values);
 	outlet.apply(this, [0].concat(args));
 	if (dual128Mode) outlet.apply(this, [1].concat(args));
 }
 
 function extension_map(path, x, y, values) {
+	if (!mechatrellisExtensionsEnabled) return;
 	x = parseInt(x, 10);
 	y = parseInt(y, 10);
 	var wh = dims_for_edition(edition);
@@ -344,6 +354,9 @@ function anything() {
 		case "dual128":
 			dual128Mode = a[0] ? 1 : 0;
 			post("[grid_matrix_bridge] dual128Mode=" + dual128Mode + "\n");
+			break;
+		case "mechatrellis":
+			mechatrellis(a[0]);
 			break;
 		case "setcell_bg":
 			if (a.length >= 3) setcell_bg(parseInt(a[0], 10), parseInt(a[1], 10), parseInt(a[2], 10));
