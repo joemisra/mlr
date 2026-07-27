@@ -44,6 +44,9 @@ rm -rf \
   "${bundle_dir}/tests"
 rm -f \
   "${bundle_dir}/.gitignore" \
+  "${bundle_dir}/max_mcp.js" \
+  "${bundle_dir}/max_mcp_node.js" \
+  "${bundle_dir}/max_mcp_v8_add_on.js" \
   "${bundle_dir}/package.json" \
   "${bundle_dir}/package-lock.json" \
   "${bundle_dir}"/summary*.md
