@@ -9,3 +9,6 @@ samples
 # Python
 __pycache__/
 *.pyc
+
+# Release bundles
+release/

@@ -492,3 +492,16 @@ and are not tracked in git. They may be works-in-progress or experiments:
 - `buttonseq.js` — step sequencer recorder
 - `groupsproc.js` — group processing (subset of routers.js logic; contains a bug where `muted` is used as scalar instead of array)
 - `groupsproc` (no extension) — tiny code fragment, same logic as groupsproc.js
+
+## Packaging a handoff
+
+Create a tested, versioned ZIP containing the Max runtime project without Git
+metadata, test tooling, MCP helpers, editor settings, or `node_modules`:
+
+```sh
+./scripts/package_release.sh
+```
+
+The ZIP and its SHA-256 checksum are written to `release/`. Packaging requires
+all tracked changes to be committed, so the handoff always identifies the exact
+source revision from which it was created.
