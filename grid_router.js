@@ -1,5 +1,5 @@
 autowatch = 1;
-inlets = 3;
+inlets = 4;
 outlets = 4;
 
 /**
@@ -21,6 +21,7 @@ outlets = 4;
  *            - edition 64|128|256            (grid size)
  *            - clear_automation              (reset automation state)
  *            - colorCell x y r g b            (persistent MechaTrellis color)
+ *            - colorMap x y 16*(r g b)         (persistent 4x4 color block)
  *            - colorAll r g b                 (persistent color for all cells)
  *            - storeColorPreset/recallColorPreset slot
  *                                              (firmware color banks 0-7)
@@ -37,6 +38,7 @@ outlets = 4;
  *            - editorLayout sequence64|legacy  (select default or checkpointed UI)
  * Inlet 1: kmod value — int from [r kmod]
  * Inlet 2: clock tick — bang from [r tr_pulse] for automation sync
+ * Inlet 3: sequence64 step — bang from the audio-derived [r sequence64_pulse]
  *
  * Outlet 0: raw grid triple (col, row, state) — same order as [r box/press] into
  *           [p box] unpack, so [s grid_router_playback] can replace the old receive.
@@ -102,6 +104,7 @@ class mlrChannel {
 		this.on = 0;
 		this.gateLatch = 0;
 		this.activeTrack = -1;
+		this.lastActiveTrack = -1;
 		this.lastCell = [0, 0]; // to clear on rowpos change
 	}
 }
@@ -217,6 +220,7 @@ function ensureChannelDefaults(channelIdx) {
 	}
 	if (channel.gateLatch === undefined) channel.gateLatch = 0;
 	if (channel.activeTrack === undefined) channel.activeTrack = -1;
+	if (channel.lastActiveTrack === undefined) channel.lastActiveTrack = -1;
 	return channel;
 }
 
@@ -309,6 +313,12 @@ var SEQUENCE64_TOOLS_ROW = 14;
 var SEQUENCE64_NAV_ROW = 15;
 var SEQUENCE64_PARAMETERS = ["slice", "probability", "volume", "filter", "reverse", "octave", "loopDivision", "gateLength"];
 var SEQUENCE64_BEHAVIORS = ["set", "glide", "pluck", "swell", "gate", "pulse"];
+var SEQUENCE64_PARAMETER_FIRST_COL = 4;
+var SEQUENCE64_BEHAVIOR_FIRST_COL = 5;
+var SEQUENCE64_HOLD_MS = 350;
+var SEQUENCE64_EMPTY_STEP_LEVEL = 5;
+var SEQUENCE64_MIN_VISIBLE_LEVEL = 3;
+var SEQUENCE64_TRACK_POSITION_LEVEL = 12;
 var SEQUENCE64_STEPS_PER_PULSE = 4; // 8x faster than the prototype's 0.5 step/pulse
 var SEQUENCE64_STEPS_PER_BEAT = 16;
 var SEQUENCE64_MAX_BARS = 8;
@@ -327,6 +337,11 @@ var editorOverlayDrawDepth = 0;
 var editorAutomationDispatching = false;
 var sequence64HeldStep = -1;
 var sequence64HeldStepChanged = false;
+var sequence64PressedStep = -1;
+var sequence64StepHoldOpened = false;
+var sequence64PendingLengthIndex = -1;
+var sequence64PendingBarIndex = -1;
+var sequence64BarHoldCommitted = false;
 var sequence64EditParameter = "slice";
 var sequence64LiveRecordHeld = false;
 var sequence64LockRecordHeld = false;
@@ -334,17 +349,14 @@ var sequence64ActiveShapes = [];
 var sequence64ClearArmedUntil = 0;
 var sequence64RemoveBarArmedUntil = 0;
 var sequence64PlaybackCaptureGuard = null;
+var sequence64PlaybackPingGuard = null;
 var sequence64PendingLiveCut = null;
 var sequence64LiveRecordTake = null;
 var sequence64LiveRecordTakeSerial = 0;
 var sequence64ClockPosition = Math.max(0, (s.automation.tick || 0) * SEQUENCE64_STEPS_PER_PULSE);
-var sequence64LastMasterPulseMs = 0;
-var sequence64MasterPulseIntervalMs = 125;
-var sequence64PulseStarted = false;
-var sequence64SubstepsThisPulse = 0;
-var sequence64QuarterPulseTask = new Task(sequence64QuarterPulse, this);
-var sequence64HalfPulseTask = new Task(sequence64HalfPulse, this);
-var sequence64ThreeQuarterPulseTask = new Task(sequence64ThreeQuarterPulse, this);
+var sequence64StepHoldTask = new Task(openSequence64StepEditorAfterHold, this);
+var sequence64LengthHoldTask = new Task(commitSequence64LengthHold, this);
+var sequence64BarHoldTask = new Task(commitSequence64BarHold, this);
 var sequence64LiveRecordFinalizeTask = new Task(sequence64LiveRecordPendingTimeout, this);
 var editorLevelCache = new Array(16 * 16).fill(-1);
 var editorColorCache = new Array(16 * 16).fill("");
@@ -392,6 +404,7 @@ var SEQUENCE64_COLORS = {
 	triggerLock: [210, 65, 255],
 	gateTail: [70, 90, 225],
 	playhead: [255, 255, 255],
+	trackPosition: [175, 255, 35],
 	held: [255, 105, 25],
 	length: [45, 190, 255],
 	bar: [90, 115, 255],
@@ -430,9 +443,9 @@ var initialPageColorTask = new Task(function () {
 	if (s.autoPageColors) initializePageColorPresets();
 }, this);
 
-// libmonome writes extension packets directly to a nonblocking serial fd. A
-// full page of color/set messages sent in one scheduler turn can fill that fd
-// and starve the legacy level/map frames, so automatic palettes are paced.
+// libmonome writes extension packets directly to a nonblocking serial fd.
+// Palette maps are lightly paced so legacy level/map frames retain priority;
+// sparse semantic changes continue to use immediate single-cell commands.
 var PAGE_COLOR_INTERVAL_MS = 6;
 var pageColorQueue = [];
 var pageColorQueueTask = new Task(drainPageColorQueue, this);
@@ -479,14 +492,20 @@ function resetEditorWorkspaceState(clearTarget) {
 	workspace.lastSequencedBar = -1;
 	sequence64HeldStep = -1;
 	sequence64HeldStepChanged = false;
+	sequence64PressedStep = -1;
+	sequence64StepHoldOpened = false;
+	sequence64PendingLengthIndex = -1;
+	sequence64PendingBarIndex = -1;
+	sequence64BarHoldCommitted = false;
+	sequence64StepHoldTask.cancel();
+	sequence64LengthHoldTask.cancel();
+	sequence64BarHoldTask.cancel();
 	sequence64LiveRecordHeld = false;
 	sequence64LockRecordHeld = false;
 	sequence64PendingLiveCut = null;
+	sequence64PlaybackPingGuard = null;
 	sequence64LiveRecordTake = null;
 	sequence64LiveRecordFinalizeTask.cancel();
-	cancelSequence64SubPulseTasks();
-	sequence64PulseStarted = false;
-	sequence64SubstepsThisPulse = 0;
 }
 
 function editorOwnsLedCell(x, y) {
@@ -534,11 +553,19 @@ function editorBrightnessRgb(level) {
 	return rgb;
 }
 
-function removeQueuedEditorColorCell(x, y) {
+function updateQueuedEditorColorCell(x, y, rgb) {
 	for (var queued = pageColorQueue.length - 1; queued >= 0; queued--) {
 		var command = pageColorQueue[queued];
 		if (command[0] === "colorcell" && command[1] === x && command[2] === y) {
 			pageColorQueue.splice(queued, 1);
+		} else if (command[0] === "colormap" &&
+			x >= command[1] && x < command[1] + 4 &&
+			y >= command[2] && y < command[2] + 4) {
+			var cell = (y - command[2]) * 4 + (x - command[1]);
+			var offset = 3 + cell * 3;
+			command[offset] = rgb[0];
+			command[offset + 1] = rgb[1];
+			command[offset + 2] = rgb[2];
 		}
 	}
 }
@@ -548,6 +575,17 @@ function clearQueuedEditorShellColors() {
 		var command = pageColorQueue[queued];
 		if (command[0] === "colorcell" && command[2] >= EDITOR_FIRST_ROW) {
 			editorColorCache[editorLevelIndex(command[1], command[2])] = "";
+			pageColorQueue.splice(queued, 1);
+		} else if (command[0] === "colormap" &&
+			command[2] + 4 > EDITOR_FIRST_ROW) {
+			for (var mapY = 0; mapY < 4; mapY++) {
+				for (var mapX = 0; mapX < 4; mapX++) {
+					var cellY = command[2] + mapY;
+					if (cellY >= EDITOR_FIRST_ROW) {
+						editorColorCache[editorLevelIndex(command[1] + mapX, cellY)] = "";
+					}
+				}
+			}
 			pageColorQueue.splice(queued, 1);
 		}
 	}
@@ -560,7 +598,7 @@ function emitEditorColor(x, y, rgb) {
 	var signature = normalized.join(",");
 	if (editorColorCache[cacheIndex] === signature) return;
 	editorColorCache[cacheIndex] = signature;
-	removeQueuedEditorColorCell(x, y);
+	updateQueuedEditorColorCell(x, y, normalized);
 	outlet(1, "colorcell", x, y, normalized[0], normalized[1], normalized[2]);
 }
 
@@ -677,6 +715,7 @@ function createSequence64Pattern() {
 		legacyMigrated: 0,
 		steps: steps,
 		bars: [{ length: 64, steps: steps }],
+		parkedBars: [],
 		currentBar: 0
 	};
 }
@@ -763,6 +802,13 @@ function ensureSequence64Pattern(targetType, targetId) {
 		}
 	}
 	if (pattern.bars.length > SEQUENCE64_MAX_BARS) pattern.bars.length = SEQUENCE64_MAX_BARS;
+	if (!pattern.parkedBars || !Array.isArray(pattern.parkedBars)) pattern.parkedBars = [];
+	for (var parkedIndex = 0; parkedIndex < pattern.parkedBars.length; parkedIndex++) {
+		pattern.parkedBars[parkedIndex] =
+			normalizeSequence64Bar(pattern.parkedBars[parkedIndex], null, 64);
+	}
+	var parkedLimit = SEQUENCE64_MAX_BARS - pattern.bars.length;
+	if (pattern.parkedBars.length > parkedLimit) pattern.parkedBars.length = parkedLimit;
 	pattern.steps = pattern.bars[0].steps;
 	pattern.length = pattern.bars[0].length;
 	pattern.currentBar = clamp(parseInt(pattern.currentBar, 10) || 0, 0, pattern.bars.length - 1);
@@ -834,6 +880,48 @@ function sequence64StepHasLocks(step) {
 		if (step.locks[name]) return true;
 	}
 	return step.probability < 15;
+}
+
+function sequence64PlayingTrackIndex() {
+	var workspace = ensureEditorWorkspaceDefaults();
+	if (!workspace.active) return -1;
+	if (workspace.targetType === "track") {
+		var targetTrack = workspace.targetId;
+		var targetChannel = getChannelStateByIndex(trackChannelIndex(targetTrack));
+		return targetChannel && targetChannel.activeTrack === targetTrack ? targetTrack : -1;
+	}
+	if (workspace.targetType === "group") {
+		var channelState = getChannelStateByIndex(workspace.targetId);
+		var activeTrack = channelState ? channelState.activeTrack : -1;
+		if (activeTrack >= 0 && activeTrack < s.NUM_TRACKS &&
+			trackChannelIndex(activeTrack) === workspace.targetId) return activeTrack;
+	}
+	return -1;
+}
+
+function sequence64TrackPositionColumn() {
+	var trackIdx = sequence64PlayingTrackIndex();
+	if (trackIdx < 0) return -1;
+	var row = trackIdx + 1;
+	var bestColumn = -1;
+	var bestLevel = 0;
+	for (var column = 0; column < 16; column++) {
+		var level = playbackBg[bgIndex(column, row)] || 0;
+		if (level > bestLevel) {
+			bestLevel = level;
+			bestColumn = column;
+		}
+	}
+	if (bestColumn >= 0) return bestColumn;
+	var trackState = getTrackStateByIndex(trackIdx);
+	return trackState ? clamp(parseInt(trackState.playPos, 10) || 0, 0, 15) : -1;
+}
+
+function renderSequence64TrackPosition(levels) {
+	var position = sequence64TrackPositionColumn();
+	if (position < 0) return;
+	var index = editorShellLevelIndex(position, SEQUENCE64_TOOLS_ROW);
+	levels[index] = Math.max(levels[index], SEQUENCE64_TRACK_POSITION_LEVEL);
 }
 
 function sequence64TargetParameterValues(targetType, targetId) {
@@ -1007,6 +1095,7 @@ function currentEditorTrackIndex() {
 	if (workspace.targetType === "group" && workspace.targetId >= 0 && workspace.targetId < s.NUM_CHANNELS) {
 		var channelState = getChannelStateByIndex(workspace.targetId);
 		var activeTrack = channelState ? channelState.activeTrack : -1;
+		if (activeTrack < 0 && channelState) activeTrack = channelState.lastActiveTrack;
 		if (activeTrack >= 0 && activeTrack < s.NUM_TRACKS && trackChannelIndex(activeTrack) === workspace.targetId) {
 			return activeTrack;
 		}
@@ -1035,6 +1124,31 @@ function editorProbabilityPass(level) {
 	return Math.random() < (normalized / 15);
 }
 
+function emitSequence64PlaybackPing(trackIdx, position) {
+	if (s.kmod !== 1) return false;
+	var row = trackIdx + 1;
+	if (row < 1 || row >= s.gridHeight) return false;
+	sequence64PlaybackPingGuard = {
+		track: trackIdx,
+		position: position,
+		expiresAt: Date.now() + 250
+	};
+	kfping(position, row, 15, 24);
+	return true;
+}
+
+function consumeSequence64PlaybackPingGuard(trackIdx, position) {
+	var guard = sequence64PlaybackPingGuard;
+	if (!guard) return false;
+	if (Date.now() > guard.expiresAt) {
+		sequence64PlaybackPingGuard = null;
+		return false;
+	}
+	if (guard.track !== trackIdx || guard.position !== position) return false;
+	sequence64PlaybackPingGuard = null;
+	return true;
+}
+
 function triggerEditorTrack(trackIdx, slice) {
 	var trackState = getTrackStateByIndex(trackIdx);
 	if (!trackState) return false;
@@ -1043,7 +1157,16 @@ function triggerEditorTrack(trackIdx, slice) {
 	trackState.playPos = position;
 	trackState.subLoopAnchor = position;
 	getChannelStateByIndex(channelIdx).activeTrack = trackIdx;
+	// Do not depend on the stopped audio group reporting chRowPos back before
+	// showing the main-page cut. The matching callback consumes the guard below
+	// so a healthy audio round trip does not create a duplicate keyframe.
+	emitSequence64PlaybackPing(trackIdx, position);
 	messnamed(trackInputBus(trackIdx + 2), position, 1);
+	// Sequence64 already runs from a phase-locked clock, so fire the player
+	// immediately after the ordinary input path has armed its position/track.
+	// The player's immediate path also closes the legacy quantize gate, which
+	// prevents this cut from firing again on the next [mlr]trig pulse.
+	messnamed((channelIdx + 1) + "[mlr]pl-trig-now", "bang");
 	messnamed(trackInputBus(trackIdx + 2), position, 0);
 	if (channelLatchEnabledForTrack(trackIdx)) reapplyTrackSubLoopAfterTrigger(trackIdx, position);
 	else restoreTrackLoop(trackIdx);
@@ -1165,7 +1288,9 @@ function renderSequence64StepColors(colors, pattern, bar, playback) {
 		if (pattern.running && playback.bar === pattern.currentBar && playback.step === stepIndex) {
 			rgb = SEQUENCE64_COLORS.playhead;
 		}
-		if (sequence64HeldStep === stepIndex) rgb = SEQUENCE64_COLORS.held;
+		if (sequence64HeldStep === stepIndex || sequence64PressedStep === stepIndex) {
+			rgb = SEQUENCE64_COLORS.held;
+		}
 		setEditorShellColor(colors, coords[0], coords[1], rgb);
 	}
 }
@@ -1175,7 +1300,7 @@ function renderSequence64ControlColors(colors) {
 		var parameterIndex = SEQUENCE64_PARAMETERS.indexOf(sequence64EditParameter);
 		if (parameterIndex < 0) parameterIndex = 0;
 		for (var parameter = 0; parameter < SEQUENCE64_PARAMETERS.length; parameter++) {
-			setEditorShellColor(colors, parameter, SEQUENCE64_LENGTH_ROW,
+			setEditorShellColor(colors, SEQUENCE64_PARAMETER_FIRST_COL + parameter, SEQUENCE64_LENGTH_ROW,
 				SEQUENCE64_PARAMETER_COLORS[parameter]);
 		}
 		var maxValueColumn = 15;
@@ -1187,7 +1312,7 @@ function renderSequence64ControlColors(colors) {
 		}
 		if (sequence64EditParameter === "volume" || sequence64EditParameter === "filter") {
 			for (var behavior = 0; behavior < SEQUENCE64_BEHAVIORS.length; behavior++) {
-				setEditorShellColor(colors, behavior, SEQUENCE64_TOOLS_ROW,
+				setEditorShellColor(colors, SEQUENCE64_BEHAVIOR_FIRST_COL + behavior, SEQUENCE64_TOOLS_ROW,
 					SEQUENCE64_BEHAVIOR_COLORS[behavior]);
 			}
 		}
@@ -1210,6 +1335,11 @@ function renderSequence64ControlColors(colors) {
 	setEditorShellColor(colors, 15, SEQUENCE64_TRANSPORT_ROW, SEQUENCE64_COLORS.remove);
 	setEditorShellColor(colors, 0, SEQUENCE64_TOOLS_ROW, SEQUENCE64_COLORS.motion);
 	setEditorShellColor(colors, 1, SEQUENCE64_TOOLS_ROW, SEQUENCE64_COLORS.restore);
+	var trackPosition = sequence64TrackPositionColumn();
+	if (trackPosition >= 0) {
+		setEditorShellColor(colors, trackPosition, SEQUENCE64_TOOLS_ROW,
+			SEQUENCE64_COLORS.trackPosition);
+	}
 }
 
 function renderSequence64NavigationColors(colors) {
@@ -1275,6 +1405,8 @@ function buildEditorShellColors(levels) {
 function queueEditorShellColors(colors) {
 	if (!s.editorBrightnessColors || !colors) return 0;
 	var queuedCount = 0;
+	var dirtyBlocks = new Array(8).fill(0);
+	var dirtyCells = [];
 	for (var y = EDITOR_FIRST_ROW; y <= EDITOR_NAV_ROW; y++) {
 		for (var x = 0; x < 16; x++) {
 			var rgb = colors[editorShellLevelIndex(x, y)];
@@ -1282,8 +1414,31 @@ function queueEditorShellColors(colors) {
 			var cacheIndex = editorLevelIndex(x, y);
 			if (editorColorCache[cacheIndex] === signature) continue;
 			editorColorCache[cacheIndex] = signature;
-			queueColorCellFrom(x, y, rgb);
+			var blockIndex = Math.floor((y - EDITOR_FIRST_ROW) / 4) * 4 +
+				Math.floor(x / 4);
+			dirtyBlocks[blockIndex]++;
+			dirtyCells.push([x, y, rgb, blockIndex]);
 			queuedCount++;
+		}
+	}
+	for (var block = 0; block < dirtyBlocks.length; block++) {
+		if (dirtyBlocks[block] >= 4) {
+			var blockX = (block % 4) * 4;
+			var blockY = EDITOR_FIRST_ROW + Math.floor(block / 4) * 4;
+			var mapColors = [];
+			for (var mapY = 0; mapY < 4; mapY++) {
+				for (var mapX = 0; mapX < 4; mapX++) {
+					var mapRgb = colors[editorShellLevelIndex(blockX + mapX, blockY + mapY)];
+					mapColors.push(clamp8(mapRgb[0]), clamp8(mapRgb[1]), clamp8(mapRgb[2]));
+				}
+			}
+			queueColorMapFrom(blockX, blockY, mapColors);
+		} else if (dirtyBlocks[block]) {
+			for (var cell = 0; cell < dirtyCells.length; cell++) {
+				if (dirtyCells[cell][3] !== block) continue;
+				queueColorCellFrom(dirtyCells[cell][0], dirtyCells[cell][1],
+					dirtyCells[cell][2]);
+			}
 		}
 	}
 	if (queuedCount) startPageColorQueue();
@@ -1422,7 +1577,12 @@ function renderEditorFxPage(levels) {
 
 function sequence64LockValueColumn(parameter, step) {
 	if (!step) return -1;
-	if (parameter === "slice") return step.cut ? step.cut.slice : -1;
+	if (parameter === "slice") {
+		if (step.locks && step.locks.slice) {
+			return clamp(parseInt(step.locks.slice.value, 10) || 0, 0, 15);
+		}
+		return step.cut ? step.cut.slice : -1;
+	}
 	if (parameter === "probability") return clamp(step.probability, 0, 15);
 	if (parameter === "gateLength") return step.cut ? clamp(step.cut.gateLength - 1, 0, 15) : -1;
 	var lock = step.locks ? step.locks[parameter] : null;
@@ -1437,7 +1597,7 @@ function renderSequence64StepEditor(levels, step) {
 	var parameterIndex = SEQUENCE64_PARAMETERS.indexOf(sequence64EditParameter);
 	if (parameterIndex < 0) parameterIndex = 0;
 	for (var parameter = 0; parameter < SEQUENCE64_PARAMETERS.length; parameter++) {
-		setEditorShellLevel(levels, parameter, SEQUENCE64_LENGTH_ROW,
+		setEditorShellLevel(levels, SEQUENCE64_PARAMETER_FIRST_COL + parameter, SEQUENCE64_LENGTH_ROW,
 			parameter === parameterIndex ? 15 : 3);
 	}
 
@@ -1447,13 +1607,13 @@ function renderSequence64StepEditor(levels, step) {
 	else if (sequence64EditParameter === "loopDivision") maxValueColumn = 7;
 	for (var value = 0; value <= maxValueColumn; value++) {
 		setEditorShellLevel(levels, value, SEQUENCE64_TRANSPORT_ROW,
-			value === valueColumn ? 15 : 2);
+			value === valueColumn ? 15 : SEQUENCE64_MIN_VISIBLE_LEVEL);
 	}
 
 	var lock = step && step.locks ? step.locks[sequence64EditParameter] : null;
 	if (sequence64EditParameter === "volume" || sequence64EditParameter === "filter") {
 		for (var behavior = 0; behavior < SEQUENCE64_BEHAVIORS.length; behavior++) {
-			setEditorShellLevel(levels, behavior, SEQUENCE64_TOOLS_ROW,
+			setEditorShellLevel(levels, SEQUENCE64_BEHAVIOR_FIRST_COL + behavior, SEQUENCE64_TOOLS_ROW,
 				lock && lock.behavior === SEQUENCE64_BEHAVIORS[behavior] ? 15 : 3);
 		}
 	}
@@ -1474,20 +1634,20 @@ function renderSequence64View(levels) {
 		for (var tail = 1; tail < sourceStep.cut.gateLength && tail < bar.length; tail++) {
 			var tailIndex = (source + tail) % bar.length;
 			var tailCoords = sequence64StepCoords(tailIndex);
-			setEditorShellLevel(levels, tailCoords[0], tailCoords[1], 2);
+			setEditorShellLevel(levels, tailCoords[0], tailCoords[1], SEQUENCE64_EMPTY_STEP_LEVEL);
 		}
 	}
 
 	for (var stepIndex = 0; stepIndex < 64; stepIndex++) {
 		var coords = sequence64StepCoords(stepIndex);
 		var step = bar.steps[stepIndex];
-		var level = stepIndex < bar.length ? 1 : 0;
+		var level = stepIndex < bar.length ? SEQUENCE64_EMPTY_STEP_LEVEL : 0;
 		if (sequence64StepHasLocks(step)) level = 5;
 		if (step.cut) level = step.cut.gateLength > 1 ? 10 : 7;
 		if (step.cut && sequence64StepHasLocks(step)) level = 12;
 		if (pattern.running && playback.bar === pattern.currentBar &&
 			stepIndex === workspace.stepPlayhead) level = 15;
-		if (sequence64HeldStep === stepIndex) level = 15;
+		if (sequence64HeldStep === stepIndex || sequence64PressedStep === stepIndex) level = 15;
 		setEditorShellLevel(levels, coords[0], coords[1], level);
 	}
 
@@ -1496,14 +1656,18 @@ function renderSequence64View(levels) {
 	} else {
 		for (var lengthIndex = 0; lengthIndex < SEQUENCE64_LENGTHS.length; lengthIndex++) {
 			setEditorShellLevel(levels, lengthIndex, SEQUENCE64_LENGTH_ROW,
-				bar.length === SEQUENCE64_LENGTHS[lengthIndex] ? 15 : 3);
+				bar.length === SEQUENCE64_LENGTHS[lengthIndex] ? 15 :
+					(sequence64PendingLengthIndex === lengthIndex ? 10 : 3));
 		}
 		for (var barButton = 0; barButton < SEQUENCE64_MAX_BARS; barButton++) {
-			var barLevel = 0;
+			var barLevel = SEQUENCE64_MIN_VISIBLE_LEVEL;
 			if (barButton < pattern.bars.length) {
 				barLevel = barButton === pattern.currentBar ? 15 :
 					(barButton === playback.bar && pattern.running ? 10 : 4);
-			} else if (barButton === pattern.bars.length) barLevel = 2;
+			}
+			if (sequence64PendingBarIndex === barButton) {
+				barLevel = sequence64BarHoldCommitted ? 15 : 10;
+			}
 			setEditorShellLevel(levels, barButton + 4, SEQUENCE64_LENGTH_ROW, barLevel);
 		}
 		setEditorShellLevel(levels, 12, SEQUENCE64_LENGTH_ROW, pattern.bars.length > 1 ? 6 : 2);
@@ -1519,6 +1683,7 @@ function renderSequence64View(levels) {
 		setEditorShellLevel(levels, 0, SEQUENCE64_TOOLS_ROW, sequence64ActiveShapes.length ? 12 : 4);
 		setEditorShellLevel(levels, 1, SEQUENCE64_TOOLS_ROW,
 			workspace.startSnapshots64[currentEditorTargetKey()] ? 8 : 3);
+		renderSequence64TrackPosition(levels);
 	}
 
 	setEditorShellLevel(levels, 0, SEQUENCE64_NAV_ROW, 15);
@@ -1540,7 +1705,8 @@ function renderSequence64SetupView(levels) {
 	if (channelState) {
 		var volumeCell = clamp(Math.round(channelState.volume * 15 / 158), 0, 15);
 		for (var volume = 0; volume < 16; volume++) {
-			setEditorShellLevel(levels, volume, 9, volume <= volumeCell ? (volume === volumeCell ? 15 : 5) : 1);
+			setEditorShellLevel(levels, volume, 9,
+				volume <= volumeCell ? (volume === volumeCell ? 15 : 5) : SEQUENCE64_MIN_VISIBLE_LEVEL);
 		}
 	}
 	if (trackState) {
@@ -1558,8 +1724,10 @@ function renderSequence64SetupView(levels) {
 		var loopStart = clamp(Math.floor(trackState.loopStart), 0, 15);
 		var loopEnd = clamp(Math.ceil(trackState.loopEnd) - 1, 0, 15);
 		for (var loopCell = 0; loopCell < 16; loopCell++) {
-			setEditorShellLevel(levels, loopCell, 12, loopCell === loopStart ? 15 : 2);
-			setEditorShellLevel(levels, loopCell, 13, loopCell === loopEnd ? 15 : 2);
+			setEditorShellLevel(levels, loopCell, 12,
+				loopCell === loopStart ? 15 : SEQUENCE64_MIN_VISIBLE_LEVEL);
+			setEditorShellLevel(levels, loopCell, 13,
+				loopCell === loopEnd ? 15 : SEQUENCE64_MIN_VISIBLE_LEVEL);
 		}
 		setEditorShellLevel(levels, 0, 14, trackState.loopActive ? 15 : 3);
 	}
@@ -1813,7 +1981,9 @@ function sequence64ShapeKey(targetKey, parameter) {
 }
 
 function sequence64ShapeRampMs() {
-	return clamp(Math.round(sequence64MasterPulseIntervalMs / SEQUENCE64_STEPS_PER_PULSE), 8, 250);
+	var quarterNoteMs = parseFloat(s.timeMs);
+	if (!isFinite(quarterNoteMs) || quarterNoteMs <= 0) quarterNoteMs = 600;
+	return clamp(Math.round(quarterNoteMs / 16), 8, 250);
 }
 
 function emitSequence64Parameter(targetType, targetId, parameter, value, channelIdx, rampMs) {
@@ -2097,80 +2267,14 @@ function advanceSequence64ClockSubstep() {
 	return fired;
 }
 
-function runSequence64ScheduledSubsteps(targetCount) {
-	if (!sequence64LayoutEnabled() || !ensureEditorWorkspaceDefaults().active ||
-		!sequence64PulseStarted) return 0;
-	var result = 0;
-	while (sequence64SubstepsThisPulse < targetCount) {
-		result += advanceSequence64ClockSubstep();
-		sequence64SubstepsThisPulse++;
-	}
-	return result;
-}
-
-function sequence64QuarterPulse() {
-	return runSequence64ScheduledSubsteps(2);
-}
-
-function sequence64HalfPulse() {
-	return runSequence64ScheduledSubsteps(3);
-}
-
-function sequence64ThreeQuarterPulse() {
-	return runSequence64ScheduledSubsteps(4);
-}
-
-function cancelSequence64SubPulseTasks() {
-	sequence64QuarterPulseTask.cancel();
-	sequence64HalfPulseTask.cancel();
-	sequence64ThreeQuarterPulseTask.cancel();
-}
-
-function finishSequence64Pulse() {
-	if (!sequence64PulseStarted || !ensureEditorWorkspaceDefaults().active) return 0;
-	var result = runSequence64ScheduledSubsteps(SEQUENCE64_STEPS_PER_PULSE);
-	sequence64PulseStarted = false;
-	sequence64SubstepsThisPulse = 0;
-	return result;
-}
-
-function updateSequence64Clock() {
-	var now = Date.now();
-	if (sequence64LastMasterPulseMs > 0) {
-		var measuredInterval = now - sequence64LastMasterPulseMs;
-		if (measuredInterval >= 10 && measuredInterval <= 2000) {
-			sequence64MasterPulseIntervalMs =
-				(sequence64MasterPulseIntervalMs * 0.75) + (measuredInterval * 0.25);
-		}
-	} else {
-		var quarterNoteMs = parseFloat(s.timeMs);
-		if (isFinite(quarterNoteMs) && quarterNoteMs > 0) {
-			sequence64MasterPulseIntervalMs = quarterNoteMs / 4;
-		}
-	}
-	sequence64LastMasterPulseMs = now;
-	var result = finishSequence64Pulse();
-	cancelSequence64SubPulseTasks();
-	if (!ensureEditorWorkspaceDefaults().active) {
-		sequence64ClockPosition += SEQUENCE64_STEPS_PER_PULSE;
-		sequence64PulseStarted = false;
-		sequence64SubstepsThisPulse = 0;
-		return 0;
-	}
-	sequence64PulseStarted = true;
-	sequence64SubstepsThisPulse = 1;
-	result += advanceSequence64ClockSubstep();
-	var subdivisionMs = Math.max(1,
-		sequence64MasterPulseIntervalMs / SEQUENCE64_STEPS_PER_PULSE);
-	sequence64QuarterPulseTask.schedule(subdivisionMs);
-	sequence64HalfPulseTask.schedule(subdivisionMs * 2);
-	sequence64ThreeQuarterPulseTask.schedule(subdivisionMs * 3);
-	return result;
+function sequence64SubPulse() {
+	if (!sequence64LayoutEnabled()) return 0;
+	return advanceSequence64ClockSubstep();
 }
 
 function updateEditorClock() {
 	var workspace = ensureEditorWorkspaceDefaults();
-	if (sequence64LayoutEnabled()) return updateSequence64Clock();
+	if (sequence64LayoutEnabled()) return 0;
 	if (!editorWorkspaceAvailable() || !workspace.active || workspace.choosing) return 0;
 	var nextStep = currentEditorClockStep();
 	if (workspace.lastSequencedStep === nextStep) return 0;
@@ -2324,6 +2428,64 @@ function toggleSequence64Step(stepIndex) {
 	redrawEditorShellDiff();
 }
 
+function closeSequence64StepEditor() {
+	sequence64StepHoldTask.cancel();
+	sequence64PressedStep = -1;
+	sequence64StepHoldOpened = false;
+	sequence64HeldStep = -1;
+	sequence64HeldStepChanged = false;
+	outlet(2, "editor_step_editor", 0);
+	redrawEditorShellDiff();
+}
+
+function openSequence64StepEditorAfterHold() {
+	if (sequence64PressedStep < 0 || sequence64HeldStep >= 0) return false;
+	sequence64HeldStep = sequence64PressedStep;
+	sequence64StepHoldOpened = true;
+	sequence64HeldStepChanged = false;
+	sequence64EditParameter = "slice";
+	outlet(2, "editor_step_editor", 1, sequence64HeldStep + 1);
+	redrawEditorShellDiff();
+	return true;
+}
+
+function handleSequence64StepKey(stepIndex, state) {
+	var pattern = currentSequence64Pattern();
+	var bar = currentSequence64EditBar(pattern);
+	if (!bar || stepIndex < 0 || stepIndex >= bar.length) return true;
+
+	if (state === 1) {
+		sequence64StepHoldTask.cancel();
+		sequence64PressedStep = -1;
+		sequence64StepHoldOpened = false;
+		if (sequence64HeldStep >= 0) {
+			if (sequence64HeldStep === stepIndex) {
+				closeSequence64StepEditor();
+			} else {
+				sequence64HeldStep = stepIndex;
+				sequence64HeldStepChanged = false;
+				sequence64EditParameter = "slice";
+				outlet(2, "editor_step_editor", 1, stepIndex + 1);
+				redrawEditorShellDiff();
+			}
+			return true;
+		}
+		sequence64PressedStep = stepIndex;
+		sequence64StepHoldTask.schedule(SEQUENCE64_HOLD_MS);
+		redrawEditorShellDiff();
+		return true;
+	}
+
+	if (sequence64PressedStep !== stepIndex) return true;
+	sequence64StepHoldTask.cancel();
+	var editorWasOpened = sequence64StepHoldOpened;
+	sequence64PressedStep = -1;
+	sequence64StepHoldOpened = false;
+	if (!editorWasOpened) toggleSequence64Step(stepIndex);
+	else redrawEditorShellDiff();
+	return true;
+}
+
 function sequence64SetLockValue(parameter, column) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var pattern = currentSequence64Pattern();
@@ -2410,6 +2572,14 @@ function selectSequence64Bar(barIndex) {
 	pattern.currentBar = clamp(parseInt(barIndex, 10) || 0, 0, pattern.bars.length - 1);
 	sequence64HeldStep = -1;
 	sequence64HeldStepChanged = false;
+	sequence64PressedStep = -1;
+	sequence64StepHoldOpened = false;
+	sequence64PendingLengthIndex = -1;
+	sequence64PendingBarIndex = -1;
+	sequence64BarHoldCommitted = false;
+	sequence64StepHoldTask.cancel();
+	sequence64LengthHoldTask.cancel();
+	sequence64BarHoldTask.cancel();
 	sequence64RemoveBarArmedUntil = 0;
 	outlet(2, "editor_bar", pattern.currentBar + 1, pattern.bars.length);
 	redrawEditorShellDiff();
@@ -2418,13 +2588,85 @@ function selectSequence64Bar(barIndex) {
 function addSequence64Bar() {
 	var pattern = currentSequence64Pattern();
 	if (!pattern || pattern.bars.length >= SEQUENCE64_MAX_BARS) return false;
-	pattern.bars.push(normalizeSequence64Bar(null, null, 64));
+	var restoredBar = pattern.parkedBars && pattern.parkedBars.length ?
+		pattern.parkedBars.shift() : null;
+	pattern.bars.push(normalizeSequence64Bar(restoredBar, null, 64));
 	pattern.currentBar = pattern.bars.length - 1;
 	pattern.running = 0;
 	releaseSequence64Gates();
 	sequence64RemoveBarArmedUntil = 0;
 	outlet(2, "editor_bar_added", pattern.currentBar + 1, pattern.bars.length);
 	redrawEditorShellDiff();
+	return true;
+}
+
+function setSequence64BarCount(barCount) {
+	var pattern = currentSequence64Pattern();
+	if (!pattern) return false;
+	var requested = clamp(parseInt(barCount, 10) || 1, 1, SEQUENCE64_MAX_BARS);
+	if (!pattern.parkedBars || !Array.isArray(pattern.parkedBars)) pattern.parkedBars = [];
+	var changed = requested !== pattern.bars.length;
+
+	if (requested < pattern.bars.length) {
+		var parked = pattern.bars.splice(requested);
+		pattern.parkedBars = parked.concat(pattern.parkedBars);
+	} else {
+		while (pattern.bars.length < requested) {
+			var restored = pattern.parkedBars.length ? pattern.parkedBars.shift() : null;
+			pattern.bars.push(normalizeSequence64Bar(restored, null, 64));
+		}
+	}
+
+	pattern.currentBar = requested - 1;
+	pattern.steps = pattern.bars[0].steps;
+	pattern.length = pattern.bars[0].length;
+	if (changed) {
+		pattern.running = 0;
+		releaseSequence64Gates();
+	}
+	sequence64RemoveBarArmedUntil = 0;
+	outlet(2, "editor_bar_count", requested);
+	outlet(2, "editor_bar", pattern.currentBar + 1, requested);
+	redrawEditorShellDiff();
+	return changed;
+}
+
+function commitSequence64BarHold() {
+	if (sequence64PendingBarIndex < 0 ||
+		sequence64PendingBarIndex >= SEQUENCE64_MAX_BARS) return false;
+	sequence64BarHoldCommitted = true;
+	setSequence64BarCount(sequence64PendingBarIndex + 1);
+	return true;
+}
+
+function tapSequence64Bar(barIndex) {
+	var pattern = currentSequence64Pattern();
+	if (!pattern) return false;
+	if (barIndex < pattern.bars.length) {
+		selectSequence64Bar(barIndex);
+		return true;
+	}
+	if (barIndex === pattern.bars.length) return addSequence64Bar();
+	return false;
+}
+
+function handleSequence64BarKey(barIndex, state) {
+	if (barIndex < 0 || barIndex >= SEQUENCE64_MAX_BARS) return true;
+	if (state === 1) {
+		sequence64BarHoldTask.cancel();
+		sequence64PendingBarIndex = barIndex;
+		sequence64BarHoldCommitted = false;
+		sequence64BarHoldTask.schedule(SEQUENCE64_HOLD_MS);
+		redrawEditorShellDiff();
+		return true;
+	}
+	if (sequence64PendingBarIndex !== barIndex) return true;
+	sequence64BarHoldTask.cancel();
+	var committed = sequence64BarHoldCommitted;
+	sequence64PendingBarIndex = -1;
+	sequence64BarHoldCommitted = false;
+	if (!committed) tapSequence64Bar(barIndex);
+	else redrawEditorShellDiff();
 	return true;
 }
 
@@ -2464,6 +2706,32 @@ function setCurrentSequence64BarLength(length) {
 	if (pattern.currentBar === 0) pattern.length = length;
 	outlet(2, "editor_length", pattern.currentBar + 1, length);
 	redrawEditorShellDiff();
+}
+
+function commitSequence64LengthHold() {
+	if (sequence64PendingLengthIndex < 0 ||
+		sequence64PendingLengthIndex >= SEQUENCE64_LENGTHS.length) return false;
+	var lengthIndex = sequence64PendingLengthIndex;
+	sequence64PendingLengthIndex = -1;
+	setCurrentSequence64BarLength(SEQUENCE64_LENGTHS[lengthIndex]);
+	return true;
+}
+
+function handleSequence64LengthKey(lengthIndex, state) {
+	if (lengthIndex < 0 || lengthIndex >= SEQUENCE64_LENGTHS.length) return true;
+	if (state === 1) {
+		sequence64LengthHoldTask.cancel();
+		sequence64PendingLengthIndex = lengthIndex;
+		sequence64LengthHoldTask.schedule(SEQUENCE64_HOLD_MS);
+		redrawEditorShellDiff();
+		return true;
+	}
+	if (sequence64PendingLengthIndex === lengthIndex) {
+		sequence64LengthHoldTask.cancel();
+		sequence64PendingLengthIndex = -1;
+		redrawEditorShellDiff();
+	}
+	return true;
 }
 
 function recordSequence64SetupLock(parameter, value) {
@@ -2541,6 +2809,14 @@ function handleSequence64WorkspaceKey(col, row, state) {
 			workspace.view64 = col === 0 ? "sequence" : "setup";
 			sequence64HeldStep = -1;
 			sequence64HeldStepChanged = false;
+			sequence64PressedStep = -1;
+			sequence64StepHoldOpened = false;
+			sequence64PendingLengthIndex = -1;
+			sequence64PendingBarIndex = -1;
+			sequence64BarHoldCommitted = false;
+			sequence64StepHoldTask.cancel();
+			sequence64LengthHoldTask.cancel();
+			sequence64BarHoldTask.cancel();
 			outlet(2, "editor_page", workspace.view64);
 			redrawEditorWorkspaceFrame();
 			return true;
@@ -2555,45 +2831,40 @@ function handleSequence64WorkspaceKey(col, row, state) {
 
 	var stepIndex = sequence64GridStep(col, row);
 	if (stepIndex >= 0) {
-		if (state === 1) {
-			sequence64HeldStep = stepIndex;
-			sequence64HeldStepChanged = false;
-			sequence64EditParameter = "slice";
-			redrawEditorShellDiff();
-		} else if (sequence64HeldStep === stepIndex) {
-			var changed = sequence64HeldStepChanged;
-			sequence64HeldStep = -1;
-			sequence64HeldStepChanged = false;
-			if (!changed) toggleSequence64Step(stepIndex);
-			else redrawEditorShellDiff();
-		}
-		return true;
+		return handleSequence64StepKey(stepIndex, state);
+	}
+
+	if (sequence64HeldStep < 0 && row === SEQUENCE64_LENGTH_ROW &&
+		col < SEQUENCE64_LENGTHS.length) {
+		return handleSequence64LengthKey(col, state);
+	}
+	if (sequence64HeldStep < 0 && row === SEQUENCE64_LENGTH_ROW &&
+		col >= 4 && col < 12) {
+		return handleSequence64BarKey(col - 4, state);
 	}
 
 	if (state !== 1) return true;
 	if (sequence64HeldStep >= 0) {
 		sequence64HeldStepChanged = true;
-		if (row === SEQUENCE64_LENGTH_ROW && col < SEQUENCE64_PARAMETERS.length) {
-			sequence64EditParameter = SEQUENCE64_PARAMETERS[col];
+		if (row === SEQUENCE64_LENGTH_ROW &&
+			col >= SEQUENCE64_PARAMETER_FIRST_COL &&
+			col < SEQUENCE64_PARAMETER_FIRST_COL + SEQUENCE64_PARAMETERS.length) {
+			sequence64EditParameter =
+				SEQUENCE64_PARAMETERS[col - SEQUENCE64_PARAMETER_FIRST_COL];
 			redrawEditorShellDiff();
 		} else if (row === SEQUENCE64_TRANSPORT_ROW) {
 			sequence64SetLockValue(sequence64EditParameter, col);
 		} else if (row === SEQUENCE64_TOOLS_ROW && col === 15) {
 			sequence64ClearSelectedLock();
-		} else if (row === SEQUENCE64_TOOLS_ROW) {
-			sequence64SetBehavior(col);
+		} else if (row === SEQUENCE64_TOOLS_ROW &&
+			col >= SEQUENCE64_BEHAVIOR_FIRST_COL &&
+			col < SEQUENCE64_BEHAVIOR_FIRST_COL + SEQUENCE64_BEHAVIORS.length) {
+			sequence64SetBehavior(col - SEQUENCE64_BEHAVIOR_FIRST_COL);
 		}
 		return true;
 	}
 
-	if (row === SEQUENCE64_LENGTH_ROW && col < SEQUENCE64_LENGTHS.length) {
-		setCurrentSequence64BarLength(SEQUENCE64_LENGTHS[col]);
-	} else if (row === SEQUENCE64_LENGTH_ROW && col >= 4 && col < 12) {
-		var requestedBar = col - 4;
-		var navigationPattern = currentSequence64Pattern();
-		if (requestedBar < navigationPattern.bars.length) selectSequence64Bar(requestedBar);
-		else if (requestedBar === navigationPattern.bars.length) addSequence64Bar();
-	} else if (row === SEQUENCE64_LENGTH_ROW && col === 12) {
+	if (row === SEQUENCE64_LENGTH_ROW && col === 12) {
 		var previousPattern = currentSequence64Pattern();
 		selectSequence64Bar((previousPattern.currentBar - 1 + previousPattern.bars.length) %
 			previousPattern.bars.length);
@@ -2632,6 +2903,16 @@ function selectEditorTarget(targetType, targetId) {
 	workspace.targetType = targetType;
 	workspace.targetId = targetId;
 	workspace.active = true;
+	sequence64HeldStep = -1;
+	sequence64HeldStepChanged = false;
+	sequence64PressedStep = -1;
+	sequence64StepHoldOpened = false;
+	sequence64PendingLengthIndex = -1;
+	sequence64PendingBarIndex = -1;
+	sequence64BarHoldCommitted = false;
+	sequence64StepHoldTask.cancel();
+	sequence64LengthHoldTask.cancel();
+	sequence64BarHoldTask.cancel();
 	if (sequence64LayoutEnabled()) {
 		var selectedPlayback = sequence64PlaybackLocation(currentSequence64Pattern());
 		workspace.lastSequencedStep = selectedPlayback.step;
@@ -2743,17 +3024,6 @@ function editorLayout(mode) {
 	resetEditorWorkspaceState(true);
 	workspace.layoutMode = normalized;
 	workspace.view64 = "sequence";
-	if (normalized === "sequence64") {
-		sequence64ClockPosition = Math.max(0,
-			(s.automation.tick || 0) * SEQUENCE64_STEPS_PER_PULSE);
-		sequence64LastMasterPulseMs = 0;
-		sequence64PulseStarted = false;
-		sequence64SubstepsThisPulse = 0;
-	} else {
-		cancelSequence64SubPulseTasks();
-		sequence64PulseStarted = false;
-		sequence64SubstepsThisPulse = 0;
-	}
 	post("[grid_router] editor layout " + normalized + "\n");
 	if (s.kmod === 2) redrawEditorWorkspaceFrame();
 }
@@ -2938,6 +3208,14 @@ function setPlaybackBgCell(x, y, level) {
 	if (s.kmod === 1) drawMainBackgroundCell(x, y);
 }
 
+function refreshSequence64TrackPositionForRow(row) {
+	var workspace = ensureEditorWorkspaceDefaults();
+	if (s.kmod !== 2 || !sequence64LayoutEnabled() || !workspace.active ||
+		workspace.choosing || workspace.view64 !== "sequence" || sequence64HeldStep >= 0) return;
+	var trackIdx = sequence64PlayingTrackIndex();
+	if (trackIdx >= 0 && row === trackIdx + 1) redrawEditorShellDiff();
+}
+
 function updateLoopSelectionFromPress(col, row, state) {
 	if (row < 1 || row >= s.gridHeight) return;
 	var trackIdx = row - 1;
@@ -3008,6 +3286,15 @@ function colorCell(x, y, r, g, b) {
 /** Persistent color for the whole grid; current legacy levels are unchanged. */
 function colorAll(r, g, b) {
 	outlet(1, "colorall", clamp8(r), clamp8(g), clamp8(b));
+}
+
+/** Persistent 4x4 colors, row-major as 16 RGB triples. */
+function colorMap() {
+	var args = arrayfromargs(arguments);
+	if (args.length !== 50) return;
+	var command = ["colormap", parseInt(args[0], 10), parseInt(args[1], 10)];
+	for (var i = 2; i < args.length; i++) command.push(clamp8(args[i]));
+	outlet.apply(this, [1].concat(command));
 }
 
 function colorPresetSlot(slot) {
@@ -3083,7 +3370,10 @@ function drainPageColorQueue() {
 	if (command[0] === "colorpresetstore") {
 		pageColorPresetReady[colorPresetSlot(command[1])] = 1;
 	}
-	if (pageColorQueue.length) pageColorQueueTask.schedule(PAGE_COLOR_INTERVAL_MS);
+	if (pageColorQueue.length) {
+		pageColorQueueTask.schedule(pageColorQueue[0][0] === "colormap" ? 1 :
+			PAGE_COLOR_INTERVAL_MS);
+	}
 }
 
 function resetPageColorQueue() {
@@ -3104,6 +3394,14 @@ function queueColorCellFrom(x, y, rgb) {
 	queuePageColorCommand("colorcell", x, y, clamp8(rgb[0]), clamp8(rgb[1]), clamp8(rgb[2]));
 }
 
+function queueColorMapFrom(x, y, colors) {
+	if (x < 0 || y < 0 || x + 4 > s.gridWidth || y + 4 > s.gridHeight ||
+		!colors || colors.length !== 48) return;
+	var command = ["colormap", x, y];
+	for (var i = 0; i < colors.length; i++) command.push(clamp8(colors[i]));
+	pageColorQueue.push(command);
+}
+
 function queueColorRectFrom(x0, y0, x1, y1, rgb) {
 	var left = clamp(Math.min(x0, x1), 0, s.gridWidth - 1);
 	var right = clamp(Math.max(x0, x1), 0, s.gridWidth - 1);
@@ -3118,52 +3416,94 @@ function queueColorColFrom(x, rgb) {
 	queueColorRectFrom(x, 0, x, s.gridHeight - 1, rgb);
 }
 
-function applyMainPageColors() {
-	queueColorAllFrom(PAGE_COLORS.mainBase);
-	queueColorRectFrom(0, 0, 7, 0, PAGE_COLORS.mainChannels);
-	queueColorRectFrom(8, 0, 11, 0, PAGE_COLORS.mainPatterns);
-	queueColorRectFrom(12, 0, 13, 0, PAGE_COLORS.mainClock);
-	queueColorRectFrom(14, 0, 15, 0, PAGE_COLORS.mainPage);
+function createColorPalette(rgb) {
+	var palette = new Array(s.gridWidth * s.gridHeight);
+	for (var i = 0; i < palette.length; i++) {
+		palette[i] = [clamp8(rgb[0]), clamp8(rgb[1]), clamp8(rgb[2])];
+	}
+	return palette;
 }
 
-function applyModPageColors() {
-	queueColorAllFrom(PAGE_COLORS.modBase);
-	queueColorRectFrom(0, 0, 7, 0, PAGE_COLORS.mute);
-	queueColorRectFrom(0, 1, 7, 2, PAGE_COLORS.volume);
-	queueColorRectFrom(0, 3, 7, 3, PAGE_COLORS.timestretch);
-	queueColorRectFrom(0, 4, 7, 4, PAGE_COLORS.latch);
-	var insertBottom = s.gridHeight - 4;
-	if (insertBottom >= 5) queueColorRectFrom(0, 5, 7, insertBottom, PAGE_COLORS.insertFx);
-	queueColorRectFrom(0, s.gridHeight - 3, 7, s.gridHeight - 1, PAGE_COLORS.meter);
-	queueColorColFrom(8, PAGE_COLORS.randomize);
-	queueColorColFrom(9, PAGE_COLORS.automation);
-	queueColorColFrom(10, PAGE_COLORS.quantize);
-	queueColorColFrom(11, PAGE_COLORS.subLoop);
-	queueColorColFrom(12, PAGE_COLORS.randomOffset);
-	queueColorColFrom(13, PAGE_COLORS.octave);
-	queueColorColFrom(14, PAGE_COLORS.octave);
-	queueColorColFrom(15, PAGE_COLORS.reverse);
-}
-
-function applyGroupsPageColors() {
-	queueColorAllFrom(PAGE_COLORS.groupsBase);
-	for (var group = 0; group < GROUP_COLORS.length && (group + 8) < s.gridWidth; group++) {
-		queueColorRectFrom(group + 8, 1, group + 8, s.gridHeight - 1, GROUP_COLORS[group]);
+function paintColorPaletteRect(palette, x0, y0, x1, y1, rgb) {
+	var left = clamp(Math.min(x0, x1), 0, s.gridWidth - 1);
+	var right = clamp(Math.max(x0, x1), 0, s.gridWidth - 1);
+	var top = clamp(Math.min(y0, y1), 0, s.gridHeight - 1);
+	var bottom = clamp(Math.max(y0, y1), 0, s.gridHeight - 1);
+	for (var y = top; y <= bottom; y++) {
+		for (var x = left; x <= right; x++) {
+			palette[y * s.gridWidth + x] =
+				[clamp8(rgb[0]), clamp8(rgb[1]), clamp8(rgb[2])];
+		}
 	}
 }
 
-function applyGateFxPageColors() {
-	queueColorAllFrom(PAGE_COLORS.gateFxBase);
-	queueColorRectFrom(14, 0, 15, 0, PAGE_COLORS.mainClock);
+function queueColorPaletteMaps(palette) {
+	if (!palette || palette.length !== s.gridWidth * s.gridHeight) return;
+	for (var blockY = 0; blockY < s.gridHeight; blockY += 4) {
+		for (var blockX = 0; blockX < s.gridWidth; blockX += 4) {
+			var colors = [];
+			for (var y = 0; y < 4; y++) {
+				for (var x = 0; x < 4; x++) {
+					var rgb = palette[(blockY + y) * s.gridWidth + blockX + x];
+					colors.push(rgb[0], rgb[1], rgb[2]);
+				}
+			}
+			queueColorMapFrom(blockX, blockY, colors);
+		}
+	}
+}
+
+function applyMainPageColors(palette) {
+	paintColorPaletteRect(palette, 0, 0, 7, 0, PAGE_COLORS.mainChannels);
+	paintColorPaletteRect(palette, 8, 0, 11, 0, PAGE_COLORS.mainPatterns);
+	paintColorPaletteRect(palette, 12, 0, 13, 0, PAGE_COLORS.mainClock);
+	paintColorPaletteRect(palette, 14, 0, 15, 0, PAGE_COLORS.mainPage);
+}
+
+function applyModPageColors(palette) {
+	paintColorPaletteRect(palette, 0, 0, 7, 0, PAGE_COLORS.mute);
+	paintColorPaletteRect(palette, 0, 1, 7, 2, PAGE_COLORS.volume);
+	paintColorPaletteRect(palette, 0, 3, 7, 3, PAGE_COLORS.timestretch);
+	paintColorPaletteRect(palette, 0, 4, 7, 4, PAGE_COLORS.latch);
+	var insertBottom = s.gridHeight - 4;
+	if (insertBottom >= 5) {
+		paintColorPaletteRect(palette, 0, 5, 7, insertBottom, PAGE_COLORS.insertFx);
+	}
+	paintColorPaletteRect(palette, 0, s.gridHeight - 3, 7, s.gridHeight - 1,
+		PAGE_COLORS.meter);
+	paintColorPaletteRect(palette, 8, 0, 8, s.gridHeight - 1, PAGE_COLORS.randomize);
+	paintColorPaletteRect(palette, 9, 0, 9, s.gridHeight - 1, PAGE_COLORS.automation);
+	paintColorPaletteRect(palette, 10, 0, 10, s.gridHeight - 1, PAGE_COLORS.quantize);
+	paintColorPaletteRect(palette, 11, 0, 11, s.gridHeight - 1, PAGE_COLORS.subLoop);
+	paintColorPaletteRect(palette, 12, 0, 12, s.gridHeight - 1, PAGE_COLORS.randomOffset);
+	paintColorPaletteRect(palette, 13, 0, 14, s.gridHeight - 1, PAGE_COLORS.octave);
+	paintColorPaletteRect(palette, 15, 0, 15, s.gridHeight - 1, PAGE_COLORS.reverse);
+}
+
+function applyGroupsPageColors(palette) {
+	for (var group = 0; group < GROUP_COLORS.length && (group + 8) < s.gridWidth; group++) {
+		paintColorPaletteRect(palette, group + 8, 1, group + 8,
+			s.gridHeight - 1, GROUP_COLORS[group]);
+	}
+}
+
+function applyGateFxPageColors(palette) {
+	paintColorPaletteRect(palette, 14, 0, 15, 0, PAGE_COLORS.mainClock);
 }
 
 function buildPageColorPalette(page) {
+	var base = PAGE_COLORS.mainBase;
+	if (page === 2) base = PAGE_COLORS.modBase;
+	else if (page === 3) base = PAGE_COLORS.groupsBase;
+	else if (page === 4) base = PAGE_COLORS.gateFxBase;
+	var palette = createColorPalette(base);
 	switch (page) {
-		case 1: applyMainPageColors(); break;
-		case 2: applyModPageColors(); break;
-		case 3: applyGroupsPageColors(); break;
-		case 4: applyGateFxPageColors(); break;
+		case 1: applyMainPageColors(palette); break;
+		case 2: applyModPageColors(palette); break;
+		case 3: applyGroupsPageColors(palette); break;
+		case 4: applyGateFxPageColors(palette); break;
 	}
+	return palette;
 }
 
 /** Rebuild and store one page palette in firmware slot page-1. */
@@ -3172,7 +3512,7 @@ function applyPageColors(page) {
 	var target = isFinite(requested) ? clamp(requested, 1, 4) : s.kmod;
 	resetPageColorQueue();
 	pageColorPresetReady[target - 1] = 0;
-	buildPageColorPalette(target);
+	queueColorPaletteMaps(buildPageColorPalette(target));
 	queuePageColorCommand("colorpresetstore", target - 1);
 	if (target === 2 && s.kmod === 2) queueCurrentEditorShellColors(true);
 	startPageColorQueue();
@@ -3185,7 +3525,7 @@ function initializePageColorPresets() {
 		pageColorPresetReady[slot] = 0;
 	}
 	for (var page = 1; page <= 4; page++) {
-		buildPageColorPalette(page);
+		queueColorPaletteMaps(buildPageColorPalette(page));
 		queuePageColorCommand("colorpresetstore", page - 1);
 	}
 	queuePageColorCommand("colorpresetrecall", clamp(s.kmod, 1, 4) - 1);
@@ -3461,12 +3801,16 @@ function msg_int(a) {
 		setKmod(a);
 	} else if (inlet === 2) {
 		clockTick();
+	} else if (inlet === 3) {
+		sequence64SubPulse();
 	}
 }
 
 function bang() {
 	if (inlet === 2) {
 		clockTick();
+	} else if (inlet === 3) {
+		sequence64SubPulse();
 	}
 }
 
@@ -3529,6 +3873,14 @@ function onKmodChange(prev, next) {
 		workspace.choosing = false;
 		sequence64HeldStep = -1;
 		sequence64HeldStepChanged = false;
+		sequence64PressedStep = -1;
+		sequence64StepHoldOpened = false;
+		sequence64PendingLengthIndex = -1;
+		sequence64PendingBarIndex = -1;
+		sequence64BarHoldCommitted = false;
+		sequence64StepHoldTask.cancel();
+		sequence64LengthHoldTask.cancel();
+		sequence64BarHoldTask.cancel();
 		if (sequence64LiveRecordHeld || sequence64LiveRecordTake) {
 			releaseSequence64LiveRecording(true);
 		}
@@ -3748,10 +4100,12 @@ function captureSequence64RowPosition(trackIdx, pos) {
 
 function chRowPos(row, pos) {
 	var trackIdx = row - 2;
+	var normalizedPosition = clamp(parseInt(pos, 10) || 0, 0, s.gridWidth - 1);
+	var returnedEditorPing = consumeSequence64PlaybackPingGuard(trackIdx, normalizedPosition);
 	var gridRow = row - 1;
 	var trackState = getTrackStateByIndex(trackIdx);
 	if (trackState) {
-		trackState.playPos = clamp(parseInt(pos, 10) || 0, 0, s.gridWidth - 1);
+		trackState.playPos = normalizedPosition;
 		getChannelStateByIndex(trackChannelIndex(trackIdx)).activeTrack = trackIdx;
 	}
 	captureSequence64RowPosition(trackIdx, pos);
@@ -3773,11 +4127,15 @@ function chRowPos(row, pos) {
 		}
 
 
-		kfping(pos, gridRow, 15, 24);
+		if (!returnedEditorPing) kfping(normalizedPosition, gridRow, 15, 24);
 	}
 	else if (s.kmod === 2) {
 		pulseModRandomizeCell(row);
-		if (ensureEditorWorkspaceDefaults().editorId === "loop") refreshActiveEditorShell();
+		var workspace = ensureEditorWorkspaceDefaults();
+		if ((sequence64LayoutEnabled() && workspace.active && workspace.view64 === "sequence") ||
+			(!sequence64LayoutEnabled() && workspace.editorId === "loop")) {
+			refreshActiveEditorShell();
+		}
 	}
 }
 
@@ -4279,7 +4637,7 @@ function releaseSequence64LiveRecording(finalizeImmediately) {
 		if (finalizeImmediately) sequence64PendingLiveCut = null;
 		return finishSequence64LiveRecording();
 	}
-	var finalizeDelay = Math.max(75, sequence64MasterPulseIntervalMs * 3);
+	var finalizeDelay = Math.max(75, sequence64ShapeRampMs() * 12);
 	sequence64LiveRecordFinalizeTask.schedule(finalizeDelay);
 	return false;
 }
@@ -4325,6 +4683,9 @@ function resizeSequence64PatternForTake(pattern, totalSteps) {
 		SEQUENCE64_STEPS_PER_BEAT, SEQUENCE64_MAX_BARS * 64);
 	var barCount = Math.ceil(clampedTotal / 64);
 	var finalBarLength = clampedTotal - ((barCount - 1) * 64);
+	// A completed live take defines a new full pattern length, so old manually
+	// parked trailing bars do not reappear if the take is later extended.
+	pattern.parkedBars = [];
 	while (pattern.bars.length < barCount) {
 		pattern.bars.push(normalizeSequence64Bar(null, null, 64));
 	}
@@ -4415,9 +4776,13 @@ function handleChannelOnArray() {
 	for (var i = 0; i < 8; i++) {
 		var channelState = getChannelStateByIndex(i);
 		channelState.on = arguments[i];
-		if (!channelState.on) channelState.activeTrack = -1;
+		if (!channelState.on) {
+			if (channelState.activeTrack >= 0) channelState.lastActiveTrack = channelState.activeTrack;
+			channelState.activeTrack = -1;
+		}
 	}
 	drawChannelsPlaying();
+	refreshActiveEditorShell();
 }
 
 function handleSeqOnArray() {
@@ -4437,6 +4802,7 @@ function boxled() {
 	var row = clamp(parseInt(arguments[1], 10), 0, s.gridHeight - 1);
 	var level = clamp(parseInt(arguments[2], 10), 0, 15);
 	setPlaybackBgCell(col, row, level);
+	refreshSequence64TrackPositionForRow(row);
 }
 
 /**
@@ -4448,6 +4814,7 @@ function boxledrow() {
 	for (var x = 1; x < arguments.length && (x - 1) < s.gridWidth; x++) {
 		setPlaybackBgCell(x - 1, row, arguments[x]);
 	}
+	refreshSequence64TrackPositionForRow(row);
 }
 
 /**
@@ -4459,6 +4826,8 @@ function boxledcol() {
 	for (var y = 1; y < arguments.length && (y - 1) < s.gridHeight; y++) {
 		setPlaybackBgCell(col, y - 1, arguments[y]);
 	}
+	var trackIdx = sequence64PlayingTrackIndex();
+	if (trackIdx >= 0) refreshSequence64TrackPositionForRow(trackIdx + 1);
 }
 
 // ─── Automation Recording ───────────────────────────────────────────────

@@ -224,12 +224,47 @@ function extension_all(path, values) {
 	if (dual128Mode) outlet.apply(this, [1].concat(args));
 }
 
+function extension_map(path, x, y, values) {
+	x = parseInt(x, 10);
+	y = parseInt(y, 10);
+	var wh = dims_for_edition(edition);
+	if (!isFinite(x) || !isFinite(y) || x < 0 || y < 0 ||
+		x + 4 > wh[0] || y + 4 > wh[1] || !values || values.length !== 48) {
+		post("[grid_matrix_bridge] extension 4x4 map out of range\n");
+		return;
+	}
+	if (dual128Mode && y < 8 && y + 4 > 8) {
+		post("[grid_matrix_bridge] extension 4x4 map crosses dual-grid boundary\n");
+		return;
+	}
+	var args = [prefix + path, x, y].concat(values);
+	if (!dual128Mode || y < 8) {
+		outlet.apply(this, [0].concat(args));
+	} else {
+		args[2] = y - 8;
+		outlet.apply(this, [1].concat(args));
+	}
+}
+
 function colorcell(x, y, r, g, b) {
 	extension_cell("/grid/led/color/set", x, y, [
 		clamp(parseInt(r, 10) || 0, 0, 255),
 		clamp(parseInt(g, 10) || 0, 0, 255),
 		clamp(parseInt(b, 10) || 0, 0, 255)
 	]);
+}
+
+function colormap() {
+	var args = arrayfromargs(arguments);
+	if (args.length !== 50) {
+		post("[grid_matrix_bridge] colormap requires x y plus 16 RGB triples\n");
+		return;
+	}
+	var colors = [];
+	for (var i = 2; i < args.length; i++) {
+		colors.push(clamp(parseInt(args[i], 10) || 0, 0, 255));
+	}
+	extension_map("/grid/led/color/map", args[0], args[1], colors);
 }
 
 function colorall(r, g, b) {
@@ -336,6 +371,9 @@ function anything() {
 			break;
 		case "colorall":
 			if (a.length >= 3) colorall.apply(this, a);
+			break;
+		case "colormap":
+			if (a.length === 50) colormap.apply(this, a);
 			break;
 		case "colorpresetstore":
 			if (a.length >= 1) colorpresetstore.apply(this, a);

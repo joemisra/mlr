@@ -25,12 +25,17 @@ white for the playhead, and orange for the held step. Run/Add are green,
 recording is pink, destructive controls are red, Sequence navigation is cyan,
 and Setup navigation is amber.
 
+Turning off a trigger deliberately preserves its locks, so an amber cell after
+that action is a triggerless lock rather than a stuck color. With no remaining
+locks, the renderer explicitly restores the neutral step color.
+
 Each lock parameter and predefined shape also has a stable color. Setup reuses
 the eight group colors and gives volume, octave, reverse, randomization, loop
 division, loop bounds, latch, timestretch, and mute separate families. Color
 changes can be sent even when a cell's level does not change. The standard
 0–15 level remains the complete state representation and is always sent through
-the ordinary renderer.
+the ordinary renderer. Full palette refreshes use persistent 4×4 color maps;
+playheads, presses, and other sparse feedback retain the one-cell color path.
 
 ## Saved model
 
@@ -41,7 +46,8 @@ pattern = {
   version: 2,
   running: 0 | 1,
   currentBar: 0..7,
-  bars: [1..8 × bar]
+  bars: [1..8 × active bar],
+  parkedBars: [0..7 × preserved inactive bar]
 }
 
 bar = {
@@ -71,17 +77,19 @@ For a manual group step, `track: -1` resolves the group's active track when the
 step plays. Live recording always writes an exact track. A direct-track pattern
 always resolves to its selected track.
 
-`running`, held buttons, chooser state, the in-progress live take, active
-shapes, and clear/remove confirmation are runtime state. The viewed bar is saved
-per target. A JS reload closes the editor; choosing a target again resets Run
-while preserving its pattern.
+`running`, held buttons, the selected step editor, chooser state, the in-progress
+live take, active shapes, and clear/remove confirmation are runtime state. The
+viewed bar is saved per target. A JS reload closes the editor; choosing a target
+again resets Run while preserving its pattern.
 
 ## Event semantics
 
-The clock advances four evenly spaced sequence steps per `tr_pulse`: one at the
-incoming pulse and three at measured quarter-pulse intervals. This is eight
-times the six-page prototype rate, so all 64 steps occupy 16 master pulses. The
-four 16-step parts of the viewed bar remain simultaneously visible on rows
+The clock advances from a dedicated audio-derived `sequence64_pulse`, one pulse
+per step. `time.maxpat` derives it from the same quarter-note phase signal as
+`tr_pulse`. Its `rate~ 0.125` ramp crosses two detected edges eight times per
+quarter, producing 16 steps per quarter note and 64 per 4/4 bar. JavaScript does
+not schedule or catch up subdivisions, avoiding low-priority callback jitter.
+The four 16-step parts of the viewed bar remain simultaneously visible on rows
 9–12:
 
 - Row 9 is bar subdivisions 1–16.
@@ -89,16 +97,33 @@ four 16-step parts of the viewed bar remain simultaneously visible on rows
 - Row 11 is subdivisions 33–48.
 - Row 12 is subdivisions 49–64.
 
-If Max delivers a scheduled quarter-pulse callback late, the next master pulse
-accounts for the missing subdivision before advancing. This keeps every bar at
-exactly 64 steps instead of allowing alternate 16-step sections to drift.
-
 One bar is the default. Up to eight bars may be added; playback traverses their
 active lengths consecutively and then loops to bar 1. Row 13 selects the viewed
 bar independently of the playing bar, so another bar can be inspected or edited
 without interrupting Run. Momentary Setup lock recording always writes the
 playing bar and step. Adding or removing a bar stops Run; removal and clearing
-the viewed bar each require a second press within 1.2 seconds.
+the viewed bar each require a second press within 1.2 seconds. The four
+16/32/48/64 buttons require a roughly 350 ms hold before changing the viewed
+bar's step length, preventing an accidental structural edit.
+
+The eight bar buttons have two gestures: tap an active bar to view it (or tap
+the first inactive bar to add it), and hold bar N for roughly 350 ms to set the
+pattern to N active bars. Shortening parks trailing bar data; extending restores
+those bars before creating blank ones. A completed main-page live take defines
+a new pattern and discards previously parked trailing bars.
+
+A tap toggles a cut. Holding an active step for roughly 350 ms opens its lock
+editor, which remains open after release. Clicking the selected step closes the
+editor without changing the cut; clicking another active step moves the editor
+to it. Parameter buttons are centered on columns 5–12 and the six shape buttons
+on columns 6–11. Slice edits are locks over the cut's recorded/default slice,
+and the value row shows the effective locked slice. Clearing the slice lock
+returns to the underlying cut slice.
+
+With the popup closed, row 15 also carries a bright 16-position playback marker
+for the direct target track or the currently active track in a group target.
+It follows the same playback-position feed as the main page and disappears when
+the target is stopped. The marker temporarily yields to the popup controls.
 
 Main-page live recording is take-based. Holding row 1 column 14 arms it, and the
 first matching quantized `chRowPos` establishes the take start. Release measures
@@ -148,14 +173,22 @@ send `N[filterfx]level <normalized-value> <ramp-ms>` as a future DSP hook.
 2. Hold row 1 column 14. Select a group from row 1 or a track from column 16;
    keep holding and change target once, then release. Confirm no mute/reverse
    change occurred.
-3. Tap steps 1, 17, 33, and 49. Set length to 64 and press Run. Confirm the
+3. Tap steps 1, 17, 33, and 49. Hold the 64-length button and press Run. Confirm the
    four rows advance in order and stopping leaves the last cut playing.
-4. Add bar 2 from row 13, then use the direct bar buttons and previous/next
-   buttons to switch between bars. Enter different cuts on both bars and confirm
-   Run crosses the boundary without resetting phase. While bar 1 is playing,
-   view bar 2 and confirm only the bar-1 playhead indicator is hidden.
-5. Hold a step. Add probability, volume Set, and gate length. Repeat with Pluck,
-   Swell, Gate, and Pulse; confirm the visible gate tail and audible modulation.
+4. Hold bar 4 on row 13 and confirm four bars appear, then hold bar 2 and return
+   to bar 4 to confirm trailing data was parked and restored. Use taps and the
+   previous/next buttons to switch views. Enter different cuts on two bars and
+   confirm Run crosses the boundary without resetting phase. While bar 1 is
+   playing, view bar 2 and confirm only the bar-1 playhead indicator is hidden.
+5. While a target is playing, confirm the lime marker on row 15 follows its
+   actual playback position; for a group, switch tracks and confirm the marker
+   follows the active one. Hold a step until its centered editor opens, then
+   release it. Confirm the marker yields to the popup. Change the slice and
+   verify both its selected LED and the audible trigger, then clear it and
+   confirm the original slice returns. Add probability, volume Set, and gate
+   length. Repeat with Pluck, Swell, Gate, and Pulse; confirm the editor remains
+   open, the visible gate tail and audible modulation. Click the selected step
+   again and confirm the editor closes without toggling it.
 6. Stop during a Gate and during a Swell. Gate should release; Swell should
    finish. Press Clear Motion, then Restore Start State.
 7. Return to the main page. Hold row 1 column 14 and perform a one-bar take,
@@ -173,7 +206,12 @@ send `N[filterfx]level <normalized-value> <ramp-ms>` as a future DSP hook.
 10. On MechaTrellis, enable `editorColors 1` and verify the trigger/lock/gate,
    navigation, parameter, shape, and Setup color families. Repeat navigation
    and monochrome-level checks on Grid Zero with `editorColors 0`; its default
-   is off.
+   is off. Confirm every actionable dim cell remains visible; cells outside the
+   selected bar length should be dark and non-actionable. On the first palette
+   load, confirm there is no 256-cell sweep (a brief tile-wise draw is okay).
+   Then watch the playhead, track-position marker, button presses, and one-cell
+   pings to confirm their colors update immediately without repainting a 4×4
+   block.
 
 Run the automated checks before a hardware pass:
 

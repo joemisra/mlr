@@ -32,6 +32,7 @@ Send these messages to `s gridrouter` (or directly to `grid_router_io`):
 
 ```text
 colorCell x y r g b
+colorMap x y r0 g0 b0 ... r15 g15 b15
 colorAll r g b
 colorRow y r g b
 colorCol x r g b
@@ -43,17 +44,19 @@ initializePageColorPresets
 autoPageColors 0|1
 ```
 
-Automatic starter palettes are enabled by default for kmod pages 1–4. On
-startup mlr uploads them at a safe pace and stores them in firmware slots 0–3.
-Later page changes send a single preset-recall packet. Their RGB values live in
-`PAGE_COLORS` and `GROUP_COLORS` near the top of `grid_router.js`.
+`colorMap` assigns a row-major 4×4 block while leaving all legacy LED levels
+unchanged. Automatic starter palettes are enabled by default for kmod pages
+1–4. On startup mlr uploads each 16×16 palette as 16 maps and stores it in
+firmware slots 0–3. Later page changes send a single preset-recall packet.
+Their RGB values live in `PAGE_COLORS` and `GROUP_COLORS` near the top of
+`grid_router.js`.
 
 Send `autoPageColors 0` to keep manual colors across page changes, or
 `applyPageColors 1` through `applyPageColors 4` to rebuild and store one page.
 Because firmware slots live in RAM, send `initializePageColorPresets` after a
-MechaTrellis reset that occurs while mlr remains open. Palette uploads remain
-paced so they do not crowd legacy LED frames out of serialosc's nonblocking
-serial connection.
+MechaTrellis reset that occurs while mlr remains open. Maps are lightly paced
+so they do not crowd legacy LED frames out of serialosc's nonblocking serial
+connection.
 
 The remaining private commands are also available when direct 8-bit control is
 needed:
@@ -94,39 +97,53 @@ selects **Setup**, and column 16 exits.
 | Grid cells | Function |
 |------------|----------|
 | Rows 9–12 | Viewed bar: steps 1–16, 17–32, 33–48, and 49–64 |
-| Row 13, columns 1–4 | Viewed-bar length 16 / 32 / 48 / 64 |
-| Row 13, columns 5–12 | Select bars 1–8; the first dim empty slot adds a bar |
+| Row 13, columns 1–4 | Hold to set viewed-bar length to 16 / 32 / 48 / 64 |
+| Row 13, columns 5–12 | Tap to select/add a bar; hold bar N to set the pattern to N active bars |
 | Row 13, columns 13–14 | Previous / next bar |
 | Row 13, column 15 | Add and select a bar, up to eight |
 | Row 13, column 16 | Remove the viewed bar; press twice within 1.2 seconds |
 | Row 14, column 1 | Run/Stop; Run is always explicitly opt-in |
 | Row 14, column 2 | Momentary parameter-lock record button |
 | Row 14, column 16 | Clear the viewed bar; press twice within 1.2 seconds |
+| Row 15 | Live 16-position lane for the track currently playing in the selected target |
 | Row 15, column 1 | Clear Motion: end shapes and release gates, keep latched values |
 | Row 15, column 2 | Restore Start State captured when Run was pressed |
 
-The Sequence clock runs four evenly spaced steps per `tr_pulse`: one on the
-pulse and three at quarter-pulse intervals derived from the measured clock.
-This is eight times the checkpointed prototype rate. A 64-step pattern
-therefore occupies 16 master pulses. Its four 16-step parts are already visible
-together on rows 9–12; those rows are four quarters of one bar, not four
-independent pattern passes.
+The Sequence clock receives one phase-locked `sequence64_pulse` per step from
+`time.maxpat`. It uses `rate~ 0.125` and both ramp edges to produce 16 steps per
+quarter note (64 per 4/4 bar). This is 16 times the quarter-note `tr_pulse`;
+JavaScript no longer schedules or catches up intermediate steps. Its four
+16-step parts are already visible together on rows 9–12; those rows are four
+quarters of one bar, not four independent pattern passes.
 
 Every target starts with one 64-step bar. Up to eight bars can be added and they
 play consecutively before looping back to bar 1. The selected bar button is
 bright; while Run is active, a different playing bar is shown at an intermediate
-level. Changing the viewed bar does not interrupt playback. Adding or removing
-a bar stops Run so that a structural edit cannot move the transport
-unexpectedly. Existing single-bar patterns remain bar 1.
+level. Tap an existing bar to view it, or tap the first inactive bar to add it.
+Hold any of the eight buttons for about 350 ms to set the total active length to
+that many bars. Shortening parks trailing bars instead of erasing them, so
+holding a longer length later restores their data. Changing the viewed bar does
+not interrupt playback. Changing the bar count stops Run so that a structural
+edit cannot move the transport unexpectedly. Existing single-bar patterns
+remain bar 1.
 
-Tap and release a step to add or remove its cut trigger. Hold a step to replace
-rows 13–15 with its lock editor:
+Tap and release a step to add or remove its cut trigger. Hold a step for about
+350 ms to open its lock editor; the editor stays open after release. Click the
+selected step again to close it, or click another active step to edit that one.
+The live track-position lane yields to these popup controls while the editor is
+open. A slice choice is stored as a lock over the recorded/default cut slice;
+clearing that lock reveals the original slice again.
+The controls are centered on rows 13–15:
 
 | Lock row | Columns |
 |----------|---------|
-| Row 13 | 1 slice, 2 probability, 3 volume, 4 future filter, 5 reverse, 6 octave, 7 loop division, 8 gate length |
+| Row 13 | 5 slice, 6 probability, 7 volume, 8 future filter, 9 reverse, 10 octave, 11 loop division, 12 gate length |
 | Row 14 | Value; slice/probability/volume/filter use columns 1–16, octave uses 1–7, division uses 1–8, and gate length uses 1–16 |
-| Row 15 | For volume/filter: 1 Set, 2 Glide, 3 Pluck, 4 Swell, 5 Gate, 6 Pulse; column 16 clears the selected lock |
+| Row 15 | For volume/filter: 6 Set, 7 Glide, 8 Pluck, 9 Swell, 10 Gate, 11 Pulse; column 16 clears the selected lock |
+
+Turning off a cyan/green trigger preserves its parameter locks. A resulting
+amber cell is a valid triggerless lock, not a stale LED; a step with neither a
+trigger nor locks returns to the neutral color.
 
 Trigger cuts and Set locks are latched. Stopping the sequence prevents new
 events and releases active Gate shapes, but it deliberately does not move a
@@ -193,16 +210,18 @@ while hue communicates function:
 | Color family | Editor meaning |
 |--------------|----------------|
 | Cyan / green / amber / magenta | Trigger / gated trigger / lock / trigger+lock |
-| Blue-violet / white / orange | Gate tail / playhead / held step |
+| Blue-violet / white / lime / orange | Gate tail / sequence playhead / track position / held step |
 | Green / pink / red | Run or Add / Record / destructive action or Exit |
 | Blue / amber | Sequence and bar navigation / Setup |
 
 Lock parameters and predefined shapes each have stable colors. Setup uses group
 colors plus dedicated families for volume, octave, reverse, randomization,
-division, loop bounds, latch, timestretch, and mute. Full editor palettes are
-paced; subsequent state and color-only changes use cell diffs. Standard levels
-remain authoritative, so monochrome Grid Zero behavior is identical. The option
-defaults off to avoid private OSC traffic on non-color hardware.
+division, loop bounds, latch, timestretch, and mute. Full editor palettes use
+4×4 maps; subsequent state and color-only changes use single-cell diffs. This
+keeps one-cell playheads and navigation feedback responsive without repainting
+a tile. Standard levels remain authoritative, so monochrome Grid Zero behavior
+is identical. The option defaults off to avoid private OSC traffic on non-color
+hardware.
 
 ### Mode 2: columns 10–12
 
@@ -294,7 +313,7 @@ Optional docs support:
 
 | File | Purpose |
 |------|---------|
-| `time.maxpat` | Master clock — generates tempo pulses, BPM, phase signals. Sends `tr_pulse`, `tr_tempo`, `box/led`. |
+| `time.maxpat` | Master clock — generates tempo pulses, BPM, phase signals. Sends `tr_pulse`, the phase-locked `sequence64_pulse`, `tr_tempo`, and `box/led`. |
 | `clock.maxpat` | Clock source selection (internal/external/beat clock), swing, MIDI device routing. |
 | `clock2.maxpat` | Secondary clock — beat clock distribution, MIDI tempo sync. Sends `gome_pulse`, `gome_tempo`. |
 

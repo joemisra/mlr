@@ -725,12 +725,12 @@ test('sequence64 lock and Setup controls retain distinct semantic color families
 	let colors = router.buildEditorShellColors(levels);
 	let colorAt = (x, y) => Array.from(colors[router.editorShellLevelIndex(x, y)]);
 
-	assert.deepEqual(colorAt(0, 12), [0, 210, 255]);
-	assert.deepEqual(colorAt(1, 12), [245, 205, 30]);
-	assert.deepEqual(colorAt(2, 12), [50, 225, 100]);
+	assert.deepEqual(colorAt(4, 12), [0, 210, 255]);
+	assert.deepEqual(colorAt(5, 12), [245, 205, 30]);
+	assert.deepEqual(colorAt(6, 12), [50, 225, 100]);
 	assert.deepEqual(colorAt(8, 13), [50, 225, 100]);
-	assert.deepEqual(colorAt(2, 14), [255, 125, 25]);
-	assert.deepEqual(colorAt(4, 14), [45, 230, 105]);
+	assert.deepEqual(colorAt(7, 14), [255, 125, 25]);
+	assert.deepEqual(colorAt(9, 14), [45, 230, 105]);
 
 	router.sequence64HeldStep = -1;
 	router.s.editorWorkspace.view64 = 'setup';
@@ -768,8 +768,10 @@ test('sequence64 emits semantic color-only diffs while levels remain authoritati
 		message[4] === 0 && message[5] === 210 && message[6] === 255), true);
 
 	router.dispatch(0, 8, 1);
+	router.openSequence64StepEditorAfterHold();
+	router.dispatch(0, 8, 0);
 	harness.clearLog();
-	router.dispatch(1, 12, 1);
+	router.dispatch(5, 12, 1);
 	assert.equal(harness.outlets.some((message) =>
 		message[0] === 1 && message[1] === 'colorcell' &&
 		message[2] === 5 && message[3] === 13), true);
@@ -777,6 +779,31 @@ test('sequence64 emits semantic color-only diffs while levels remain authoritati
 		message[0] === 1 && message[1] === 'setcell' &&
 		message[2] === 5 && message[3] === 13), false);
 	assert.equal(harness.outlets.some((message) => message[1] === 'level8cell'), false);
+});
+
+test('sequence64 clears trigger color while preserving amber for a real trigless lock', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.editorColors(1);
+
+	router.dispatch(2, 8, 1);
+	router.dispatch(2, 8, 0);
+	harness.clearLog();
+	router.dispatch(2, 8, 1);
+	router.dispatch(2, 8, 0);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'colorcell' &&
+		message[2] === 2 && message[3] === 8 &&
+		message[4] === 18 && message[5] === 46 && message[6] === 70), true);
+
+	const step = router.s.editorWorkspace.patterns64['track:0'].steps[2];
+	step.locks.volume = { value: 7, behavior: 'set' };
+	const colors = router.buildEditorShellColors(router.buildEditorShellLevels());
+	assert.deepEqual(
+		Array.from(colors[router.editorShellLevelIndex(2, 8)]),
+		[255, 180, 20]
+	);
 });
 
 test('sequence64 semantic palette is rebuilt after leaving and returning to mode 2', () => {
@@ -789,9 +816,55 @@ test('sequence64 semantic palette is rebuilt after leaving and returning to mode
 	router.setKmod(1);
 	router.setKmod(2);
 
-	const queuedStepColors = Array.from(router.pageColorQueue).filter((command) =>
-		command[0] === 'colorcell' && command[1] === 0 && command[2] === 8);
-	assert.deepEqual(Array.from(queuedStepColors.at(-1)), ['colorcell', 0, 8, 0, 210, 255]);
+	const queuedStepMaps = Array.from(router.pageColorQueue).filter((command) =>
+		command[0] === 'colormap' && command[1] === 0 && command[2] === 8);
+	assert.deepEqual(Array.from(queuedStepMaps.at(-1).slice(0, 6)),
+		['colormap', 0, 8, 0, 210, 255]);
+	assert.equal(queuedStepMaps.at(-1).length, 51);
+});
+
+test('a complete 16x16 page palette queues exactly sixteen 4x4 maps', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.pageColorQueueTask.cancel();
+	router.pageColorQueue = [];
+
+	router.queueColorPaletteMaps(router.buildPageColorPalette(1));
+
+	assert.equal(router.pageColorQueue.length, 16);
+	assert.equal(router.pageColorQueue.every((command) =>
+		command[0] === 'colormap' && command.length === 51), true);
+	assert.deepEqual(Array.from(router.pageColorQueue.map((command) =>
+		[command[1], command[2]])), [
+		[0, 0], [4, 0], [8, 0], [12, 0],
+		[0, 4], [4, 4], [8, 4], [12, 4],
+		[0, 8], [4, 8], [8, 8], [12, 8],
+		[0, 12], [4, 12], [8, 12], [12, 12]
+	]);
+});
+
+test('queued editor maps cannot overwrite a newer single-cell color', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.editorColors(1);
+	router.pageColorQueue = [[
+		'colormap', 0, 8,
+		...Array.from({ length: 48 }, () => 10)
+	]];
+	router.editorColorCache[router.editorLevelIndex(2, 9)] = '';
+	harness.clearLog();
+
+	router.emitEditorColor(2, 9, [20, 30, 40]);
+
+	const queuedMap = router.pageColorQueue[0];
+	const colorOffset = 3 + ((1 * 4 + 2) * 3);
+	assert.deepEqual(Array.from(queuedMap.slice(colorOffset, colorOffset + 3)),
+		[20, 30, 40]);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'colorcell' &&
+		message[2] === 2 && message[3] === 9 &&
+		message[4] === 20 && message[5] === 30 && message[6] === 40), true);
 });
 
 test('editor entry is unavailable on a 16x8 grid or when disabled', () => {
@@ -867,28 +940,117 @@ test('sequence64 uses four rows of steps and tap release toggles a cut', () => {
 	assert.equal(hasLed(harness, 4, 10, 7), true);
 });
 
-test('holding a step edits locks, predefined shapes, and trigger gate length without toggling it', () => {
+test('sequence64 length buttons require a hold and cells outside the length are unavailable', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+
+	router.dispatch(1, 12, 1);
+	assert.equal(pattern.bars[0].length, 64);
+	assert.equal(router.sequence64PendingLengthIndex, 1);
+	router.dispatch(1, 12, 0);
+	assert.equal(pattern.bars[0].length, 64);
+
+	router.dispatch(1, 12, 1);
+	router.commitSequence64LengthHold();
+	router.dispatch(1, 12, 0);
+	assert.equal(pattern.bars[0].length, 32);
+
+	const levels = router.buildEditorShellLevels();
+	assert.equal(levels[router.editorShellLevelIndex(15, 9)], router.SEQUENCE64_EMPTY_STEP_LEVEL);
+	assert.equal(levels[router.editorShellLevelIndex(0, 10)], 0);
+	router.dispatch(0, 10, 1);
+	router.dispatch(0, 10, 0);
+	assert.equal(pattern.bars[0].steps[32].cut, null);
+});
+
+test('holding a step opens a persistent centered lock editor and clicking it again closes', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	selectTrack(harness, 0);
 
-	// Create step 6, then hold it while editing volume and its shape.
+	// Create step 6, hold it to open, then release before editing.
 	router.dispatch(5, 8, 1);
 	router.dispatch(5, 8, 0);
 	router.dispatch(5, 8, 1);
-	router.dispatch(2, 12, 1);
+	router.openSequence64StepEditorAfterHold();
+	router.dispatch(5, 8, 0);
+	assert.equal(router.sequence64HeldStep, 5);
+
+	// Parameters occupy centered columns 5–12; shapes occupy columns 6–11.
+	router.dispatch(11, 13, 1);
+	router.dispatch(6, 12, 1);
 	router.dispatch(8, 13, 1);
-	router.dispatch(2, 14, 1);
-	router.dispatch(7, 12, 1);
+	router.dispatch(7, 14, 1);
+	router.dispatch(11, 12, 1);
 	router.dispatch(3, 13, 1);
-	router.dispatch(5, 8, 0);
 
 	const step = router.s.editorWorkspace.patterns64['track:0'].steps[5];
 	assert.equal(step.cut.slice, 5);
+	assert.equal(step.locks.slice.value, 11);
+	assert.equal(router.sequence64LockValueColumn('slice', step), 11);
 	assert.equal(step.cut.gateLength, 4);
 	assert.equal(step.locks.volume.value, 8);
 	assert.equal(step.locks.volume.behavior, 'pluck');
+	assert.equal(router.sequence64HeldStep, 5);
+
+	router.dispatch(5, 8, 1);
+	router.dispatch(5, 8, 0);
 	assert.equal(router.sequence64HeldStep, -1);
+	assert.notEqual(step.cut, null);
+});
+
+test('sequence64 shows the selected target track playback position on row 15', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectGroup(harness, 0);
+	router.s.channels[0].activeTrack = 0;
+
+	router.boxled(6, 1, 15);
+	let levels = router.buildEditorShellLevels();
+	assert.equal(levels[router.editorShellLevelIndex(6, 14)],
+		router.SEQUENCE64_TRACK_POSITION_LEVEL);
+
+	router.boxled(6, 1, 0);
+	router.boxled(9, 1, 15);
+	levels = router.buildEditorShellLevels();
+	assert.equal(levels[router.editorShellLevelIndex(6, 14)], 0);
+	assert.equal(levels[router.editorShellLevelIndex(9, 14)],
+		router.SEQUENCE64_TRACK_POSITION_LEVEL);
+
+	router.sequence64HeldStep = 0;
+	levels = router.buildEditorShellLevels();
+	assert.equal(levels[router.editorShellLevelIndex(9, 14)], 0);
+
+	router.sequence64HeldStep = -1;
+	router.s.channels[0].activeTrack = -1;
+	levels = router.buildEditorShellLevels();
+	assert.equal(levels[router.editorShellLevelIndex(9, 14)], 0);
+});
+
+test('sequence64 gives every actionable dim control a firmware-visible level', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	let levels = router.buildEditorShellLevels();
+
+	assert.equal(levels[router.editorShellLevelIndex(0, 8)] >= 3, true);
+	assert.equal(levels[router.editorShellLevelIndex(63 % 16, 11)] >= 3, true);
+
+	router.sequence64HeldStep = 0;
+	router.sequence64EditParameter = 'volume';
+	levels = router.buildEditorShellLevels();
+	for (let col = 4; col <= 11; col++) {
+		assert.equal(levels[router.editorShellLevelIndex(col, 12)] >= 3, true);
+	}
+	for (let col = 0; col < 16; col++) {
+		assert.equal(levels[router.editorShellLevelIndex(col, 13)] >= 3, true);
+	}
+	for (let col = 5; col <= 10; col++) {
+		assert.equal(levels[router.editorShellLevelIndex(col, 14)] >= 3, true);
+	}
 });
 
 test('sequence64 Run is opt-in and leaves a triggered MLR cut latched after Stop', () => {
@@ -908,10 +1070,11 @@ test('sequence64 Run is opt-in and leaves a triggered MLR cut latched after Stop
 	router.s.editorWorkspace.lastSequencedStep = 0;
 	router.dispatch(0, 13, 1);
 	harness.clearLog();
-	router.clockTick();
-	router.clockTick();
+	router.sequence64SubPulse();
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 1 && message[2] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '1[mlr]pl-trig-now' && message[1] === 'bang'), true);
 
 	router.dispatch(0, 13, 1);
 	assert.equal(router.s.editorWorkspace.patterns64['track:0'].running, 0);
@@ -919,7 +1082,54 @@ test('sequence64 Run is opt-in and leaves a triggered MLR cut latched after Stop
 		message[0] === '2input' && message[1] === 0), false);
 });
 
-test('sequence64 advances four evenly spaced steps per tr_pulse', () => {
+test('ordinary main-page cuts remain on the legacy quantized trigger path', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 8;
+	router.setKmod(1);
+	harness.clearLog();
+
+	router.dispatch(4, 1, 1);
+
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 4 && message[2] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '8[mlr]pl-trig-now'), false);
+});
+
+test('sequence64 emits one main-page playback ping even after its group was stopped', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	router.s.channels[0].activeTrack = 0;
+	selectGroup(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['group:0'];
+	pattern.steps[0].cut = { track: -1, slice: 7, gateLength: 1 };
+	pattern.running = 1;
+	router.setKmod(1);
+	router.handleChannelOnArray(0, 0, 0, 0, 0, 0, 0, 0);
+	assert.equal(router.s.channels[0].activeTrack, -1);
+	assert.equal(router.s.channels[0].lastActiveTrack, 0);
+	harness.clearLog();
+
+	router.runSequence64Step(0, 0);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 7 && message[2] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '1[mlr]pl-trig-now' && message[1] === 'bang'), true);
+	assert.equal(harness.outlets.filter((message) =>
+		message[0] === 3 && message[1] === 'kf' &&
+		message[2] === 7 && message[3] === 1).length, 1);
+
+	// A healthy audio callback is still accepted, but does not duplicate the
+	// proactive visual ping.
+	router.chRowPos(2, 7);
+	assert.equal(harness.outlets.filter((message) =>
+		message[0] === 3 && message[1] === 'kf' &&
+		message[2] === 7 && message[3] === 1).length, 1);
+});
+
+test('sequence64 advances exactly one step per audio-derived subpulse', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
@@ -933,34 +1143,39 @@ test('sequence64 advances four evenly spaced steps per tr_pulse', () => {
 	router.dispatch(0, 13, 1);
 	harness.clearLog();
 
+	// The legacy tr_pulse still advances automation, but no longer subdivides
+	// the sequence in JavaScript.
 	router.clockTick();
+	assert.equal(router.s.automation.tick, 1);
+	assert.equal(router.sequence64ClockPosition, 0);
+	assert.equal(harness.namedMessages.some((message) => message[0] === '2input'), false);
+	assert.equal(router.sequence64ShapeRampMs(), 38);
+
+	router.sequence64SubPulse();
 	assert.equal(router.sequence64ClockPosition, 1);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 3 && message[2] === 1), true);
-	assert.equal(router.sequence64QuarterPulseTask.scheduledDelay, 37.5);
-	assert.equal(router.sequence64HalfPulseTask.scheduledDelay, 75);
-	assert.equal(router.sequence64ThreeQuarterPulseTask.scheduledDelay, 112.5);
 
 	harness.clearLog();
-	router.sequence64QuarterPulse();
+	router.sequence64SubPulse();
 	assert.equal(router.sequence64ClockPosition, 2);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 7 && message[2] === 1), true);
 
 	harness.clearLog();
-	router.sequence64HalfPulse();
+	router.sequence64SubPulse();
 	assert.equal(router.sequence64ClockPosition, 3);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 11 && message[2] === 1), true);
 
 	harness.clearLog();
-	router.sequence64ThreeQuarterPulse();
+	router.sequence64SubPulse();
 	assert.equal(router.sequence64ClockPosition, 4);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 15 && message[2] === 1), true);
 });
 
-test('sequence64 catches up late scheduled subdivisions without accumulating phase error', () => {
+test('legacy tr_pulse cannot cluster or catch up sequence64 steps', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
@@ -972,20 +1187,25 @@ test('sequence64 catches up late scheduled subdivisions without accumulating pha
 	router.dispatch(0, 13, 1);
 	harness.clearLog();
 
-	router.clockTick();
-	router.sequence64QuarterPulse();
+	router.sequence64SubPulse();
+	router.sequence64SubPulse();
 	assert.equal(router.sequence64ClockPosition, 2);
 
-	// Simulate Max delivering the next tr_pulse before the half- and
-	// three-quarter-pulse Tasks. The new pulse must account for steps 3–4
-	// before beginning step 5, rather than dropping two subdivisions.
+	// Even several delayed legacy callbacks cannot inject missing sequence
+	// subdivisions. Only the next audio-derived subpulse advances one step.
 	harness.clearLog();
 	router.clockTick();
-	assert.equal(router.sequence64ClockPosition, 5);
-	for (const slice of [3, 4, 5]) {
-		assert.equal(harness.namedMessages.some((message) =>
-			message[0] === '2input' && message[1] === slice && message[2] === 1), true);
-	}
+	router.clockTick();
+	router.clockTick();
+	assert.equal(router.sequence64ClockPosition, 2);
+	assert.equal(harness.namedMessages.some((message) => message[0] === '2input'), false);
+
+	router.sequence64SubPulse();
+	assert.equal(router.sequence64ClockPosition, 3);
+	assert.equal(harness.namedMessages.filter((message) =>
+		message[0] === '2input' && message[2] === 1).length, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 3 && message[2] === 1), true);
 });
 
 test('sequence64 maps one complete bar across the four 16-cell rows', () => {
@@ -993,11 +1213,8 @@ test('sequence64 maps one complete bar across the four 16-cell rows', () => {
 	const router = harness.context;
 	selectTrack(harness, 0);
 
-	for (let pulse = 0; pulse < 16; pulse++) {
-		router.clockTick();
-		router.sequence64QuarterPulse();
-		router.sequence64HalfPulse();
-		router.sequence64ThreeQuarterPulse();
+	for (let step = 0; step < 64; step++) {
+		router.sequence64SubPulse();
 	}
 
 	assert.equal(router.sequence64ClockPosition, 64);
@@ -1061,6 +1278,7 @@ test('sequence64 bar navigation keeps each 64-step bar independent', () => {
 
 	// Direct bar buttons begin at row 13 column 5.
 	router.dispatch(4, 12, 1);
+	router.dispatch(4, 12, 0);
 	assert.equal(pattern.currentBar, 0);
 	assert.equal(hasLed(harness, 4, 12, 15), true);
 	router.dispatch(13, 12, 1);
@@ -1073,6 +1291,44 @@ test('sequence64 bar navigation keeps each 64-step bar independent', () => {
 	assert.equal(pattern.bars.length, 1);
 	assert.equal(pattern.currentBar, 0);
 	assert.notEqual(pattern.steps[2].cut, null);
+});
+
+test('holding bar buttons sets 1–8 active bars without erasing parked bar data', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+
+	// Hold bar 4 to set a four-bar pattern and view its last bar.
+	router.dispatch(7, 12, 1);
+	assert.equal(pattern.bars.length, 1);
+	router.commitSequence64BarHold();
+	router.dispatch(7, 12, 0);
+	assert.equal(pattern.bars.length, 4);
+	assert.equal(pattern.currentBar, 3);
+	pattern.bars[3].steps[9].cut = { track: 0, slice: 12, gateLength: 1 };
+
+	// Hold bar 2 to shorten. Trailing material is parked rather than deleted.
+	router.dispatch(5, 12, 1);
+	router.commitSequence64BarHold();
+	router.dispatch(5, 12, 0);
+	assert.equal(pattern.bars.length, 2);
+	assert.equal(pattern.parkedBars.length, 2);
+	assert.equal(pattern.currentBar, 1);
+
+	// Holding bar 4 again restores the original trailing bars and their data.
+	router.dispatch(7, 12, 1);
+	router.commitSequence64BarHold();
+	router.dispatch(7, 12, 0);
+	assert.equal(pattern.bars.length, 4);
+	assert.equal(pattern.parkedBars.length, 0);
+	assert.equal(pattern.bars[3].steps[9].cut.slice, 12);
+
+	// A short tap still navigates without changing the bar count.
+	router.dispatch(4, 12, 1);
+	router.dispatch(4, 12, 0);
+	assert.equal(pattern.currentBar, 0);
+	assert.equal(pattern.bars.length, 4);
 });
 
 test('sequence64 playback crosses bar boundaries without resetting step phase', () => {
@@ -1113,8 +1369,7 @@ test('sequence64 parameter Set locks latch and Stop releases only active Gate sh
 	pattern.steps[1].locks.volume = { value: 6, behavior: 'set' };
 	router.dispatch(0, 13, 1);
 	harness.clearLog();
-	router.clockTick();
-	router.clockTick();
+	router.sequence64SubPulse();
 
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '1[gatefx]level' && message[1] === 0.4 && message[2] === 0), true);
@@ -1130,7 +1385,7 @@ test('sequence64 parameter Set locks latch and Stop releases only active Gate sh
 	router.s.editorWorkspace.lastSequencedStep = 1;
 	router.dispatch(0, 13, 1);
 	harness.clearLog();
-	router.clockTick();
+	router.sequence64SubPulse();
 	assert.equal(router.sequence64ActiveShapes.some((shape) => shape.behavior === 'gate'), true);
 	harness.clearLog();
 	router.dispatch(0, 13, 1);
@@ -1150,8 +1405,7 @@ test('Restore Start State is the explicit way to restore playback and persistent
 	pattern.steps[1].locks.reverse = { value: 1, behavior: 'set' };
 	pattern.steps[1].locks.volume = { value: 5, behavior: 'set' };
 	router.dispatch(0, 13, 1);
-	router.clockTick();
-	router.clockTick();
+	router.sequence64SubPulse();
 	assert.equal(router.s.tracks[0].playPos, 9);
 	assert.equal(router.s.tracks[0].reverse, 1);
 
@@ -1175,10 +1429,10 @@ test('one-shot shape tails continue after sequence Stop and last event replaces 
 	pattern.steps[1].locks.volume = { value: 3, behavior: 'swell' };
 	pattern.steps[2].locks.volume = { value: 11, behavior: 'pluck' };
 	router.dispatch(0, 13, 1);
-	router.clockTick();
+	router.sequence64SubPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	router.dispatch(0, 13, 1);
-	router.sequence64QuarterPulse();
+	router.sequence64SubPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	assert.equal(router.sequence64ActiveShapes[0].behavior, 'swell');
 
@@ -1186,7 +1440,7 @@ test('one-shot shape tails continue after sequence Stop and last event replaces 
 	router.dispatch(0, 13, 1);
 	router.sequence64ClockPosition = 1;
 	router.s.editorWorkspace.lastSequencedStep = 1;
-	router.sequence64HalfPulse();
+	router.sequence64SubPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	assert.equal(router.sequence64ActiveShapes[0].behavior, 'pluck');
 });

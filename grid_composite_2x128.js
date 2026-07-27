@@ -58,6 +58,7 @@ function ledDispatch(args) {
 
 	// MechaTrellis per-cell extension commands use x/y as their first two args.
 	if (path.indexOf("grid/led/color/set") >= 0 ||
+		path.indexOf("grid/led/color/map") >= 0 ||
 		path.indexOf("grid/led/rgb/set") >= 0 ||
 		path.indexOf("grid/led/level8/set") >= 0) {
 		var cellY = args[2] | 0;

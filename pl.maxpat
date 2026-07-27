@@ -4278,6 +4278,32 @@
           ],
           "fontname": "Arial",
           "fontsize": 9.0,
+          "id": "obj-sequence64-trigger-now",
+          "maxclass": "newobj",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            15.0,
+            -135.0,
+            114.0,
+            19.0
+          ],
+          "text": "r #1[mlr]pl-trig-now"
+        }
+      },
+      {
+        "box": {
+          "color": [
+            1.0,
+            0.890196078431372,
+            0.090196078431373,
+            1.0
+          ],
+          "fontname": "Arial",
+          "fontsize": 9.0,
           "id": "obj-104",
           "maxclass": "newobj",
           "numinlets": 0,
@@ -4719,6 +4745,18 @@
           ],
           "source": [
             "obj-104",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
+            "obj-68",
+            0
+          ],
+          "source": [
+            "obj-sequence64-trigger-now",
             0
           ]
         }

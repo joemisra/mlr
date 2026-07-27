@@ -28,6 +28,73 @@
                 "box": {
                     "fontname": "Arial",
                     "fontsize": 9.0,
+                    "hidden": 1,
+                    "id": "obj-seq-rate",
+                    "maxclass": "newobj",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "signal" ],
+                    "patching_rect": [ 390.0, 300.0, 44.0, 19.0 ],
+                    "text": "rate~ 0.125"
+                }
+            },
+            {
+                "box": {
+                    "fontname": "Arial",
+                    "fontsize": 9.0,
+                    "hidden": 1,
+                    "id": "obj-seq-threshold",
+                    "maxclass": "newobj",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "signal" ],
+                    "patching_rect": [ 390.0, 340.0, 45.0, 19.0 ],
+                    "text": ">=~ 0.5"
+                }
+            },
+            {
+                "box": {
+                    "fontname": "Arial",
+                    "fontsize": 9.0,
+                    "hidden": 1,
+                    "id": "obj-seq-edge",
+                    "maxclass": "newobj",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [ "bang", "bang" ],
+                    "patching_rect": [ 390.0, 408.0, 36.0, 19.0 ],
+                    "text": "edge~"
+                }
+            },
+            {
+                "box": {
+                    "hidden": 1,
+                    "id": "obj-seq-bang",
+                    "maxclass": "button",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [ "bang" ],
+                    "parameter_enable": 0,
+                    "patching_rect": [ 390.0, 434.0, 15.0, 15.0 ]
+                }
+            },
+            {
+                "box": {
+                    "fontname": "Arial",
+                    "fontsize": 9.0,
+                    "hidden": 1,
+                    "id": "obj-seq-send",
+                    "maxclass": "newobj",
+                    "numinlets": 1,
+                    "numoutlets": 0,
+                    "patching_rect": [ 390.0, 515.0, 95.0, 19.0 ],
+                    "text": "s sequence64_pulse"
+                }
+            },
+            {
+                "box": {
+                    "fontname": "Arial",
+                    "fontsize": 9.0,
                     "id": "obj-1",
                     "maxclass": "newobj",
                     "numinlets": 2,
@@ -4009,6 +4076,49 @@
                     "hidden": 1,
                     "order": 0,
                     "source": [ "obj-95", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-seq-rate", 0 ],
+                    "hidden": 1,
+                    "order": 2,
+                    "source": [ "obj-95", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-seq-threshold", 0 ],
+                    "hidden": 1,
+                    "source": [ "obj-seq-rate", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-seq-edge", 0 ],
+                    "hidden": 1,
+                    "source": [ "obj-seq-threshold", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-seq-bang", 0 ],
+                    "hidden": 1,
+                    "source": [ "obj-seq-edge", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-seq-bang", 0 ],
+                    "hidden": 1,
+                    "source": [ "obj-seq-edge", 1 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-seq-send", 0 ],
+                    "hidden": 1,
+                    "source": [ "obj-seq-bang", 0 ]
                 }
             },
             {

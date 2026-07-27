@@ -44,7 +44,7 @@
             318.0,
             100.0
           ],
-          "text": "grid_router_io — central grid routing hub for mlr.\nInlet 0 = grid (col row state) from parent [r box/press_mlr] (see grid_dual128_hub).\nInlet 1 = optional commands. Internal: [r kmod] [r tr_pulse].\nOutlet 0 → [s grid_router_playback]. Outlet 1 setcell → [s togridmatrixio]. Outlet 2 status. See grid_router.js."
+          "text": "grid_router_io — central grid routing hub for mlr.\nInlet 0 = grid (col row state) from parent [r box/press_mlr] (see grid_dual128_hub).\nInlet 1 = optional commands. Internal: [r kmod] [r tr_pulse] [r sequence64_pulse].\nOutlet 0 → [s grid_router_playback]. Outlet 1 setcell → [s togridmatrixio]. Outlet 2 status. See grid_router.js."
         }
       },
       {
@@ -104,10 +104,28 @@
       },
       {
         "box": {
+          "id": "obj-rseqpulse",
+          "maxclass": "newobj",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            500.0,
+            188.0,
+            118.0,
+            22.0
+          ],
+          "text": "r sequence64_pulse"
+        }
+      },
+      {
+        "box": {
           "filename": "grid_router.js",
           "id": "obj-router",
           "maxclass": "newobj",
-          "numinlets": 3,
+          "numinlets": 4,
           "numoutlets": 4,
           "outlettype": [
             "",
@@ -375,6 +393,18 @@
           ],
           "source": [
             "obj-rpulse",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
+            "obj-router",
+            3
+          ],
+          "source": [
+            "obj-rseqpulse",
             0
           ]
         }

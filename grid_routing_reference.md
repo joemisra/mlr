@@ -28,6 +28,7 @@ Audio Engine (p chnls / playback heads)
   │  Inlet 0: r gridrouter + r box/press_mlr (key events)
   │  Inlet 1: r kmod       (internal)
   │  Inlet 2: r tr_pulse   (internal — clock tick for automation)
+  │  Inlet 3: r sequence64_pulse (internal — audio-derived step clock)
   │
   │  grid_router.js:
   │    boxled / boxledrow / boxledcol  → led(x,y,level)
@@ -38,10 +39,10 @@ Audio Engine (p chnls / playback heads)
   │      (same atomic flush, without clearing the existing matrix)
   │    64-step editor clock → advance independent shape voices
   │      → probability → persistent parameter locks → quantized cut trigger
-  │      (one step at tr_pulse, three scheduled at measured quarter-pulse
-  │       intervals: four steps/pulse, eight times the prototype rate)
-  │      (next tr_pulse reconciles any late scheduled subdivisions, preserving
-  │       exactly 64 steps/bar and preventing cumulative section phase drift)
+  │      (rate~ 0.125 plus both edges produces 16 phase-locked steps per
+  │       quarter note: exactly 64 steps per 4/4 bar)
+  │      (JavaScript receives one pulse per step; no scheduled subdivision
+  │       callbacks or catch-up bursts can accumulate phase drift)
   │      (one bar is the default; up to eight per-target bars play consecutively
   │       while the user may independently view/edit another bar)
   │      (Run resets off whenever a target is selected; Stop releases Gate

@@ -143,3 +143,28 @@ test('beginframe remains a clearing full-page transaction', () => {
 	assert.equal(harness.matrix().data[3 * 16 + 3], 11);
 	assert.equal(harness.outlets.length, 4);
 });
+
+test('4x4 color maps emit one OSC message and remap the lower dual-128 grid', () => {
+	const harness = createHarness();
+	const bridge = harness.context;
+	const colors = Array.from({ length: 48 }, (_, index) => index * 7);
+	harness.clearOutlets();
+
+	bridge.colormap.apply(bridge, [4, 8].concat(colors));
+	assert.equal(harness.outlets.length, 1);
+	assert.deepEqual(Array.from(harness.outlets[0].slice(0, 4)),
+		[0, '/box/grid/led/color/map', 4, 8]);
+	assert.equal(harness.outlets[0].length, 52);
+	assert.equal(harness.outlets[0].at(-1), 255);
+
+	bridge.dual128Mode = 1;
+	harness.clearOutlets();
+	bridge.colormap.apply(bridge, [4, 8].concat(colors));
+	assert.equal(harness.outlets.length, 1);
+	assert.deepEqual(Array.from(harness.outlets[0].slice(0, 4)),
+		[1, '/box/grid/led/color/map', 4, 0]);
+
+	harness.clearOutlets();
+	bridge.colormap.apply(bridge, [4, 6].concat(colors));
+	assert.equal(harness.outlets.length, 0);
+});
