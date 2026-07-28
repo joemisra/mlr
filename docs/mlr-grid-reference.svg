@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120">
+  <defs>
+    <style>
+      .title { font: 700 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #f5f7fb; }
+      .subtitle { font: 16px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #aeb8ca; }
+      .panel-title { font: 700 22px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #f5f7fb; }
+      .label { font: 700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0c1018; text-anchor: middle; dominant-baseline: middle; }
+      .small { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #d6ddea; }
+      .note { font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #d6ddea; }
+      .legend { font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #e5e9f2; }
+      .cell { stroke: #111722; stroke-width: 2; }
+      .region { stroke: #05070b; stroke-width: 2; rx: 5; }
+    </style>
+    <pattern id="grid" width="26" height="26" patternUnits="userSpaceOnUse">
+      <rect width="26" height="26" fill="#1a2230"/>
+      <rect x="2" y="2" width="22" height="22" rx="4" fill="#293345" stroke="#3b485f" stroke-width="1"/>
+    </pattern>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="5" stdDeviation="8" flood-color="#000" flood-opacity=".42"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="1120" fill="#0b0f17"/>
+  <text x="52" y="58" class="title">MLR 16×16 Grid Reference</text>
+  <text x="52" y="88" class="subtitle">Target chooser · Sequence64 · Parameter-lock editor · one-based row/column labels</text>
+
+  <!-- PANEL 1: TARGET CHOOSER -->
+  <g transform="translate(52 120)" filter="url(#shadow)">
+    <rect x="-18" y="-18" width="460" height="520" rx="18" fill="#121925" stroke="#273247"/>
+    <text x="0" y="18" class="panel-title">1 · Choose a target</text>
+    <text x="0" y="42" class="small">Hold row 1, column 14</text>
+    <g transform="translate(0 62)">
+      <rect width="416" height="416" fill="url(#grid)" stroke="#53627a" stroke-width="2"/>
+      <!-- groups: row 1, columns 1–8 -->
+      <rect x="2" y="2" width="204" height="22" class="region" fill="#35d888"/>
+      <text x="104" y="13" class="label">GROUPS 1–8</text>
+      <!-- chooser hold -->
+      <rect x="340" y="2" width="22" height="22" class="region" fill="#ff4f91"/>
+      <text x="351" y="13" class="label">H</text>
+      <!-- tracks: column 16, rows 2–16 -->
+      <rect x="392" y="28" width="22" height="386" class="region" fill="#55a8ff"/>
+      <text transform="translate(403 220) rotate(-90)" class="label">TRACKS 1–15</text>
+      <!-- mode buttons -->
+      <rect x="2" y="392" width="22" height="22" class="region" fill="#00d2ff"/>
+      <rect x="28" y="392" width="22" height="22" class="region" fill="#ffb12b"/>
+      <rect x="392" y="392" width="22" height="22" class="region" fill="#ff453a"/>
+      <text x="13" y="403" class="label">Q</text>
+      <text x="39" y="403" class="label">S</text>
+      <text x="403" y="403" class="label">X</text>
+    </g>
+  </g>
+
+  <!-- PANEL 2: SEQUENCE -->
+  <g transform="translate(568 120)" filter="url(#shadow)">
+    <rect x="-18" y="-18" width="460" height="520" rx="18" fill="#121925" stroke="#273247"/>
+    <text x="0" y="18" class="panel-title">2 · Sequence64 view</text>
+    <text x="0" y="42" class="small">Rows 9–12 show all 64 steps</text>
+    <g transform="translate(0 62)">
+      <rect width="416" height="416" fill="url(#grid)" stroke="#53627a" stroke-width="2"/>
+      <rect x="2" y="210" width="412" height="22" class="region" fill="#00cfea"/>
+      <rect x="2" y="236" width="412" height="22" class="region" fill="#00b7dd"/>
+      <rect x="2" y="262" width="412" height="22" class="region" fill="#009fcf"/>
+      <rect x="2" y="288" width="412" height="22" class="region" fill="#0089bd"/>
+      <text x="208" y="221" class="label">STEPS 1–16</text>
+      <text x="208" y="247" class="label">STEPS 17–32</text>
+      <text x="208" y="273" class="label">STEPS 33–48</text>
+      <text x="208" y="299" class="label">STEPS 49–64</text>
+      <!-- row 13 -->
+      <rect x="2" y="314" width="100" height="22" class="region" fill="#735cff"/>
+      <text x="52" y="325" class="label">16 · 32 · 48 · 64</text>
+      <rect x="106" y="314" width="204" height="22" class="region" fill="#5590ff"/>
+      <text x="208" y="325" class="label">BARS 1–8</text>
+      <rect x="314" y="314" width="48" height="22" class="region" fill="#2bc9ff"/>
+      <text x="338" y="325" class="label">‹  ›</text>
+      <rect x="366" y="314" width="22" height="22" class="region" fill="#35d888"/>
+      <text x="377" y="325" class="label">+</text>
+      <rect x="392" y="314" width="22" height="22" class="region" fill="#ff453a"/>
+      <text x="403" y="325" class="label">−</text>
+      <!-- row 14 -->
+      <rect x="2" y="340" width="22" height="22" class="region" fill="#35d888"/>
+      <rect x="28" y="340" width="22" height="22" class="region" fill="#ff4f91"/>
+      <rect x="392" y="340" width="22" height="22" class="region" fill="#ff453a"/>
+      <text x="13" y="351" class="label">▶</text>
+      <text x="39" y="351" class="label">R</text>
+      <text x="403" y="351" class="label">C</text>
+      <!-- row 15 -->
+      <rect x="2" y="366" width="412" height="22" class="region" fill="#9be43a"/>
+      <text x="208" y="377" class="label">LIVE TRACK POSITION</text>
+      <!-- row 16 -->
+      <rect x="2" y="392" width="22" height="22" class="region" fill="#00d2ff"/>
+      <rect x="28" y="392" width="22" height="22" class="region" fill="#ffb12b"/>
+      <rect x="392" y="392" width="22" height="22" class="region" fill="#ff453a"/>
+      <text x="13" y="403" class="label">Q</text>
+      <text x="39" y="403" class="label">S</text>
+      <text x="403" y="403" class="label">X</text>
+    </g>
+  </g>
+
+  <!-- PANEL 3: LOCK EDITOR -->
+  <g transform="translate(1084 120)" filter="url(#shadow)">
+    <rect x="-18" y="-18" width="460" height="520" rx="18" fill="#121925" stroke="#273247"/>
+    <text x="0" y="18" class="panel-title">3 · Hold a step ≈350 ms</text>
+    <text x="0" y="42" class="small">Persistent parameter-lock popup</text>
+    <g transform="translate(0 62)">
+      <rect width="416" height="416" fill="url(#grid)" stroke="#53627a" stroke-width="2"/>
+      <!-- step rows -->
+      <rect x="2" y="210" width="412" height="100" rx="5" fill="#123341" opacity=".78" stroke="#00cfea"/>
+      <text x="208" y="260" class="label" fill="#dffaff">64 STEP AREA</text>
+      <!-- parameter row -->
+      <rect x="106" y="314" width="22" height="22" class="region" fill="#00d2ff"/>
+      <rect x="132" y="314" width="22" height="22" class="region" fill="#f5cd28"/>
+      <rect x="158" y="314" width="22" height="22" class="region" fill="#35d888"/>
+      <rect x="184" y="314" width="22" height="22" class="region" fill="#ff8c24"/>
+      <rect x="210" y="314" width="22" height="22" class="region" fill="#ff453a"/>
+      <rect x="236" y="314" width="22" height="22" class="region" fill="#8065ff"/>
+      <rect x="262" y="314" width="22" height="22" class="region" fill="#18bfdc"/>
+      <rect x="288" y="314" width="22" height="22" class="region" fill="#eb3fbd"/>
+      <text x="117" y="325" class="label">SL</text>
+      <text x="143" y="325" class="label">%</text>
+      <text x="169" y="325" class="label">V</text>
+      <text x="195" y="325" class="label">F</text>
+      <text x="221" y="325" class="label">R</text>
+      <text x="247" y="325" class="label">O</text>
+      <text x="273" y="325" class="label">D</text>
+      <text x="299" y="325" class="label">G</text>
+      <!-- values -->
+      <rect x="2" y="340" width="412" height="22" class="region" fill="#f0f3f8"/>
+      <text x="208" y="351" class="label">VALUE 1–16 (range depends on parameter)</text>
+      <!-- behavior -->
+      <rect x="132" y="366" width="152" height="22" class="region" fill="#b066ff"/>
+      <text x="208" y="377" class="label">SET · GLIDE · PLUCK · SWELL · GATE · PULSE</text>
+      <rect x="392" y="366" width="22" height="22" class="region" fill="#ff453a"/>
+      <text x="403" y="377" class="label">×</text>
+      <!-- nav -->
+      <rect x="2" y="392" width="22" height="22" class="region" fill="#00d2ff"/>
+      <rect x="28" y="392" width="22" height="22" class="region" fill="#ffb12b"/>
+      <rect x="392" y="392" width="22" height="22" class="region" fill="#ff453a"/>
+      <text x="13" y="403" class="label">Q</text>
+      <text x="39" y="403" class="label">S</text>
+      <text x="403" y="403" class="label">X</text>
+    </g>
+  </g>
+
+  <!-- LOWER REFERENCE -->
+  <g transform="translate(52 680)">
+    <rect x="0" y="0" width="1496" height="390" rx="20" fill="#121925" stroke="#273247"/>
+    <text x="28" y="42" class="panel-title">Gestures &amp; control key</text>
+
+    <text x="28" y="84" class="note">TARGET CHOOSER</text>
+    <text x="28" y="112" class="note">Hold R1 C14 → choose Group 1–8 on R1 C1–8, or Track 1–15 on C16 R2–16.</text>
+    <text x="28" y="140" class="note">Keep holding to change target. Tap the active target again to cancel.</text>
+
+    <text x="28" y="188" class="note">SEQUENCE</text>
+    <text x="28" y="216" class="note">Tap step: toggle cut · Hold step ≈350 ms: open lock editor · tap selected step: close editor.</text>
+    <text x="28" y="244" class="note">Tap bar: view/add · Hold bar N ≈350 ms: set N active bars · shortening parks data.</text>
+    <text x="28" y="272" class="note">Length, Remove, and Clear are structural; Run is always explicitly opt-in.</text>
+
+    <text x="28" y="320" class="note">HARDWARE SAFETY</text>
+    <text x="28" y="348" class="note">Normal monome: default “mechatrellis 0” blocks all private color OSC. MechaTrellis: send “mechatrellis 1”.</text>
+
+    <g transform="translate(930 62)">
+      <circle cx="12" cy="12" r="10" fill="#00d2ff"/><text x="32" y="17" class="legend">Trigger / Sequence</text>
+      <circle cx="12" cy="48" r="10" fill="#35d888"/><text x="32" y="53" class="legend">Run / Add / gated trigger</text>
+      <circle cx="12" cy="84" r="10" fill="#ffb12b"/><text x="32" y="89" class="legend">Setup / lock</text>
+      <circle cx="12" cy="120" r="10" fill="#ff4f91"/><text x="32" y="125" class="legend">Record</text>
+      <circle cx="12" cy="156" r="10" fill="#ff453a"/><text x="32" y="161" class="legend">Clear / Remove / Exit</text>
+      <circle cx="12" cy="192" r="10" fill="#f0f3f8"/><text x="32" y="197" class="legend">Sequence playhead / values</text>
+      <circle cx="12" cy="228" r="10" fill="#9be43a"/><text x="32" y="233" class="legend">Live track position</text>
+      <circle cx="12" cy="264" r="10" fill="#8065ff"/><text x="32" y="269" class="legend">Gate tail / parameter family</text>
+    </g>
+
+    <text x="1210" y="82" class="small">NAVIGATION</text>
+    <text x="1210" y="110" class="note">Q = Sequence view</text>
+    <text x="1210" y="138" class="note">S = Setup view</text>
+    <text x="1210" y="166" class="note">X = Exit editor</text>
+    <text x="1210" y="214" class="small">LOCK ABBREVIATIONS</text>
+    <text x="1210" y="242" class="note">SL Slice · % Probability</text>
+    <text x="1210" y="270" class="note">V Volume · F Filter</text>
+    <text x="1210" y="298" class="note">R Reverse · O Octave</text>
+    <text x="1210" y="326" class="note">D Division · G Gate length</text>
+  </g>
+</svg>

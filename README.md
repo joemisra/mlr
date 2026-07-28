@@ -18,6 +18,9 @@ Licensed under GPL v2 (see `license_mlr.txt`).
 
 For full operation details, see `mlr_info.txt` (opens from within the patch via the info button).
 The new lower-half sequencer is documented in `sequence64_editor_reference.md`.
+A printable visual cheat sheet is available as
+[`docs/mlr-grid-reference.svg`](docs/mlr-grid-reference.svg), with a PNG copy
+for quick viewing.
 
 ## Developer Tooling
 
