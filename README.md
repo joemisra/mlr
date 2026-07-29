@@ -112,14 +112,14 @@ selects **Setup**, and column 16 exits.
 | Row 13, column 15 | Add and select a bar, up to eight |
 | Row 13, column 16 | Remove the viewed bar; press twice within 1.2 seconds |
 | Row 14, column 1 | Run/Stop; Run is explicitly started but remains latched after editor exit |
-| Row 14, column 2 | Momentary parameter-lock record button |
+| Row 14, column 2 | Tap to latch/unlatch parameter-lock recording |
 | Row 14, column 16 | Clear the viewed bar; press twice within 1.2 seconds |
 | Row 15 | Playable 16-slice lane for the selected/current track; the bright cell follows live position |
 
-The row-15 lane uses the same ordinary MLR input path as the front page. Hold
-row 14 column 2 while playing it to write each cut into the Sequence64 step
-currently under the playhead. For a group target, the cut stores the exact
-active track as well as the slice.
+The row-15 lane uses the same ordinary MLR input path as the front page. Tap
+row 14 column 2 to latch Record, then play the lane to write each cut into the
+Sequence64 step currently under the playhead. Tap Record again to stop. For a
+group target, the cut stores the exact active track as well as the slice.
 
 The Sequence clock receives one phase-locked `sequence64_pulse` per step from
 `time.maxpat`. It uses `rate~ 0.125` and both ramp edges to produce 16 steps per
@@ -203,12 +203,13 @@ The Setup view consolidates direct controls:
 | 14 | Loop end |
 | 15 | Columns 1–4 loop on/off, channel latch, timestretch, mute; column 5 Clear Motion; column 6 Restore Start State |
 
-Hold Sequence row 14 column 2, switch to Setup, and move a supported control to
-write a Set lock at the current step. While recording, the volume row previews
-and records the modulation multiplier instead of moving the base channel fader;
-without Record held it remains the ordinary channel-volume control. Release the
-Record button to stop. A group target follows its current active track for
-manually entered steps; a live-recorded group cut stores the exact track played.
+Tap Sequence row 14 column 2 to latch Record, switch to Setup, and move a
+supported control to write a Set lock at the current step. While recording, the
+volume row previews and records the modulation multiplier instead of moving the
+base channel fader; with Record off it remains the ordinary channel-volume
+control. Return to Sequence and tap Record again to stop. A group target follows
+its current active track for manually entered steps; a live-recorded group cut
+stores the exact track played.
 
 The renderer uses non-clearing `beginupdate` transactions for cell diffs. The
 feature is unavailable on 8×8 and 16×8 grids. Send `extendedEditors 0|1` to

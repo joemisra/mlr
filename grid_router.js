@@ -2927,11 +2927,12 @@ function handleSequence64SetupKey(col, row, state) {
 function handleSequence64WorkspaceKey(col, row, state) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	if (row === SEQUENCE64_TRANSPORT_ROW && col === 1 &&
-		((workspace.view64 === "sequence" && sequence64HeldStep < 0) ||
-		(sequence64LockRecordHeld && state === 0))) {
-		sequence64LockRecordHeld = state === 1;
-		outlet(2, "editor_lock_record", sequence64LockRecordHeld ? 1 : 0);
-		if (workspace.view64 === "sequence") redrawEditorShellDiff();
+		workspace.view64 === "sequence" && sequence64HeldStep < 0) {
+		if (state === 1) {
+			sequence64LockRecordHeld = !sequence64LockRecordHeld;
+			outlet(2, "editor_lock_record", sequence64LockRecordHeld ? 1 : 0);
+			redrawEditorShellDiff();
+		}
 		return true;
 	}
 

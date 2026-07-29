@@ -1051,10 +1051,14 @@ test('sequence64 live-position lane plays slices and Record drops the cut at the
 	router.dispatch(11, 14, 1);
 	router.dispatch(11, 14, 0);
 	router.dispatch(1, 13, 0);
+	assert.equal(router.sequence64LockRecordHeld, true);
 	const cut = router.s.editorWorkspace.patterns64['track:0'].steps[9].cut;
 	assert.equal(cut.track, 0);
 	assert.equal(cut.slice, 11);
 	assert.equal(cut.gateLength, 1);
+	router.dispatch(1, 13, 1);
+	router.dispatch(1, 13, 0);
+	assert.equal(router.sequence64LockRecordHeld, false);
 });
 
 test('sequence64 gives every actionable dim control a firmware-visible level', () => {
@@ -1663,15 +1667,17 @@ test('live recording previews into the currently playing bar rather than the vie
 	assert.equal(pattern.bars[1].steps[0].cut.slice, 5);
 });
 
-test('sequence64 Setup consolidates target controls and momentary lock recording writes the current step', () => {
+test('sequence64 Setup retains latched lock recording until Record is tapped again', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
 	selectTrack(harness, 0);
 	const baseVolume = router.s.channels[0].volume;
 
-	// Hold record, switch to Setup, then move volume and octave.
+	// Latch Record, switch to Setup, then move volume and octave one-handed.
 	router.dispatch(1, 13, 1);
+	router.dispatch(1, 13, 0);
+	assert.equal(router.sequence64LockRecordHeld, true);
 	router.dispatch(1, 15, 1);
 	router.dispatch(10, 9, 1);
 	router.dispatch(5, 10, 1);
@@ -1683,6 +1689,9 @@ test('sequence64 Setup consolidates target controls and momentary lock recording
 	assert.equal(router.s.channels[0].volume, baseVolume);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '1[gatefx]level' && message[1] === 10 / 15), true);
+	assert.equal(router.sequence64LockRecordHeld, true);
+	router.dispatch(0, 15, 1);
+	router.dispatch(1, 13, 1);
 	router.dispatch(1, 13, 0);
 	assert.equal(router.sequence64LockRecordHeld, false);
 });

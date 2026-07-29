@@ -85,7 +85,7 @@
       <text x="403" y="351" class="label">C</text>
       <!-- row 15 -->
       <rect x="2" y="366" width="412" height="22" class="region" fill="#9be43a"/>
-      <text x="208" y="377" class="label">PLAY SLICES · LIVE POSITION · HOLD R TO RECORD</text>
+      <text x="208" y="377" class="label">PLAY SLICES · LIVE POSITION · TAP R TO LATCH RECORD</text>
       <!-- row 16 -->
       <rect x="2" y="392" width="22" height="22" class="region" fill="#00d2ff"/>
       <rect x="28" y="392" width="22" height="22" class="region" fill="#ffb12b"/>
@@ -154,7 +154,7 @@
     <text x="28" y="188" class="note">SEQUENCE</text>
     <text x="28" y="216" class="note">Tap step: toggle cut · Hold step ≈350 ms: open lock editor · tap selected step: close editor.</text>
     <text x="28" y="244" class="note">Tap bar: view/add · Hold bar N ≈350 ms: set N active bars · shortening parks data.</text>
-    <text x="28" y="272" class="note">Row 15 plays slices; hold Row 14 Column 2 Record to write cuts at the live playhead.</text>
+    <text x="28" y="272" class="note">Row 15 plays slices; tap Row 14 Column 2 to latch Record, then tap again to stop.</text>
     <text x="28" y="296" class="note">Run stays latched after Exit. Clear Motion / Restore Start moved to Setup R15 C5 / C6.</text>
 
     <text x="28" y="330" class="note">HARDWARE SAFETY</text>
