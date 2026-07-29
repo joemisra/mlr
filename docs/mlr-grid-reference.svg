@@ -54,7 +54,7 @@
   <g transform="translate(568 120)" filter="url(#shadow)">
     <rect x="-18" y="-18" width="460" height="520" rx="18" fill="#121925" stroke="#273247"/>
     <text x="0" y="18" class="panel-title">2 · Sequence64 view</text>
-    <text x="0" y="42" class="small">Rows 9–12 show all 64 steps</text>
+    <text x="0" y="42" class="small">Rows 9–12 show all 64 steps · Run survives exit</text>
     <g transform="translate(0 62)">
       <rect width="416" height="416" fill="url(#grid)" stroke="#53627a" stroke-width="2"/>
       <rect x="2" y="210" width="412" height="22" class="region" fill="#00cfea"/>
@@ -85,7 +85,7 @@
       <text x="403" y="351" class="label">C</text>
       <!-- row 15 -->
       <rect x="2" y="366" width="412" height="22" class="region" fill="#9be43a"/>
-      <text x="208" y="377" class="label">LIVE TRACK POSITION</text>
+      <text x="208" y="377" class="label">PLAY SLICES · LIVE POSITION · HOLD R TO RECORD</text>
       <!-- row 16 -->
       <rect x="2" y="392" width="22" height="22" class="region" fill="#00d2ff"/>
       <rect x="28" y="392" width="22" height="22" class="region" fill="#ffb12b"/>
@@ -149,14 +149,16 @@
     <text x="28" y="84" class="note">TARGET CHOOSER</text>
     <text x="28" y="112" class="note">Hold R1 C14 → choose Group 1–8 on R1 C1–8, or Track 1–15 on C16 R2–16.</text>
     <text x="28" y="140" class="note">Keep holding to change target. Tap the active target again to cancel.</text>
+    <text x="28" y="164" class="note">Mode 2: R5 C1–8 = group Run/Stop · C12 R2–16 = track Run/Stop.</text>
 
     <text x="28" y="188" class="note">SEQUENCE</text>
     <text x="28" y="216" class="note">Tap step: toggle cut · Hold step ≈350 ms: open lock editor · tap selected step: close editor.</text>
     <text x="28" y="244" class="note">Tap bar: view/add · Hold bar N ≈350 ms: set N active bars · shortening parks data.</text>
-    <text x="28" y="272" class="note">Length, Remove, and Clear are structural; Run is always explicitly opt-in.</text>
+    <text x="28" y="272" class="note">Row 15 plays slices; hold Row 14 Column 2 Record to write cuts at the live playhead.</text>
+    <text x="28" y="296" class="note">Run stays latched after Exit. Clear Motion / Restore Start moved to Setup R15 C5 / C6.</text>
 
-    <text x="28" y="320" class="note">HARDWARE SAFETY</text>
-    <text x="28" y="348" class="note">Normal monome: default “mechatrellis 0” blocks all private color OSC. MechaTrellis: send “mechatrellis 1”.</text>
+    <text x="28" y="330" class="note">HARDWARE SAFETY</text>
+    <text x="28" y="358" class="note">Normal monome: default “mechatrellis 0” blocks all private color OSC. MechaTrellis: send “mechatrellis 1”.</text>
 
     <g transform="translate(930 62)">
       <circle cx="12" cy="12" r="10" fill="#00d2ff"/><text x="32" y="17" class="legend">Trigger / Sequence</text>

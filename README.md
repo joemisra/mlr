@@ -111,12 +111,15 @@ selects **Setup**, and column 16 exits.
 | Row 13, columns 13–14 | Previous / next bar |
 | Row 13, column 15 | Add and select a bar, up to eight |
 | Row 13, column 16 | Remove the viewed bar; press twice within 1.2 seconds |
-| Row 14, column 1 | Run/Stop; Run is always explicitly opt-in |
+| Row 14, column 1 | Run/Stop; Run is explicitly started but remains latched after editor exit |
 | Row 14, column 2 | Momentary parameter-lock record button |
 | Row 14, column 16 | Clear the viewed bar; press twice within 1.2 seconds |
-| Row 15 | Live 16-position lane for the track currently playing in the selected target |
-| Row 15, column 1 | Clear Motion: end shapes and release gates, keep latched values |
-| Row 15, column 2 | Restore Start State captured when Run was pressed |
+| Row 15 | Playable 16-slice lane for the selected/current track; the bright cell follows live position |
+
+The row-15 lane uses the same ordinary MLR input path as the front page. Hold
+row 14 column 2 while playing it to write each cut into the Sequence64 step
+currently under the playhead. For a group target, the cut stores the exact
+active track as well as the slice.
 
 The Sequence clock receives one phase-locked `sequence64_pulse` per step from
 `time.maxpat`. It uses `rate~ 0.125` and both ramp edges to produce 16 steps per
@@ -132,9 +135,9 @@ level. Tap an existing bar to view it, or tap the first inactive bar to add it.
 Hold any of the eight buttons for about 350 ms to set the total active length to
 that many bars. Shortening parks trailing bars instead of erasing them, so
 holding a longer length later restores their data. Changing the viewed bar does
-not interrupt playback. Changing the bar count stops Run so that a structural
-edit cannot move the transport unexpectedly. Existing single-bar patterns
-remain bar 1.
+not interrupt playback. Changing the bar count stops that target's Run so that
+a structural edit cannot move the transport unexpectedly. Existing single-bar
+patterns remain bar 1.
 
 Tap and release a step to add or remove its cut trigger. Hold a step for about
 350 ms to open its lock editor; the editor stays open after release. Click the
@@ -154,12 +157,16 @@ Turning off a cyan/green trigger preserves its parameter locks. A resulting
 amber cell is a valid triggerless lock, not a stale LED; a step with neither a
 trigger nor locks returns to the neutral color.
 
-Trigger cuts and Set locks are latched. Stopping the sequence prevents new
-events and releases active Gate shapes, but it deliberately does not move a
+Trigger cuts and Set locks are latched. Exiting the editor also leaves Run
+latched; all running track and group targets continue on the shared clock and
+can run concurrently. Stopping a target prevents its new events and releases
+its active Gate shapes, but it deliberately does not move a
 loop back or restore a persistent parameter. Pluck, Swell, and Pulse tails can
 continue after the step or after Stop. A newer event on the same target and
 parameter replaces the older shape. `Restore Start State` is the explicit way
-to return to the values and playback position captured at Run.
+to return to the values and playback position captured at Run. Reloading the
+JavaScript or disabling/changing the editor layout stops all Sequence64 targets
+as a safety boundary.
 
 Volume locks use the existing per-channel `[gatefx]level` multiplier, leaving
 the normal channel-volume control intact. Filter locks already emit the parallel
@@ -194,7 +201,7 @@ The Setup view consolidates direct controls:
 | 12 | Columns 1/2 reverse/random offset; columns 3–10 loop division 1/4 through 1/48 |
 | 13 | Loop start |
 | 14 | Loop end |
-| 15 | Columns 1–4 loop on/off, channel latch, timestretch, mute |
+| 15 | Columns 1–4 loop on/off, channel latch, timestretch, mute; column 5 Clear Motion; column 6 Restore Start State |
 
 Hold Sequence row 14 column 2, switch to Setup, and move a supported control to
 write a Set lock at the current step. While recording, the volume row previews
@@ -238,18 +245,20 @@ a tile. Standard levels remain authoritative, so monochrome Grid Zero behavior
 is identical. The option defaults off to avoid private OSC traffic on non-color
 hardware.
 
-### Mode 2: columns 10–12
+### Mode 2: Sequence64 Run controls and columns 10–12
+
+Mode-2 row 5, columns 1–8 toggle Run/Stop for group patterns 1–8. These
+buttons replace the older channel short-loop latch row.
 
 | Column | Rows | Function |
 |--------|------|----------|
 | 10 | 2 play/stop; 3 loop; 4–7 length 1/2/4/8 bars; 8 arm/stop record | Clocked grid-button automation |
 | 11 | 2–6 = 1/32, 1/16, 1/8, 1/4, 1/2 | Global input quantize |
-| 12 | 2 onward, one row per track | Cycle that track's short-loop division through 1/4, 1/6, 1/8, 1/12, 1/16, 1/24, 1/32, 1/48 |
+| 12 | 2 onward, one row per track | Toggle Run/Stop for that track's Sequence64 pattern |
 
-The short-loop latch itself is channel-scoped: mode-2 row 5, columns 1–8
-toggle it for channels 1–8. Column 12 only chooses the division for each
-track. Triggering a track on a latched channel reapplies its selected short
-loop at the new playback position.
+Short-loop range, division, and channel latch remain together in the Sequence64
+Setup view. Triggering a track on a latched channel still reapplies its selected
+short loop at the new playback position.
 
 To test automation, remain on mode 2: select a short length, press column 10
 row 8 to arm, then press a non-automation control such as mute or random

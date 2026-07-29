@@ -1016,7 +1016,8 @@ test('sequence64 shows the selected target track playback position on row 15', (
 	router.boxled(6, 1, 0);
 	router.boxled(9, 1, 15);
 	levels = router.buildEditorShellLevels();
-	assert.equal(levels[router.editorShellLevelIndex(6, 14)], 0);
+	assert.equal(levels[router.editorShellLevelIndex(6, 14)],
+		router.SEQUENCE64_MIN_VISIBLE_LEVEL);
 	assert.equal(levels[router.editorShellLevelIndex(9, 14)],
 		router.SEQUENCE64_TRACK_POSITION_LEVEL);
 
@@ -1027,7 +1028,33 @@ test('sequence64 shows the selected target track playback position on row 15', (
 	router.sequence64HeldStep = -1;
 	router.s.channels[0].activeTrack = -1;
 	levels = router.buildEditorShellLevels();
-	assert.equal(levels[router.editorShellLevelIndex(9, 14)], 0);
+	assert.equal(levels[router.editorShellLevelIndex(9, 14)],
+		router.SEQUENCE64_MIN_VISIBLE_LEVEL);
+});
+
+test('sequence64 live-position lane plays slices and Record drops the cut at the playhead', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	harness.clearLog();
+
+	router.dispatch(6, 14, 1);
+	router.dispatch(6, 14, 0);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 6 && message[2] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 6 && message[2] === 0), true);
+
+	router.sequence64ClockPosition = 9;
+	router.dispatch(1, 13, 1);
+	router.dispatch(11, 14, 1);
+	router.dispatch(11, 14, 0);
+	router.dispatch(1, 13, 0);
+	const cut = router.s.editorWorkspace.patterns64['track:0'].steps[9].cut;
+	assert.equal(cut.track, 0);
+	assert.equal(cut.slice, 11);
+	assert.equal(cut.gateLength, 1);
 });
 
 test('sequence64 gives every actionable dim control a firmware-visible level', () => {
@@ -1080,6 +1107,65 @@ test('sequence64 Run is opt-in and leaves a triggered MLR cut latched after Stop
 	assert.equal(router.s.editorWorkspace.patterns64['track:0'].running, 0);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 0), false);
+});
+
+test('sequence64 Run stays latched after editor exit and playback continues', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	pattern.steps[1].cut = { track: 0, slice: 8, gateLength: 1 };
+	router.sequence64ClockPosition = 0;
+	router.dispatch(0, 13, 1);
+	router.dispatch(15, 15, 1);
+
+	assert.equal(router.s.editorWorkspace.active, false);
+	assert.equal(pattern.running, 1);
+	harness.clearLog();
+	router.sequence64SubPulse();
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 8 && message[2] === 1), true);
+});
+
+test('mode-2 row 5 and column 12 independently toggle group and track Sequence64 Run', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+
+	router.dispatch(3, 4, 1);
+	router.dispatch(11, 2, 1);
+	assert.equal(router.s.editorWorkspace.patterns64['group:3'].running, 1);
+	assert.equal(router.s.editorWorkspace.patterns64['track:1'].running, 1);
+	assert.equal(hasLed(harness, 3, 4, 15), true);
+	assert.equal(hasLed(harness, 11, 2, 15), true);
+
+	router.dispatch(3, 4, 1);
+	router.dispatch(11, 2, 1);
+	assert.equal(router.s.editorWorkspace.patterns64['group:3'].running, 0);
+	assert.equal(router.s.editorWorkspace.patterns64['track:1'].running, 0);
+	assert.equal(hasLed(harness, 3, 4, 3), true);
+	assert.equal(hasLed(harness, 11, 2, 3), true);
+});
+
+test('independent running Sequence64 targets are all serviced by the shared clock', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	router.s.tracks[1].channel = 2;
+	const trackPattern = router.ensureSequence64Pattern('track', 0);
+	const groupPattern = router.ensureSequence64Pattern('group', 1);
+	trackPattern.steps[1].cut = { track: 0, slice: 4, gateLength: 1 };
+	groupPattern.steps[1].cut = { track: 1, slice: 12, gateLength: 1 };
+	router.sequence64ClockPosition = 0;
+	router.setSequence64TargetRunning('track', 0, 1);
+	router.setSequence64TargetRunning('group', 1, 1);
+	harness.clearLog();
+
+	router.sequence64SubPulse();
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 4 && message[2] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '3input' && message[1] === 12 && message[2] === 1), true);
 });
 
 test('ordinary main-page cuts remain on the legacy quantized trigger path', () => {
@@ -1410,7 +1496,8 @@ test('Restore Start State is the explicit way to restore playback and persistent
 	assert.equal(router.s.tracks[0].reverse, 1);
 
 	harness.clearLog();
-	router.dispatch(1, 14, 1);
+	router.dispatch(1, 15, 1);
+	router.dispatch(5, 14, 1);
 	assert.equal(router.s.tracks[0].playPos, 4);
 	assert.equal(router.s.tracks[0].reverse, 0);
 	assert.equal(router.s.editorWorkspace.parameterValues64['track:0'].volume, 15);
@@ -1440,6 +1527,7 @@ test('one-shot shape tails continue after sequence Stop and last event replaces 
 	router.dispatch(0, 13, 1);
 	router.sequence64ClockPosition = 1;
 	router.s.editorWorkspace.lastSequencedStep = 1;
+	pattern.lastSequencedFlat = 1;
 	router.sequence64SubPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
 	assert.equal(router.sequence64ActiveShapes[0].behavior, 'pluck');
