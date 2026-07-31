@@ -33,6 +33,12 @@ done
 mkdir -p "${bundle_dir}"
 git -C "${project_dir}" archive --format=tar HEAD | tar -xf - -C "${bundle_dir}"
 
+# Sample audio stays out of Git, but a populated portable bank belongs in the
+# handoff beside sample-bank.json.
+if [[ -d "${project_dir}/samples" ]]; then
+  cp -R "${project_dir}/samples" "${bundle_dir}/samples"
+fi
+
 # Development-only content is useful in Git, but not needed to run MLR in Max.
 rm -rf \
   "${bundle_dir}/.cursor" \
@@ -61,8 +67,9 @@ Git commit:   ${commit}
 Open _mlr.maxpat in Max/MSP.
 
 This bundle contains the runtime patchers, abstractions, JavaScript, presets,
-images, and user documentation. Development-only tests, MCP helpers,
-node_modules, editor settings, and Git metadata are intentionally omitted.
+images, user documentation, and the portable samples/ bank when present.
+Development-only tests, MCP helpers, node_modules, editor settings, local
+workstation hardware preferences, and Git metadata are intentionally omitted.
 
 See README.md for the dual-grid, Sequence64, MechaTrellis color, and serialosc
 setup notes.

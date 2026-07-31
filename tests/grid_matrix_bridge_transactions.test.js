@@ -202,11 +202,15 @@ test('MechaTrellis private OSC is blocked by default and standard levels remain 
 		[0, '/box/grid/led/color/set', 1, 2, 3, 4, 5]);
 });
 
-test('main MLR patch explicitly starts with MechaTrellis hardware mode off', () => {
+test('main MLR patch loads workstation-local hardware settings with safe defaults', () => {
 	const patch = JSON.parse(fs.readFileSync(MAIN_PATCH_PATH, 'utf8'));
-	const loadMessage = patch.patcher.boxes
+	const startup = patch.patcher.boxes
 		.map((entry) => entry.box)
 		.find((box) => box.id === 'obj-187');
+	const startupSource = fs.readFileSync(
+		path.join(__dirname, '..', 'mlr_startup.js'), 'utf8');
 
-	assert.equal(loadMessage.text, 'loadmess mechatrellis 0');
+	assert.equal(startup.text, 'js mlr_startup.js');
+	assert.match(startupSource, /mechatrellis:\s*false/);
+	assert.match(startupSource, /editorColors:\s*false/);
 });

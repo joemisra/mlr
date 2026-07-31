@@ -61,3 +61,56 @@ test('sequence64 has a group-local immediate player trigger that bypasses only t
 	assert.equal(hasConnection(player, 'obj-104', 0, 'obj-70', 1), true);
 	assert.equal(hasConnection(player, 'obj-70', 0, 'obj-68', 0), true);
 });
+
+test('sample replacement reports file metadata before sending replace to buffer~', () => {
+	const fileList = readPatcher('file_list.maxpat');
+	const fileRead = boxById(fileList, 'obj-29').patcher;
+
+	assert.equal(boxById(fileRead, 'obj-34').text, 'pack s 0 0 0. 0.');
+	assert.equal(boxById(fileRead, 'obj-35').text, 'prepend diagnosticBufferLoad');
+	assert.equal(boxById(fileRead, 'obj-36').text, 's gridrouter');
+
+	assert.equal(hasConnection(fileRead, 'obj-8', 0, 'obj-34', 0), true);
+	assert.equal(hasConnection(fileRead, 'obj-6', 1, 'obj-34', 1), true);
+	assert.equal(hasConnection(fileRead, 'obj-29', 0, 'obj-34', 2), true);
+	assert.equal(hasConnection(fileRead, 'obj-29', 3, 'obj-34', 3), true);
+	assert.equal(hasConnection(fileRead, 'obj-29', 2, 'obj-34', 4), true);
+	assert.equal(hasConnection(fileRead, 'obj-34', 0, 'obj-35', 0), true);
+	assert.equal(hasConnection(fileRead, 'obj-35', 0, 'obj-36', 0), true);
+
+	const diagnosticLine = fileRead.lines.find(({ patchline }) =>
+		patchline.source[0] === 'obj-8' && patchline.destination[0] === 'obj-34');
+	const replaceLine = fileRead.lines.find(({ patchline }) =>
+		patchline.source[0] === 'obj-8' && patchline.destination[0] === 'obj-12');
+	assert.equal(diagnosticLine.patchline.order, 0);
+	assert.equal(replaceLine.patchline.order, 1);
+});
+
+test('portable sample bank feeds the existing loader, track menus, and random range', () => {
+	const fileList = readPatcher('file_list.maxpat');
+	const channel = readPatcher('ch.maxpat');
+	const manifest = JSON.parse(fs.readFileSync(path.join(root, 'sample-bank.json'), 'utf8'));
+
+	assert.equal(boxById(fileList, 'obj-sample-bank-js').text, 'js sample_bank.js');
+	assert.equal(boxById(fileList, 'obj-sample-bank-command').text, 'r sample_bank');
+	assert.equal(hasConnection(fileList,
+		'obj-sample-bank-type', 0, 'obj-29', 0), true);
+	assert.equal(hasConnection(fileList,
+		'obj-sample-bank-path', 0, 'obj-29', 1), true);
+	assert.equal(hasConnection(fileList,
+		'obj-sample-bank-coll', 0, 'obj-25', 0), true);
+
+	assert.equal(boxById(channel, 'obj-sample-bank-select').text,
+		'r #1[sample]select');
+	assert.equal(boxById(channel, 'obj-sample-bank-count').text,
+		'r [samplebank]count');
+	assert.equal(hasConnection(channel,
+		'obj-sample-bank-select', 0, 'obj-24', 0), true);
+	assert.equal(hasConnection(channel,
+		'obj-sample-bank-count', 0, 'obj-54', 1), true);
+
+	assert.equal(manifest.version, 1);
+	assert.equal(manifest.root, 'samples');
+	assert.equal(Array.isArray(manifest.samples), true);
+	assert.equal(Array.isArray(manifest.trackAssignments), true);
+});

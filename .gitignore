@@ -5,6 +5,7 @@ Icon?
 # Max/MSP generated
 *.mxf
 samples
+mlr.local.json
 
 # Python
 __pycache__/

@@ -9,10 +9,32 @@
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 34.0, 92.0, 1110.0, 774.0 ],
+        "rect": [ 34.0, 92.0, 1110.0, 674.0 ],
         "openinpresentation": 1,
         "gridsize": [ 8.0, 8.0 ],
         "boxes": [
+            {
+                "box": {
+                    "id": "obj-195",
+                    "maxclass": "message",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 806.0, 896.0, 121.0, 22.0 ],
+                    "text": "editorColors 1"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-192",
+                    "maxclass": "toggle",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [ "int" ],
+                    "parameter_enable": 0,
+                    "patching_rect": [ 800.0, 828.0, 24.0, 24.0 ]
+                }
+            },
             {
                 "box": {
                     "id": "obj-191",
@@ -31,7 +53,7 @@
                     "numoutlets": 1,
                     "outlettype": [ "bang" ],
                     "parameter_enable": 0,
-                    "patching_rect": [ 714.0, 806.0, 24.0, 24.0 ]
+                    "patching_rect": [ 646.5, 828.0, 24.0, 24.0 ]
                 }
             },
             {
@@ -51,8 +73,8 @@
                     "numinlets": 1,
                     "numoutlets": 1,
                     "outlettype": [ "" ],
-                    "patching_rect": [ 648.5, 883.0, 138.0, 22.0 ],
-                    "text": "loadmess mechatrellis 0"
+                    "patching_rect": [ 648.5, 883.0, 115.0, 22.0 ],
+                    "text": "js mlr_startup.js"
                 }
             },
             {
@@ -2932,6 +2954,8 @@
                                     "saved_object_attributes": {
                                         "autostart": 0,
                                         "defer": 0,
+                                        "node_bin_path": "",
+                                        "npm_bin_path": "",
                                         "watch": 0
                                     },
                                     "text": "node.script max_mcp_node.js",
@@ -6335,6 +6359,8 @@
                     "saved_object_attributes": {
                         "autostart": 0,
                         "defer": 0,
+                        "node_bin_path": "",
+                        "npm_bin_path": "",
                         "watch": 0
                     },
                     "text": "node.script max_mcp_node.js",
@@ -6736,7 +6762,7 @@
                     "patching_rect": [ 748.5, 752.0, 50.0, 22.0 ],
                     "presentation": 1,
                     "presentation_rect": [ 435.0, 560.0, 71.0, 22.0 ],
-                    "text": "15 0 0",
+                    "text": "0 13 0",
                     "varname": "obj-15790"
                 }
             },
@@ -8081,7 +8107,7 @@
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 718.0 ],
+                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
                         "title": "debug",
                         "boxes": [
                             {
@@ -8282,7 +8308,7 @@
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 718.0 ],
+                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
                         "title": "grid_drawing",
                         "boxes": [
                             {
@@ -8690,7 +8716,7 @@
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 718.0 ],
+                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
                         "title": "grid_metronome",
                         "boxes": [
                             {
@@ -8882,7 +8908,7 @@
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 718.0 ],
+                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
                         "title": "presetswitchez",
                         "boxes": [
                             {
@@ -8963,7 +8989,7 @@
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 718.0 ],
+                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
                         "title": "waveforms",
                         "boxes": [
                             {
@@ -10277,7 +10303,7 @@
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 718.0 ],
+                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
                         "title": "mixer",
                         "boxes": [
                             {
@@ -28123,7 +28149,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-81",
-                                                                                    "items": [ "None", ",", "System Device: Model 16", ",", "MO34WQC", ",", "Model 16", ",", "BlackHole 16ch", ",", "MacBook Pro Speakers", ",", "Camo Microphone" ],
+                                                                                    "items": [ "None", ",", "System Device: Model 16", ",", "Model 16", ",", "BlackHole 16ch", ",", "MacBook Pro Speakers", ",", "Camo Microphone" ],
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -28154,7 +28180,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-83",
-                                                                                    "items": [ "None", ",", "System Device: Model 16", ",", "Giga-Byte USB Audio", ",", "Model 16", ",", "BlackHole 16ch", ",", "MacBook Pro Microphone", ",", "Camo Microphone" ],
+                                                                                    "items": [ "None", ",", "System Device: Model 16", ",", "Model 16", ",", "BlackHole 16ch", ",", "MacBook Pro Microphone", ",", "Camo Microphone" ],
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -33860,7 +33886,7 @@
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 718.0 ],
+                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
                         "gridsize": [ 8.0, 8.0 ],
                         "title": "box",
                         "boxes": [
@@ -37543,6 +37569,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-5",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37555,6 +37582,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-6",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37665,6 +37693,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-14",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37677,6 +37706,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-15",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37745,6 +37775,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-20",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37757,6 +37788,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-21",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37825,6 +37857,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-26",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37837,6 +37870,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-27",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37905,6 +37939,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-32",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37917,6 +37952,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-33",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37985,6 +38021,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-38",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -37997,6 +38034,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-39",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38065,6 +38103,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-44",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38077,6 +38116,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-45",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38145,6 +38185,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-50",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38157,6 +38198,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-51",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38519,6 +38561,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-77",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38531,6 +38574,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-78",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38599,6 +38643,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-83",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38611,6 +38656,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-84",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38679,6 +38725,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-89",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38691,6 +38738,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-90",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38759,6 +38807,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-95",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38771,6 +38820,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-96",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38839,6 +38889,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-101",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38851,6 +38902,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-102",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38919,6 +38971,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-107",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -38931,6 +38984,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-108",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -39027,6 +39081,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-115",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -39039,6 +39094,7 @@
                                                             {
                                                                 "box": {
                                                                     "id": "obj-116",
+                                                                    "int": 1,
                                                                     "maxclass": "gswitch",
                                                                     "numinlets": 3,
                                                                     "numoutlets": 1,
@@ -65509,6 +65565,7 @@
                             {
                                 "box": {
                                     "id": "obj-3",
+                                    "int": 1,
                                     "maxclass": "gswitch",
                                     "numinlets": 3,
                                     "numoutlets": 1,
@@ -67330,6 +67387,7 @@
                             {
                                 "box": {
                                     "id": "obj-7",
+                                    "int": 1,
                                     "maxclass": "gswitch",
                                     "numinlets": 3,
                                     "numoutlets": 1,
@@ -67370,6 +67428,7 @@
                             {
                                 "box": {
                                     "id": "obj-10",
+                                    "int": 1,
                                     "maxclass": "gswitch",
                                     "numinlets": 3,
                                     "numoutlets": 1,
@@ -68427,6 +68486,12 @@
                     "destination": [ "obj-234", 0 ],
                     "midpoints": [ 65.5, 1602.35546875, 14.5, 1602.35546875 ],
                     "source": [ "obj-194", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-188", 0 ],
+                    "source": [ "obj-195", 0 ]
                 }
             },
             {
