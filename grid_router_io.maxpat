@@ -122,6 +122,57 @@
       },
       {
         "box": {
+          "id": "obj-sequence64-audio-bridge",
+          "maxclass": "newobj",
+          "numinlets": 0,
+          "numoutlets": 0,
+          "patching_rect": [
+            650.0,
+            188.0,
+            160.0,
+            22.0
+          ],
+          "text": "sequence64_audio_bridge"
+        }
+      },
+      {
+        "box": {
+          "id": "obj-timing-loadbang",
+          "maxclass": "newobj",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            "bang"
+          ],
+          "patching_rect": [
+            650.0,
+            240.0,
+            60.0,
+            22.0
+          ],
+          "text": "loadbang"
+        }
+      },
+      {
+        "box": {
+          "id": "obj-timing-settings",
+          "maxclass": "message",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            650.0,
+            280.0,
+            188.0,
+            35.0
+          ],
+          "text": ";\rmax overdrive 1;\rdsp takeover 1"
+        }
+      },
+      {
+        "box": {
           "filename": "grid_router.js",
           "id": "obj-router",
           "maxclass": "newobj",
@@ -297,6 +348,18 @@
       }
     ],
     "lines": [
+      {
+        "patchline": {
+          "source": [
+            "obj-timing-loadbang",
+            0
+          ],
+          "destination": [
+            "obj-timing-settings",
+            0
+          ]
+        }
+      },
       {
         "patchline": {
           "destination": [

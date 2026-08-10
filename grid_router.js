@@ -25,8 +25,8 @@ outlets = 4;
  *            - colorAll r g b                 (persistent color for all cells)
  *            - storeColorPreset/recallColorPreset slot
  *                                              (firmware color banks 0-7)
- *            - applyPageColors [1-4]          (apply an initial page palette)
- *            - initializePageColorPresets      (rebuild page slots after reset)
+ *            - applyPageColors [1-3]          (apply an initial page palette)
+ *            - initializePageColorPresets      (compat: resend visible palette)
  *            - autoPageColors 0|1             (disable/enable palettes)
  *            - editorColors 0|1               (optional semantic editor colors)
  *            - editorBrightnessColors 0|1     (backward-compatible alias)
@@ -46,8 +46,8 @@ outlets = 4;
  * Outlet 2: status / automation events
  * Outlet 3: keyframe commands for anim engine
  *
- * kmod values: 1 = normal (cut/pattern), 2 = mod page, 3 = groups page,
- *              4 = reserved
+ * kmod values: 1 = normal (cut/pattern), 2 = mod/editor page,
+ *              3 = groups page
  *
  * Normal mode (kmod 1): playback head LEDs from box/led are forwarded as setcell.
  *   This replaces the old [p switcher] path (r mlrpageled → constrain → setcell).
@@ -55,7 +55,8 @@ outlets = 4;
  * Mod page (kmod 2), cols 0–7: row 0 mutes, rows 1–2 vol up/down (brightness = level),
  * row 3 timestretch, row 4 per-group Sequence64 Run, rows 5+ insert-FX placeholders,
  * bottom 3 rows = VU meters from output.maxpat (outputMeter).
- * Col 8: row 0 randomize all channels ([ch]randomfun); rows 1+ per-track (#[box]rnd).
+ * Col 8: row 0 randomizes all channels. Rows 1+ tap open that track in the
+ * sample browser; a deliberate hold retains the legacy per-track #[box]rnd.
  * Col 9: automation (play r1, loop r2, length r3–6, arm r7); recording anim col 8 r2–15;
  * playback progress col 9 r8–14.
  * Cols 10–15 rows 1+: quantize, per-track Sequence64 Run, random offset,
@@ -125,6 +126,9 @@ class mlrTrack {
 		this.subLoopAnchor = -1;
 		this.buffer = 0;
 		this.octave = 0;
+		this.transpose = 0;
+		this.speed = 0;
+		this.speedMode = 0;
 		this.reverse = 0;
 	}
 }
@@ -189,6 +193,10 @@ if (!s.initialized) {
 	s.initialized = true;
 }
 
+// Mode 4 was an abandoned full-grid page. Old saved Global state can survive
+// a JS reload, so normalize it here before any display renderer sees it.
+if (s.kmod < 1 || s.kmod > 3) s.kmod = 1;
+
 function ensureEditorWorkspaceDefaults() {
 	if (!s.editorWorkspace) s.editorWorkspace = {};
 	var workspace = s.editorWorkspace;
@@ -248,6 +256,9 @@ function ensureTrackDefaults(trackIdx) {
 	if (track.loopActive === undefined) track.loopActive = 0;
 	if (track.playPos === undefined) track.playPos = 0;
 	if (track.subLoopAnchor === undefined) track.subLoopAnchor = -1;
+	if (track.transpose === undefined) track.transpose = 0;
+	if (track.speed === undefined) track.speed = 0;
+	if (track.speedMode === undefined) track.speedMode = 0;
 	return track;
 }
 
@@ -299,6 +310,7 @@ function insertFxIndex(col, row) {
 if (!s.octave_hint) s.octave_hint = new Array(16).fill(0);
 if (s.autoPageColors === undefined) s.autoPageColors = 1;
 if (s.editorBrightnessColors === undefined) s.editorBrightnessColors = 0;
+if (s.mechaTrellisExtensions === undefined) s.mechaTrellisExtensions = 0;
 
 /** Last mod-page picks for right-side columns (redraw after overlay clear). */
 var modQuantizeRow = 0;
@@ -309,6 +321,9 @@ var SEQUENCER_PULSE_LEVEL = 15;
 var LOOP_HIGHLIGHT_LEVEL = 3;
 var TRACK_SUB_LOOP_OPTIONS = [4, 6, 8, 12, 16, 24, 32, 48];
 var TRACK_SUB_LOOP_BRIGHTNESS = [2, 4, 6, 8, 10, 12, 14, 15];
+var SEQUENCE64_TRANSPOSE_FIRST_COL = 2;
+var SEQUENCE64_TRANSPOSE_MIN = -6;
+var SEQUENCE64_TRANSPOSE_MAX = 7;
 var EDITOR_BUTTON_COL = 13;       // physical column 14
 var EDITOR_TRACK_COL = 15;        // physical column 16
 var EDITOR_FIRST_ROW = 8;         // physical row 9
@@ -342,7 +357,7 @@ var SEQUENCE64_LENGTH_ROW = 12;
 var SEQUENCE64_TRANSPORT_ROW = 13;
 var SEQUENCE64_TOOLS_ROW = 14;
 var SEQUENCE64_NAV_ROW = 15;
-var SEQUENCE64_PARAMETERS = ["slice", "probability", "volume", "filter", "reverse", "octave", "loopDivision", "gateLength", "track"];
+var SEQUENCE64_PARAMETERS = ["slice", "probability", "volume", "filter", "reverse", "transpose", "loopDivision", "gateLength", "track", "condition"];
 var SEQUENCE64_BEHAVIORS = ["set", "glide", "pluck", "swell", "gate", "pulse"];
 var SEQUENCE64_PARAMETER_FIRST_COL = 4;
 var SEQUENCE64_BEHAVIOR_FIRST_COL = 5;
@@ -365,6 +380,7 @@ var EDITOR_COLOR_RANGES = {
 	fx: [[35, 12, 65], [195, 70, 255]]
 };
 var editorOverlayDrawDepth = 0;
+var sampleBrowserDrawDepth = 0;
 var editorAutomationDispatching = false;
 var sequence64HeldStep = -1;
 var sequence64HeldStepChanged = false;
@@ -379,6 +395,7 @@ var sequence64EditParameter = "slice";
 var sequence64LiveRecordHeld = false;
 var sequence64LockRecordHeld = false;
 var sequence64ActiveShapes = [];
+var sequence64DecisionFeedback = {};
 var sequence64ClearArmedUntil = 0;
 var sequence64RemoveBarArmedUntil = 0;
 var sequence64PlaybackCaptureGuard = null;
@@ -387,14 +404,42 @@ var sequence64PendingLiveCut = null;
 var sequence64LiveLaneTracks = new Array(16).fill(-1);
 var sequence64LiveRecordTake = null;
 var sequence64LiveRecordTakeSerial = 0;
+var sequence64PendingRunShortcut = null;
 var sequence64ClockPosition = Math.max(0, (s.automation.tick || 0) * SEQUENCE64_STEPS_PER_PULSE);
 var sequence64StepHoldTask = new Task(openSequence64StepEditorAfterHold, this);
 var sequence64LengthHoldTask = new Task(commitSequence64LengthHold, this);
 var sequence64BarHoldTask = new Task(commitSequence64BarHold, this);
 var sequence64LiveRecordFinalizeTask = new Task(sequence64LiveRecordPendingTimeout, this);
+var sequence64RunShortcutHoldTask = new Task(openSequence64RunShortcutAfterHold, this);
+var SAMPLE_BROWSER_LIMIT = 240;
+var SAMPLE_BROWSER_TOP_LAST_ROW = 7;
+var SAMPLE_BROWSER_SAMPLE_FIRST_ROW = 1;
+var SAMPLE_BROWSER_SAMPLE_LAST_ROW = 6;
+var SAMPLE_BROWSER_FOOTER_ROW = 7;
+var SAMPLE_BROWSER_PAGE_SIZE = 96;
+var SAMPLE_BROWSER_EXIT_HOLD_MS = 650;
+var MOD_RANDOMIZE_HOLD_MS = 450;
+var sampleBrowserState = {
+	active: false,
+	count: 0,
+	page: 0,
+	selectedTrack: 0,
+	selectedSample: -1,
+	colors: new Array(SAMPLE_BROWSER_LIMIT).fill(null),
+	assignments: new Array(16).fill(-1),
+	exitTrack: -1
+};
+var sampleBrowserExitHoldTask = new Task(commitSampleBrowserExitHold, this);
+var modRandomizePendingRow = -1;
+var modRandomizeHoldCommitted = false;
+var modRandomizeHoldTask = new Task(commitModRandomizeHold, this);
 var editorLevelCache = new Array(16 * 16).fill(-1);
 var editorColorCache = new Array(16 * 16).fill("");
 var playbackBg = createPlaybackBg();
+var displayFrameActive = false;
+var displayFrameForeground = null;
+var displayFrameBackground = null;
+var suppressDisplayWritesDepth = 0;
 var trackHeldLoopCols = Array.from({ length: s.NUM_TRACKS }, function () { return {}; });
 var channelSubLoopTasks = Array.from({ length: s.NUM_CHANNELS }, function () { return []; });
 
@@ -404,7 +449,7 @@ var channelSubLoopTasks = Array.from({ length: s.NUM_CHANNELS }, function () { r
 for (var reloadChannelIdx = 0; reloadChannelIdx < s.NUM_CHANNELS; reloadChannelIdx++) {
 	var reloadChannel = getChannelStateByIndex(reloadChannelIdx);
 	if (!reloadChannel || !reloadChannel.sequence64Owner) continue;
-	messnamed((reloadChannelIdx + 1) + "[pl]stop", 1);
+	sendNamedInt((reloadChannelIdx + 1) + "[pl]stop", 1);
 	reloadChannel.sequence64Owner = null;
 	if (reloadChannel.activeTrack >= 0) reloadChannel.lastActiveTrack = reloadChannel.activeTrack;
 	reloadChannel.activeTrack = -1;
@@ -422,6 +467,34 @@ var diagnosticFile = null;
 var diagnosticSerial = 0;
 var diagnosticWriteErrorReported = false;
 var diagnosticSession = String(Date.now()) + "-" + String(Math.floor(Math.random() * 1000000));
+var diagnosticHighRateLast = {};
+var DIAGNOSTIC_HIGH_RATE_INTERVAL_MS = 100;
+var DISPLAY_INCIDENT_LOG_PATH = "/tmp/mlr-display-incidents.jsonl";
+var DISPLAY_INCIDENT_LOG_MAX_BYTES = 2 * 1024 * 1024;
+var displayIncidentSerial = 0;
+var pendingDisplayIncidents = {};
+var pendingDisplayRecoveryId = "";
+
+function writeDisplayIncident(record) {
+	if (typeof File !== "function") return false;
+	var file = null;
+	try {
+		file = new File(DISPLAY_INCIDENT_LOG_PATH, "readwrite");
+		if (!file.isopen) file = new File(DISPLAY_INCIDENT_LOG_PATH, "write");
+		if (!file.isopen) throw new Error("could not open display incident log");
+		if (file.eof >= DISPLAY_INCIDENT_LOG_MAX_BYTES) {
+			file.eof = 0;
+			file.position = 0;
+		} else file.position = file.eof;
+		file.writeline(JSON.stringify(record));
+		file.close();
+		return true;
+	} catch (error) {
+		if (file && file.isopen) file.close();
+		post("[grid_router] display incident write failed: " + error + "\n");
+		return false;
+	}
+}
 
 function openDiagnosticFile() {
 	if (!diagnosticEnabled || typeof File !== "function") return null;
@@ -492,6 +565,18 @@ function diagnosticEvent(eventName, details) {
 	}
 }
 
+// Playback position and phrase clock callbacks can arrive dozens of times per
+// second. Preserve crash context without turning synchronous File writes into
+// another source of low-priority queue pressure.
+function diagnosticEventRateLimited(eventName, sourceKey, details) {
+	var key = String(eventName) + ":" + String(sourceKey);
+	var now = Date.now();
+	if (diagnosticHighRateLast[key] !== undefined &&
+		now - diagnosticHighRateLast[key] < DIAGNOSTIC_HIGH_RATE_INTERVAL_MS) return false;
+	diagnosticHighRateLast[key] = now;
+	return diagnosticEvent(eventName, details);
+}
+
 function diagnosticTrackSnapshot(trackIdx, slice) {
 	var trackState = getTrackStateByIndex(trackIdx);
 	if (!trackState) return { track: trackIdx + 1, invalidTrack: 1 };
@@ -509,6 +594,9 @@ function diagnosticTrackSnapshot(trackIdx, slice) {
 		trackSlices: trackState.length,
 		playPosition: trackState.playPos + 1,
 		octave: trackState.octave,
+		transpose: trackState.transpose,
+		speed: trackState.speed,
+		speedMode: trackState.speedMode,
 		reverse: trackState.reverse ? 1 : 0,
 		loopActive: trackState.loopActive ? 1 : 0,
 		loopStart: trackState.loopStart,
@@ -530,6 +618,7 @@ function diagnosticLogging(value) {
 	if (!diagnosticEnabled && diagnosticFile && diagnosticFile.isopen) diagnosticFile.close();
 	diagnosticFile = null;
 	diagnosticWriteErrorReported = false;
+	diagnosticHighRateLast = {};
 	if (diagnosticEnabled) diagnosticEvent("logging_enabled");
 	post("[grid_router] diagnostic logging " + (diagnosticEnabled ? "on" : "off") +
 		" — " + DIAGNOSTIC_LOG_PATH + "\n");
@@ -548,6 +637,11 @@ function diagnosticBufferLoad(path, fileIndex, channels, durationMs, sampleRate)
 		durationMs: parseFloat(durationMs) || 0,
 		sampleRate: parseFloat(sampleRate) || 0
 	});
+	// The existing buffer loader is the authoritative source for media metadata.
+	// Mirror that information to the sample-bank/HUD without touching audio.
+	messnamed("sample_bank", "bufferMetadata", String(path),
+		parseInt(fileIndex, 10) || 0, parseInt(channels, 10) || 0,
+		parseFloat(durationMs) || 0, parseFloat(sampleRate) || 0);
 }
 
 function diagnosticStatus() {
@@ -556,7 +650,7 @@ function diagnosticStatus() {
 		" — " + DIAGNOSTIC_LOG_PATH + "\n");
 }
 
-// Initial palettes for the four kmod pages. These are intentionally simple
+// Initial palettes for the three active kmod pages. These are intentionally simple
 // starting points: legacy LED levels still provide all state and animation.
 var PAGE_COLORS = {
 	mainBase: [18, 72, 180],
@@ -569,7 +663,7 @@ var PAGE_COLORS = {
 	volume: [25, 220, 90],
 	timestretch: [0, 195, 255],
 	latch: [255, 155, 20],
-	sequenceRun: [35, 235, 90],
+	sequenceRun: [225, 45, 70],
 	insertFx: [155, 55, 255],
 	meter: [35, 230, 95],
 	randomize: [255, 105, 15],
@@ -579,8 +673,7 @@ var PAGE_COLORS = {
 	randomOffset: [215, 55, 255],
 	octave: [70, 120, 255],
 	reverse: [255, 65, 35],
-	groupsBase: [28, 42, 72],
-	gateFxBase: [105, 35, 175]
+	groupsBase: [28, 42, 72]
 };
 
 var GROUP_COLORS = [
@@ -597,6 +690,10 @@ var SEQUENCE64_COLORS = {
 	triggerLock: [210, 65, 255],
 	gateTail: [70, 90, 225],
 	playhead: [255, 255, 255],
+	conditionPlay: [255, 135, 25],
+	conditionSkip: [255, 45, 55],
+	probabilityPlay: [255, 225, 35],
+	probabilitySkip: [185, 70, 255],
 	trackPosition: [175, 255, 35],
 	held: [255, 105, 25],
 	length: [45, 190, 255],
@@ -608,6 +705,7 @@ var SEQUENCE64_COLORS = {
 	restart: [235, 235, 255],
 	stop: [255, 75, 35],
 	targetJump: [175, 255, 35],
+	sampleBrowser: [190, 85, 255],
 	shift: [190, 85, 255],
 	rate: [255, 145, 25],
 	motion: [255, 135, 25],
@@ -617,6 +715,7 @@ var SEQUENCE64_COLORS = {
 	exit: [255, 55, 45],
 	volume: [50, 225, 100],
 	octave: [85, 125, 255],
+	transpose: [125, 95, 255],
 	reverse: [255, 65, 40],
 	random: [220, 55, 255],
 	division: [20, 190, 220],
@@ -630,7 +729,7 @@ var SEQUENCE64_COLORS = {
 var SEQUENCE64_PARAMETER_COLORS = [
 	[0, 210, 255], [245, 205, 30], [50, 225, 100], [255, 135, 25],
 	[255, 65, 40], [125, 95, 255], [20, 190, 220], [235, 55, 190],
-	[175, 255, 35]
+	[175, 255, 35], [255, 105, 25]
 ];
 
 var SEQUENCE64_BEHAVIOR_COLORS = [
@@ -638,14 +737,86 @@ var SEQUENCE64_BEHAVIOR_COLORS = [
 	[155, 75, 255], [45, 230, 105], [235, 55, 190]
 ];
 
+// Runtime color-lab roles. The HUD edits these arrays in place; defaults are
+// captured once at script load so experimentation can always be reset. Names
+// are protocol-stable while labels are derived in the portable HUD model.
+var HUD_PAGE_COLOR_KEYS = [
+	"mainBase", "mainChannels", "mainPatterns", "mainClock", "mainPage",
+	"modBase", "mute", "volume", "timestretch", "sequenceRun", "insertFx",
+	"meter", "randomize", "automation", "quantize", "randomOffset",
+	"octave", "reverse", "groupsBase"
+];
+var HUD_RTA_COLOR_KEYS = [
+	"neutral", "unavailable", "trigger", "triggerGate", "lock", "triggerLock",
+	"gateTail", "playhead", "conditionPlay", "conditionSkip", "probabilityPlay",
+	"probabilitySkip", "trackPosition", "held", "length", "bar", "add",
+	"remove", "run", "record", "restart", "stop", "targetJump", "sampleBrowser", "shift",
+	"rate", "motion", "restore", "sequence", "setup", "exit", "volume",
+	"octave", "transpose", "reverse", "random", "division", "loopStart",
+	"loopEnd", "latch", "stretch", "mute"
+];
+var hudColorDefaults = {};
+
+function hudColorRoleEntries() {
+	var entries = [];
+	for (var pageIndex = 0; pageIndex < HUD_PAGE_COLOR_KEYS.length; pageIndex++) {
+		var pageKey = HUD_PAGE_COLOR_KEYS[pageIndex];
+		entries.push({ name: "page." + pageKey, category: "PAGE", value: PAGE_COLORS[pageKey] });
+	}
+	for (var groupIndex = 0; groupIndex < GROUP_COLORS.length; groupIndex++) {
+		entries.push({ name: "group." + (groupIndex + 1), category: "GROUP", value: GROUP_COLORS[groupIndex] });
+	}
+	for (var rtaIndex = 0; rtaIndex < HUD_RTA_COLOR_KEYS.length; rtaIndex++) {
+		var rtaKey = HUD_RTA_COLOR_KEYS[rtaIndex];
+		entries.push({ name: "rta." + rtaKey, category: "RTA", value: SEQUENCE64_COLORS[rtaKey] });
+	}
+	return entries;
+}
+
+function captureHudColorDefaults() {
+	var entries = hudColorRoleEntries();
+	for (var index = 0; index < entries.length; index++) {
+		var value = entries[index].value;
+		hudColorDefaults[entries[index].name] = [value[0], value[1], value[2]];
+	}
+}
+
+captureHudColorDefaults();
+
 var initialPageColorTask = new Task(function () {
 	if (s.autoPageColors) initializePageColorPresets();
+}, this);
+
+var initialDisplayFrameTask = new Task(function () {
+	renderCompletePage(s.kmod, true);
+}, this);
+
+var hardwareResyncVerifyTask = new Task(function () {
+	// Resend the already committed level frame without redrawing. A redraw here
+	// can mutate the still-draining palette queue and leave firmware presets
+	// half populated.
+	messnamed("togridmatrixio", "flush");
+	diagnosticEvent("hardware_resync_level_verify", { page: s.kmod });
+}, this);
+
+var displayRecoveryCompleteTask = new Task(function () {
+	if (!pendingDisplayRecoveryId) return;
+	var incidentId = pendingDisplayRecoveryId;
+	pendingDisplayRecoveryId = "";
+	messnamed("togridmatrixio", "diagnostic_snapshot", incidentId + ":after");
+	diagnosticEvent("display_recover_complete", {
+		incident: incidentId,
+		page: s.kmod,
+		colorQueueRemaining: pageColorQueue.length
+	});
+	publishHud("notice", "info", "Grid reinitialized · " + incidentId);
 }, this);
 
 // libmonome writes extension packets directly to a nonblocking serial fd.
 // Palette maps are lightly paced so legacy level/map frames retain priority;
 // sparse semantic changes continue to use immediate single-cell commands.
-var PAGE_COLOR_INTERVAL_MS = 6;
+var PAGE_COLOR_INTERVAL_MS = 4;
+var PAGE_COLOR_MAP_INTERVAL_MS = 8;
 var pageColorQueue = [];
 var pageColorQueueTask = new Task(drainPageColorQueue, this);
 var pageColorPresetReady = new Array(8).fill(0);
@@ -654,6 +825,282 @@ var pageColorPresetReady = new Array(8).fill(0);
 
 function clamp(v, lo, hi) {
 	return Math.min(hi, Math.max(lo, v));
+}
+
+function sendNamedInt(bus, value) {
+	messnamed(bus, "int", parseInt(value, 10) || 0);
+}
+
+// V8 is always serviced on Max's low-priority thread. Sequence64 therefore
+// prepares the cut here, but a native Max bridge releases it on the following
+// audio-derived sequence64 pulse. Manual/live cuts intentionally retain their
+// immediate path.
+function armSequence64AudioTrigger(channelIdx, trackIdx, position) {
+	if (channelIdx < 0 || channelIdx >= s.NUM_CHANNELS ||
+		trackIdx < 0 || trackIdx >= s.NUM_TRACKS) return false;
+	messnamed("sequence64_audio_arm", channelIdx + 1, trackIdx + 2,
+		clamp(parseInt(position, 10) || 0, 0, 15));
+	return true;
+}
+
+function cancelSequence64AudioForChannel(channelIdx) {
+	if (channelIdx < 0 || channelIdx >= s.NUM_CHANNELS) return false;
+	sendNamedInt("sequence64_audio_cancel", channelIdx + 1);
+	return true;
+}
+
+function publishHud() {
+	var args = arrayfromargs(arguments);
+	messnamed.apply(this, ["mlr_hud_state"].concat(args));
+}
+
+var sessionStateApplying = false;
+
+function markSessionDirty(reason) {
+	if (!sessionStateApplying) {
+		messnamed("mlr_session_dirty", "dirty", String(reason || "router"));
+	}
+}
+
+function publishHudColorEntry(entry) {
+	if (!entry || !entry.value) return;
+	publishHud("color_role", entry.name, entry.category,
+		entry.value[0], entry.value[1], entry.value[2]);
+}
+
+function publishHudColorSnapshot() {
+	var entries = hudColorRoleEntries();
+	for (var index = 0; index < entries.length; index++) publishHudColorEntry(entries[index]);
+}
+
+function hudColorEntryNamed(name) {
+	var requested = String(name || "");
+	var entries = hudColorRoleEntries();
+	for (var index = 0; index < entries.length; index++) {
+		if (entries[index].name === requested) return entries[index];
+	}
+	return null;
+}
+
+function refreshRuntimeColors() {
+	for (var slot = 0; slot < 3; slot++) pageColorPresetReady[slot] = 0;
+	resetPageColorQueue();
+	if (sampleBrowserState.active) applySampleBrowserColors();
+	else applyPageColors(clamp(s.kmod, 1, 3));
+}
+
+function hudColorRole(name, red, green, blue) {
+	var entry = hudColorEntryNamed(name);
+	if (!entry) {
+		publishHud("notice", "error", "Unknown color role " + String(name || ""));
+		return false;
+	}
+	entry.value[0] = clamp8(red);
+	entry.value[1] = clamp8(green);
+	entry.value[2] = clamp8(blue);
+	refreshRuntimeColors();
+	publishHudColorEntry(entry);
+	publishHud("notice", "info", "Color updated: " + entry.name);
+	markSessionDirty("color");
+	return true;
+}
+
+function hudColorReset(name) {
+	var requested = String(name || "all");
+	var entries = hudColorRoleEntries();
+	var changed = 0;
+	for (var index = 0; index < entries.length; index++) {
+		var entry = entries[index];
+		if (requested !== "all" && entry.name !== requested) continue;
+		var original = hudColorDefaults[entry.name];
+		if (!original) continue;
+		entry.value[0] = original[0];
+		entry.value[1] = original[1];
+		entry.value[2] = original[2];
+		publishHudColorEntry(entry);
+		changed++;
+	}
+	if (!changed) {
+		publishHud("notice", "error", "Unknown color role " + requested);
+		return false;
+	}
+	refreshRuntimeColors();
+	publishHud("notice", "info", requested === "all" ?
+		"Runtime colors reset" : ("Color reset: " + requested));
+	markSessionDirty("color reset");
+	return true;
+}
+
+function publishHudTrackState(trackIdx) {
+	var track = getTrackStateByIndex(trackIdx);
+	if (!track) return;
+	var buffer = parseInt(track.buffer, 10);
+	if (!isFinite(buffer)) buffer = -1;
+	publishHud("track", trackIdx, clamp((parseInt(track.channel, 10) || 1) - 1, 0, 7),
+		buffer, track.length, track.playPos, track.octave, track.transpose,
+		track.reverse ? 1 : 0, track.loopStart, track.loopEnd, track.subLoopDiv,
+		track.loopActive ? 1 : 0, buffer >= 8 ? buffer - 8 : -1);
+}
+
+function publishHudChannelState(channelIdx) {
+	var channel = getChannelStateByIndex(channelIdx);
+	if (!channel) return;
+	publishHud("channel", channelIdx, channel.volume, channel.muted ? 1 : 0,
+		channel.timestretch ? 1 : 0, channel.gateLatch ? 1 : 0,
+		channel.activeTrack, channel.lastActiveTrack, channel.on ? 1 : 0);
+}
+
+function hudPatternSummaryValues(targetType, targetId, pattern) {
+	var rate = sequence64PatternRate(pattern);
+	var bars = pattern && pattern.bars && pattern.bars.length ? pattern.bars.length : 1;
+	var currentBar = pattern ? clamp(parseInt(pattern.currentBar, 10) || 0, 0, bars - 1) : 0;
+	var length = pattern && pattern.bars && pattern.bars[currentBar] ?
+		pattern.bars[currentBar].length : (targetType === "track" ? 16 : 64);
+	return [targetType, targetId, pattern && pattern.running ? 1 : 0, bars,
+		currentBar, length, rate.numerator, rate.denominator,
+		pattern && sequence64PatternHasContent(pattern) ? 1 : 0];
+}
+
+function publishHudPatternSummary(targetType, targetId, pattern) {
+	publishHud.apply(this, ["pattern_summary"].concat(
+		hudPatternSummaryValues(targetType, targetId, pattern)));
+}
+
+function hudPatternSnapshotObject(targetType, targetId, pattern) {
+	if (!pattern) return null;
+	var currentBar = clamp(parseInt(pattern.currentBar, 10) || 0, 0, pattern.bars.length - 1);
+	var bar = pattern.bars[currentBar];
+	var playback = sequence64TargetPlaybackLocation(targetType, targetId, pattern);
+	var rate = sequence64PatternRate(pattern);
+	var snapshot = {
+		targetType: targetType,
+		targetId: targetId,
+		running: pattern.running ? 1 : 0,
+		bars: pattern.bars.length,
+		currentBar: currentBar,
+		length: bar.length,
+		rateNumerator: rate.numerator,
+		rateDenominator: rate.denominator,
+		defaultTrack: pattern.defaultTrack === undefined ? -1 : pattern.defaultTrack,
+		playheadBar: playback.bar,
+		playheadStep: playback.step,
+		decisionOutcome: sequence64DecisionOutcomeAt(targetType, targetId,
+			playback.bar, playback.step),
+		steps: []
+	};
+	for (var stepIndex = 0; stepIndex < 64; stepIndex++) {
+		var step = bar.steps[stepIndex] || createSequence64Step();
+		var cut = step.cut ? {
+			track: parseInt(step.cut.track, 10),
+			slice: parseInt(step.cut.slice, 10),
+			gateLength: parseInt(step.cut.gateLength, 10) || 1
+		} : null;
+		var locks = {};
+		for (var parameter in step.locks) {
+			var lock = step.locks[parameter];
+			if (!lock) continue;
+			locks[parameter] = {
+				value: lock.value,
+				behavior: lock.behavior || "set"
+			};
+		}
+		snapshot.steps.push({
+			cut: cut,
+			probability: step.probability,
+			condition: step.condition || 0,
+			locks: locks
+		});
+	}
+	return snapshot;
+}
+
+function publishHudPatternSnapshot(targetType, targetId, pattern) {
+	var snapshot = hudPatternSnapshotObject(targetType, targetId, pattern);
+	if (!snapshot) return;
+	publishHud("pattern_snapshot", JSON.stringify(snapshot));
+	publishHudPatternSummary(targetType, targetId, pattern);
+}
+
+function publishHudEditorState() {
+	var workspace = ensureEditorWorkspaceDefaults();
+	publishHud("editor", workspace.active ? 1 : 0, workspace.choosing ? 1 : 0,
+		workspace.targetType, workspace.targetId, sequence64LayoutEnabled() ?
+		workspace.view64 : workspace.editorId, sequence64HeldStep,
+		sequence64EditParameter, sequence64LockRecordHeld ? 1 : 0);
+}
+
+function publishHudCurrentPattern() {
+	var workspace = ensureEditorWorkspaceDefaults();
+	if (!sequence64LayoutEnabled() || !workspace.active) return;
+	publishHudPatternSnapshot(workspace.targetType, workspace.targetId,
+		ensureSequence64Pattern(workspace.targetType, workspace.targetId));
+}
+
+function publishHudPerformanceState() {
+	for (var track = 0; track < s.NUM_TRACKS; track++) publishHudTrackState(track);
+	for (var channel = 0; channel < s.NUM_CHANNELS; channel++) publishHudChannelState(channel);
+}
+
+function publishHudAfterGridAction(state, col, row) {
+	if (!state) return;
+	if (row > 0 && row <= s.NUM_TRACKS) {
+		publishHudTrackState(row - 1);
+		publishHudChannelState(trackChannelIndex(row - 1));
+	} else if (row === 0) {
+		for (var channel = 0; channel < s.NUM_CHANNELS; channel++) {
+			publishHudChannelState(channel);
+		}
+	}
+	publishHudEditorState();
+	publishHudCurrentPattern();
+}
+
+function hudSnapshot() {
+	var workspace = ensureEditorWorkspaceDefaults();
+	publishHud("mode", s.kmod);
+	if (s.timeMs > 0) publishHud("clock", 60000 / s.timeMs, 16);
+	publishHudColorSnapshot();
+	publishSampleBrowserState();
+	publishHudPerformanceState();
+	for (var group = 0; group < s.NUM_CHANNELS; group++) {
+		publishHudPatternSummary("group", group,
+			workspace.patterns64[editorTargetKey("group", group)] || null);
+	}
+	for (var track = 0; track < s.NUM_TRACKS; track++) {
+		publishHudPatternSummary("track", track,
+			workspace.patterns64[editorTargetKey("track", track)] || null);
+	}
+	publishHudEditorState();
+	publishHudCurrentPattern();
+}
+
+function hudTarget(targetType, targetId) {
+	var type = String(targetType || "");
+	var id = parseInt(targetId, 10);
+	if ((type !== "group" && type !== "track") || !isFinite(id)) return;
+	var maximum = type === "group" ? s.NUM_CHANNELS : s.NUM_TRACKS;
+	if (id < 0 || id >= maximum) return;
+	if (s.kmod !== 2) setKmod(2);
+	selectEditorTarget(type, id, true);
+	publishHudEditorState();
+	publishHudCurrentPattern();
+}
+
+function hudBar(barIndex) {
+	var workspace = ensureEditorWorkspaceDefaults();
+	if (!sequence64LayoutEnabled() || !workspace.active) return;
+	selectSequence64Bar(parseInt(barIndex, 10) || 0);
+	publishHudCurrentPattern();
+}
+
+function hudTransport(action) {
+	var workspace = ensureEditorWorkspaceDefaults();
+	if (!sequence64LayoutEnabled() || !workspace.active) return;
+	var command = String(action || "").toLowerCase();
+	if (command === "run") setSequence64TargetRunning(workspace.targetType, workspace.targetId, 1);
+	else if (command === "stop") stopSequence64Target(workspace.targetType, workspace.targetId, "hud_stop");
+	else if (command === "restart") restartSequence64Target(workspace.targetType, workspace.targetId, "hud_restart");
+	publishHudCurrentPattern();
 }
 
 function editorWorkspaceSupported() {
@@ -703,6 +1150,8 @@ function resetEditorWorkspaceState(clearTarget, stopRunning) {
 	sequence64StepHoldTask.cancel();
 	sequence64LengthHoldTask.cancel();
 	sequence64BarHoldTask.cancel();
+	sequence64RunShortcutHoldTask.cancel();
+	sequence64PendingRunShortcut = null;
 	sequence64LiveRecordHeld = false;
 	sequence64LockRecordHeld = false;
 	sequence64PendingLiveCut = null;
@@ -729,6 +1178,20 @@ function withEditorOverlayDraw(callback) {
 		callback();
 	} finally {
 		editorOverlayDrawDepth--;
+	}
+}
+
+function sampleBrowserOwnsLedCell(x, y) {
+	return sampleBrowserState.active && x >= 0 && x < s.gridWidth &&
+		y >= 0 && y <= SAMPLE_BROWSER_TOP_LAST_ROW;
+}
+
+function withSampleBrowserOverlayDraw(callback) {
+	sampleBrowserDrawDepth++;
+	try {
+		callback();
+	} finally {
+		sampleBrowserDrawDepth--;
 	}
 }
 
@@ -843,7 +1306,7 @@ function applyEditorLevelDiff(changes) {
 	}
 	if (!pending.length) return 0;
 
-	outlet(1, "beginupdate");
+	var matrixUpdateOpened = beginMatrixUpdate();
 	try {
 		withEditorOverlayDraw(function () {
 			for (var p = 0; p < pending.length; p++) {
@@ -852,7 +1315,7 @@ function applyEditorLevelDiff(changes) {
 			}
 		});
 	} finally {
-		outlet(1, "endupdate");
+		endMatrixUpdate(matrixUpdateOpened);
 	}
 	return pending.length;
 }
@@ -861,13 +1324,7 @@ function redrawEditorWorkspaceFrame() {
 	if (s.kmod !== 2) return;
 	invalidateEditorLevelCache();
 	if (s.editorBrightnessColors) clearQueuedEditorShellColors();
-	messnamed("togridmatrixanim", "clear_anim");
-	outlet(1, "beginframe");
-	try {
-		drawModPage();
-	} finally {
-		outlet(1, "endframe");
-	}
+	renderCompletePage(2, false);
 }
 
 function editorTargetKey(targetType, targetId) {
@@ -885,7 +1342,8 @@ function createSequence64Step() {
 	return {
 		cut: null,
 		locks: {},
-		probability: 15
+		probability: 15,
+		condition: 0
 	};
 }
 
@@ -914,7 +1372,7 @@ function createSequence64Pattern(targetType) {
 	for (var i = 0; i < steps.length; i++) steps[i] = createSequence64Step();
 	var initialLength = targetType === "track" ? 16 : 64;
 	return {
-		version: 5,
+		version: 9,
 		length: initialLength,
 		running: 0,
 		lastSequencedFlat: -1,
@@ -961,11 +1419,77 @@ function resolveSequence64GroupDefaultTrack(groupIdx, pattern) {
 	return -1;
 }
 
+function normalizeSequence64TransposeLock(lock) {
+	if (!lock || typeof lock !== "object") {
+		lock = { value: 0, behavior: "set" };
+	}
+	var total = clamp(Math.round(parseFloat(lock.value) || 0), -96, 96);
+	var pitchOctave = parseInt(lock.pitchOctave, 10);
+	var pitchSemitone = parseInt(lock.pitchSemitone, 10);
+	if (!isFinite(pitchOctave) || !isFinite(pitchSemitone)) {
+		// Preserve the exact note choices from the new one-octave row. Older
+		// larger totals are decomposed into the nearest octave plus semitone.
+		if (total >= SEQUENCE64_TRANSPOSE_MIN && total <= SEQUENCE64_TRANSPOSE_MAX) {
+			pitchOctave = 0;
+			pitchSemitone = total;
+		} else {
+			pitchOctave = Math.round(total / 12);
+			pitchSemitone = total - pitchOctave * 12;
+		}
+	}
+	lock.pitchOctave = clamp(pitchOctave, -8, 8);
+	lock.pitchSemitone = clamp(pitchSemitone,
+		SEQUENCE64_TRANSPOSE_MIN, SEQUENCE64_TRANSPOSE_MAX);
+	lock.value = clamp(lock.pitchOctave * 12 + lock.pitchSemitone, -96, 96);
+	lock.behavior = "set";
+	return lock;
+}
+
+function ensureSequence64TransposeLock(step) {
+	if (!step.locks.transpose) {
+		step.locks.transpose = {
+			value: 0,
+			pitchOctave: 0,
+			pitchSemitone: 0,
+			behavior: "set"
+		};
+	}
+	step.locks.transpose = normalizeSequence64TransposeLock(step.locks.transpose);
+	return step.locks.transpose;
+}
+
+function updateSequence64TransposeLock(lock) {
+	lock.pitchOctave = clamp(parseInt(lock.pitchOctave, 10) || 0, -8, 8);
+	lock.pitchSemitone = clamp(parseInt(lock.pitchSemitone, 10) || 0,
+		SEQUENCE64_TRANSPOSE_MIN, SEQUENCE64_TRANSPOSE_MAX);
+	lock.value = clamp(lock.pitchOctave * 12 + lock.pitchSemitone, -96, 96);
+	lock.behavior = "set";
+	return lock.value;
+}
+
 function normalizeSequence64Step(step) {
 	if (!step || typeof step !== "object") step = createSequence64Step();
 	if (!step.locks || typeof step.locks !== "object") step.locks = {};
+	// Version 7 separated track-wide octave multiplication from note locks.
+	// Preserve older programmed octave locks as the same pitch in semitones.
+	if (step.locks.octave) {
+		if (!step.locks.transpose) {
+			step.locks.transpose = {
+				value: clamp(Math.round((parseFloat(step.locks.octave.value) || 0) * 12), -96, 96),
+				behavior: step.locks.octave.behavior || "set"
+			};
+		}
+		delete step.locks.octave;
+	}
+	if (step.locks.transpose) {
+		step.locks.transpose = normalizeSequence64TransposeLock(step.locks.transpose);
+	}
 	if (step.probability === undefined) step.probability = 15;
 	step.probability = clamp(parseInt(step.probability, 10) || 0, 0, 15);
+	var condition = parseInt(step.condition, 10);
+	if (!isFinite(condition) || Math.abs(condition) < 2) condition = 0;
+	else condition = (condition < 0 ? -1 : 1) * clamp(Math.abs(condition), 2, 9);
+	step.condition = condition;
 	if (step.cut && typeof step.cut === "object") {
 		step.cut.track = clamp(parseInt(step.cut.track, 10), -1, s.NUM_TRACKS - 1);
 		if (!isFinite(step.cut.track)) step.cut.track = -1;
@@ -1031,7 +1555,7 @@ function ensureSequence64Pattern(targetType, targetId) {
 		pattern = createSequence64Pattern(targetType);
 		workspace.patterns64[key] = pattern;
 	}
-	pattern.version = 5;
+	pattern.version = 9;
 	if (!isFinite(parseInt(pattern.length, 10))) pattern.length = 64;
 	pattern.length = clamp(parseInt(pattern.length, 10), 1, 64);
 	if (!pattern.bars || !pattern.bars.length) {
@@ -1204,11 +1728,13 @@ function sequence64StepCoords(step) {
 }
 
 function sequence64StepHasLocks(step) {
-	if (!step || !step.locks) return false;
-	for (var name in step.locks) {
-		if (step.locks[name]) return true;
+	if (!step) return false;
+	if (step.locks) {
+		for (var name in step.locks) {
+			if (step.locks[name]) return true;
+		}
 	}
-	return step.probability < 15;
+	return step.probability < 15 || !!step.condition;
 }
 
 function sequence64PlayingTrackIndex() {
@@ -1378,7 +1904,7 @@ function stopCurrentEditorAutomationRecording() {
 function editorAutomationEventCategory(type) {
 	if (type === "loop" || type === "subLoopDiv" || type === "latch") return 0;
 	if (type === "volume") return 1;
-	if (type === "octave" || type === "group") return 2;
+	if (type === "octave" || type === "transpose" || type === "group") return 2;
 	if (type === "reverse" || type === "randomOffset" || type === "timestretch" || type === "mute") return 3;
 	return 4;
 }
@@ -1439,7 +1965,12 @@ function sequence64TargetTrackIndex(targetType, targetId, step) {
 function sequence64VisibleParameters() {
 	var workspace = ensureEditorWorkspaceDefaults();
 	return workspace.targetType === "group" ?
-		SEQUENCE64_PARAMETERS : SEQUENCE64_PARAMETERS.slice(0, 8);
+		SEQUENCE64_PARAMETERS : SEQUENCE64_PARAMETERS.slice(0, 8).concat(["condition"]);
+}
+
+function sequence64ParameterColor(parameter) {
+	var index = SEQUENCE64_PARAMETERS.indexOf(parameter);
+	return index >= 0 ? SEQUENCE64_PARAMETER_COLORS[index] : SEQUENCE64_COLORS.neutral;
 }
 
 function currentEditorChannelIndex() {
@@ -1465,6 +1996,74 @@ function editorProbabilityPass(level) {
 	if (normalized <= 0) return false;
 	if (normalized >= 15) return true;
 	return Math.random() < (normalized / 15);
+}
+
+/**
+ * Step conditions count visits to the same pattern cycle position. Positive N
+ * plays only visits N, 2N, 3N…; negative N plays every visit except those.
+ * Visit numbers begin at one whenever the owning group pattern restarts.
+ */
+function sequence64ConditionPass(step, visitNumber) {
+	var condition = step ? parseInt(step.condition, 10) : 0;
+	if (!isFinite(condition) || Math.abs(condition) < 2) return true;
+	var every = clamp(Math.abs(condition), 2, 9);
+	var visit = Math.max(1, parseInt(visitNumber, 10) || 1);
+	var isNth = visit % every === 0;
+	return condition > 0 ? isNth : !isNth;
+}
+
+function sequence64ConditionVisit(pattern, absoluteStep) {
+	var total = sequence64PatternTotalLength(pattern);
+	var absolute = Math.max(0, parseInt(absoluteStep, 10) || 0);
+	return Math.floor(absolute / total) + 1;
+}
+
+function recordSequence64Decision(targetType, targetId, barIndex, stepIndex, outcome) {
+	var targetKey = editorTargetKey(targetType, targetId);
+	if (!targetKey) return;
+	sequence64DecisionFeedback[targetKey] = {
+		bar: Math.max(0, parseInt(barIndex, 10) || 0),
+		step: clamp(parseInt(stepIndex, 10) || 0, 0, 63),
+		outcome: String(outcome || ""),
+		clock: sequence64ClockPosition
+	};
+}
+
+function clearSequence64Decision(targetType, targetId) {
+	var targetKey = editorTargetKey(targetType, targetId);
+	if (targetKey) delete sequence64DecisionFeedback[targetKey];
+}
+
+function sequence64DecisionOutcomeAt(targetType, targetId, barIndex, stepIndex) {
+	var feedback = sequence64DecisionFeedback[editorTargetKey(targetType, targetId)];
+	if (!feedback || feedback.clock !== sequence64ClockPosition ||
+		feedback.bar !== barIndex || feedback.step !== stepIndex) return "";
+	return feedback.outcome;
+}
+
+function sequence64DecisionColorAt(targetType, targetId, barIndex, stepIndex) {
+	var outcome = sequence64DecisionOutcomeAt(targetType, targetId, barIndex, stepIndex);
+	return outcome && SEQUENCE64_COLORS[outcome] ? SEQUENCE64_COLORS[outcome] : null;
+}
+
+function sequence64StepDecisionPass(targetType, targetId, barIndex, stepIndex, step, conditionVisit) {
+	clearSequence64Decision(targetType, targetId);
+	var condition = step ? parseInt(step.condition, 10) || 0 : 0;
+	var hasCondition = Math.abs(condition) >= 2;
+	var conditionPasses = sequence64ConditionPass(step, conditionVisit);
+	if (!conditionPasses) {
+		recordSequence64Decision(targetType, targetId, barIndex, stepIndex, "conditionSkip");
+		return false;
+	}
+	var probability = step ? clamp(parseInt(step.probability, 10) || 0, 0, 15) : 0;
+	var probabilityPasses = editorProbabilityPass(probability);
+	if (probability < 15) {
+		recordSequence64Decision(targetType, targetId, barIndex, stepIndex,
+			probabilityPasses ? "probabilityPlay" : "probabilitySkip");
+	} else if (hasCondition) {
+		recordSequence64Decision(targetType, targetId, barIndex, stepIndex, "conditionPlay");
+	}
+	return probabilityPasses;
 }
 
 function emitSequence64PlaybackPing(trackIdx, position) {
@@ -1501,6 +2100,22 @@ function primeTrackPlaybackPosition(trackIdx, position) {
 	if (s.kmod === 1) redrawTrackBackground(trackIdx);
 }
 
+function clearTrackPlaybackPosition(trackIdx) {
+	var row = trackIdx + 1;
+	if (row < 1 || row >= s.gridHeight) return;
+	for (var column = 0; column < s.gridWidth; column++) {
+		playbackBg[bgIndex(column, row)] = 0;
+	}
+	if (s.kmod === 1) redrawTrackBackground(trackIdx);
+}
+
+function clearChannelPlaybackPositions(channelIdx, exceptTrackIdx) {
+	for (var trackIdx = 0; trackIdx < s.NUM_TRACKS; trackIdx++) {
+		if (trackIdx === exceptTrackIdx || trackChannelIndex(trackIdx) !== channelIdx) continue;
+		clearTrackPlaybackPosition(trackIdx);
+	}
+}
+
 function triggerEditorTrack(trackIdx, slice, ownerKey) {
 	var trackState = getTrackStateByIndex(trackIdx);
 	if (!trackState) return false;
@@ -1509,25 +2124,32 @@ function triggerEditorTrack(trackIdx, slice, ownerKey) {
 	// A direct editor/live cut supersedes a child phrase on this shared player.
 	// Phrase-owned triggers pass their owner key and have already performed the
 	// channel retrigger arbitration in launchSequence64TrackPhrase().
-	if (!ownerKey) cancelSequence64PhraseForChannel(channelIdx, "manual_trigger", false);
+	if (!ownerKey) {
+		cancelSequence64PhraseForChannel(channelIdx, "manual_trigger", false);
+		cancelSequence64AudioForChannel(channelIdx);
+	}
 	var channelState = getChannelStateByIndex(channelIdx);
 	trackState.playPos = position;
 	trackState.subLoopAnchor = position;
 	channelState.activeTrack = trackIdx;
 	channelState.sequence64Owner = ownerKey || null;
 	primeTrackPlaybackPosition(trackIdx, position);
-	diagnosticEvent("sequence64_trigger", diagnosticTrackSnapshot(trackIdx, position));
+	var triggerDetails = diagnosticTrackSnapshot(trackIdx, position);
+	triggerDetails.nativeArmed = ownerKey ? 1 : 0;
+	diagnosticEvent("sequence64_trigger", triggerDetails);
 	// Do not depend on the stopped audio group reporting chRowPos back before
 	// showing the main-page cut. The matching callback consumes the guard below
 	// so a healthy audio round trip does not create a duplicate keyframe.
 	emitSequence64PlaybackPing(trackIdx, position);
-	messnamed(trackInputBus(trackIdx + 2), position, 1);
-	// Sequence64 already runs from a phase-locked clock, so fire the player
-	// immediately after the ordinary input path has armed its position/track.
-	// The player's immediate path also closes the legacy quantize gate, which
-	// prevents this cut from firing again on the next [mlr]trig pulse.
-	messnamed((channelIdx + 1) + "[mlr]pl-trig-now", "bang");
-	messnamed(trackInputBus(trackIdx + 2), position, 0);
+	if (ownerKey) {
+		// The native bridge performs press → player trigger → release at the next
+		// raw clock boundary, entirely outside the low-priority V8 callback.
+		armSequence64AudioTrigger(channelIdx, trackIdx, position);
+	} else {
+		messnamed(trackInputBus(trackIdx + 2), position, 1);
+		messnamed((channelIdx + 1) + "[mlr]pl-trig-now", "bang");
+		messnamed(trackInputBus(trackIdx + 2), position, 0);
+	}
 	if (channelLatchEnabledForTrack(trackIdx)) reapplyTrackSubLoopAfterTrigger(trackIdx, position);
 	else restoreTrackLoop(trackIdx);
 	outlet(2, "editor_trigger", trackIdx + 1, position + 1);
@@ -1649,7 +2271,8 @@ function renderSequence64StepColors(colors, pattern, bar, playback) {
 		}
 		if (step.cut && sequence64StepHasLocks(step)) rgb = SEQUENCE64_COLORS.triggerLock;
 		if (targetPlaying && playback.bar === pattern.currentBar && playback.step === stepIndex) {
-			rgb = SEQUENCE64_COLORS.playhead;
+			rgb = sequence64DecisionColorAt(workspace.targetType, workspace.targetId,
+				playback.bar, stepIndex) || SEQUENCE64_COLORS.playhead;
 		}
 		if (sequence64HeldStep === stepIndex || sequence64PressedStep === stepIndex) {
 			rgb = SEQUENCE64_COLORS.held;
@@ -1665,16 +2288,15 @@ function renderSequence64ControlColors(colors) {
 		if (parameterIndex < 0) parameterIndex = 0;
 		for (var parameter = 0; parameter < parameters.length; parameter++) {
 			setEditorShellColor(colors, SEQUENCE64_PARAMETER_FIRST_COL + parameter, SEQUENCE64_LENGTH_ROW,
-				SEQUENCE64_PARAMETER_COLORS[parameter]);
+				sequence64ParameterColor(parameters[parameter]));
 		}
-		var maxValueColumn = 15;
-		if (sequence64EditParameter === "octave") maxValueColumn = 6;
-		else if (sequence64EditParameter === "loopDivision") maxValueColumn = 7;
+		var maxValueColumn = sequence64EditParameter === "loopDivision" ? 7 : 15;
 		for (var value = 0; value <= maxValueColumn; value++) {
 			if (sequence64EditParameter === "track" &&
 				!sequence64TrackBelongsToGroup(value, ensureEditorWorkspaceDefaults().targetId)) continue;
 			setEditorShellColor(colors, value, SEQUENCE64_TRANSPORT_ROW,
-				SEQUENCE64_PARAMETER_COLORS[parameterIndex]);
+				sequence64EditParameter === "transpose" && value < SEQUENCE64_TRANSPOSE_FIRST_COL ?
+					SEQUENCE64_COLORS.octave : sequence64ParameterColor(sequence64EditParameter));
 		}
 		if (sequence64EditParameter === "volume" || sequence64EditParameter === "filter") {
 			for (var behavior = 0; behavior < SEQUENCE64_BEHAVIORS.length; behavior++) {
@@ -1715,6 +2337,7 @@ function renderSequence64NavigationColors(colors) {
 	setEditorShellColor(colors, 0, SEQUENCE64_NAV_ROW, SEQUENCE64_COLORS.sequence);
 	setEditorShellColor(colors, 1, SEQUENCE64_NAV_ROW, SEQUENCE64_COLORS.setup);
 	setEditorShellColor(colors, 11, SEQUENCE64_NAV_ROW, SEQUENCE64_COLORS.shift);
+	setEditorShellColor(colors, 12, SEQUENCE64_NAV_ROW, SEQUENCE64_COLORS.sampleBrowser);
 	setEditorShellColor(colors, 13, SEQUENCE64_NAV_ROW, SEQUENCE64_COLORS.targetJump);
 	setEditorShellColor(colors, 15, SEQUENCE64_NAV_ROW, SEQUENCE64_COLORS.exit);
 }
@@ -1739,8 +2362,10 @@ function renderSequence64SetupColors(colors) {
 	for (var volume = 0; volume < 16; volume++) {
 		setEditorShellColor(colors, volume, 9, SEQUENCE64_COLORS.volume);
 	}
-	for (var octave = 0; octave < 7; octave++) {
-		setEditorShellColor(colors, octave, 10, SEQUENCE64_COLORS.octave);
+	for (var pitchCell = 0; pitchCell < 16; pitchCell++) {
+		setEditorShellColor(colors, pitchCell, 10,
+			pitchCell < SEQUENCE64_TRANSPOSE_FIRST_COL ?
+				SEQUENCE64_COLORS.octave : SEQUENCE64_COLORS.transpose);
 	}
 	setEditorShellColor(colors, 0, 11, SEQUENCE64_COLORS.reverse);
 	setEditorShellColor(colors, 1, 11, SEQUENCE64_COLORS.random);
@@ -1978,11 +2603,19 @@ function sequence64LockValueColumn(parameter, step) {
 		return step.cut ? step.cut.slice : -1;
 	}
 	if (parameter === "probability") return clamp(step.probability, 0, 15);
+	if (parameter === "condition") {
+		var condition = parseInt(step.condition, 10) || 0;
+		if (Math.abs(condition) < 2) return -1;
+		return condition > 0 ? clamp(condition - 2, 0, 7) : clamp(Math.abs(condition) + 6, 8, 15);
+	}
 	if (parameter === "gateLength") return step.cut ? clamp(step.cut.gateLength - 1, 0, 15) : -1;
 	var lock = step.locks ? step.locks[parameter] : null;
 	if (!lock) return -1;
 	if (parameter === "reverse") return lock.value ? 15 : 0;
-	if (parameter === "octave") return clamp(lock.value + 3, 0, 6);
+	if (parameter === "transpose") {
+		lock = normalizeSequence64TransposeLock(lock);
+		return lock.pitchSemitone + 8;
+	}
 	if (parameter === "loopDivision") return TRACK_SUB_LOOP_OPTIONS.indexOf(lock.value);
 	return clamp(parseInt(lock.value, 10) || 0, 0, 15);
 }
@@ -1997,17 +2630,27 @@ function renderSequence64StepEditor(levels, step) {
 	}
 
 	var valueColumn = sequence64LockValueColumn(parameters[parameterIndex], step);
-	var maxValueColumn = 15;
-	if (sequence64EditParameter === "octave") maxValueColumn = 6;
-	else if (sequence64EditParameter === "loopDivision") maxValueColumn = 7;
+	var lock = step && step.locks ? step.locks[sequence64EditParameter] : null;
+	var pitchOctave = 0;
+	if (sequence64EditParameter === "transpose" && lock) {
+		lock = normalizeSequence64TransposeLock(lock);
+		pitchOctave = lock.pitchOctave;
+	}
+	var maxValueColumn = sequence64EditParameter === "loopDivision" ? 7 : 15;
 	for (var value = 0; value <= maxValueColumn; value++) {
 		if (sequence64EditParameter === "track" &&
 			!sequence64TrackBelongsToGroup(value, ensureEditorWorkspaceDefaults().targetId)) continue;
+		var availableLevel = SEQUENCE64_MIN_VISIBLE_LEVEL;
+		if (sequence64EditParameter === "transpose" && value < SEQUENCE64_TRANSPOSE_FIRST_COL) {
+			var octaveDirectionActive = (value === 0 && pitchOctave < 0) ||
+				(value === 1 && pitchOctave > 0);
+			availableLevel = octaveDirectionActive ?
+				clamp(7 + Math.abs(pitchOctave), 8, 15) : 5;
+		}
 		setEditorShellLevel(levels, value, SEQUENCE64_TRANSPORT_ROW,
-			value === valueColumn ? 15 : SEQUENCE64_MIN_VISIBLE_LEVEL);
+			value === valueColumn ? 15 : availableLevel);
 	}
 
-	var lock = step && step.locks ? step.locks[sequence64EditParameter] : null;
 	if (sequence64EditParameter === "volume" || sequence64EditParameter === "filter") {
 		for (var behavior = 0; behavior < SEQUENCE64_BEHAVIORS.length; behavior++) {
 			setEditorShellLevel(levels, SEQUENCE64_BEHAVIOR_FIRST_COL + behavior, SEQUENCE64_TOOLS_ROW,
@@ -2042,6 +2685,7 @@ function renderSequence64View(levels) {
 		setEditorShellLevel(levels, 0, SEQUENCE64_NAV_ROW, 3);
 		setEditorShellLevel(levels, 1, SEQUENCE64_NAV_ROW, 3);
 		setEditorShellLevel(levels, 11, SEQUENCE64_NAV_ROW, 15);
+		setEditorShellLevel(levels, 12, SEQUENCE64_NAV_ROW, sampleBrowserState.active ? 15 : 5);
 		setEditorShellLevel(levels, 13, SEQUENCE64_NAV_ROW, 5);
 		setEditorShellLevel(levels, 15, SEQUENCE64_NAV_ROW, 6);
 		return;
@@ -2110,6 +2754,7 @@ function renderSequence64View(levels) {
 	setEditorShellLevel(levels, 0, SEQUENCE64_NAV_ROW, 15);
 	setEditorShellLevel(levels, 1, SEQUENCE64_NAV_ROW, 3);
 	setEditorShellLevel(levels, 11, SEQUENCE64_NAV_ROW, 5);
+	setEditorShellLevel(levels, 12, SEQUENCE64_NAV_ROW, sampleBrowserState.active ? 15 : 5);
 	setEditorShellLevel(levels, 13, SEQUENCE64_NAV_ROW, 5);
 	setEditorShellLevel(levels, 15, SEQUENCE64_NAV_ROW, 6);
 }
@@ -2133,9 +2778,14 @@ function renderSequence64SetupView(levels) {
 		}
 	}
 	if (trackState) {
-		var octaveCell = clamp((parseInt(trackState.octave, 10) || 0) + 3, 0, 6);
-		for (var octave = 0; octave < 7; octave++) {
-			setEditorShellLevel(levels, octave, 10, octave === octaveCell ? 15 : 3);
+		var octave = clamp(parseInt(trackState.octave, 10) || 0, -8, 8);
+		setEditorShellLevel(levels, 0, 10, octave < 0 ? clamp(4 - octave, 4, 15) : 4);
+		setEditorShellLevel(levels, 1, 10, octave > 0 ? clamp(4 + octave, 4, 15) : 4);
+		var transposeCell = clamp(parseInt(trackState.transpose, 10) || 0,
+			SEQUENCE64_TRANSPOSE_MIN, SEQUENCE64_TRANSPOSE_MAX) + 8;
+		for (var pitchCell = SEQUENCE64_TRANSPOSE_FIRST_COL; pitchCell < 16; pitchCell++) {
+			setEditorShellLevel(levels, pitchCell, 10,
+				pitchCell === transposeCell ? 15 : SEQUENCE64_MIN_VISIBLE_LEVEL);
 		}
 		setEditorShellLevel(levels, 0, 11, trackState.reverse ? 15 : 3);
 		setEditorShellLevel(levels, 1, 11, trackState.randomOffset ? 15 : 3);
@@ -2165,6 +2815,7 @@ function renderSequence64SetupView(levels) {
 	setEditorShellLevel(levels, 0, SEQUENCE64_NAV_ROW, 3);
 	setEditorShellLevel(levels, 1, SEQUENCE64_NAV_ROW, 15);
 	setEditorShellLevel(levels, 11, SEQUENCE64_NAV_ROW, 3);
+	setEditorShellLevel(levels, 12, SEQUENCE64_NAV_ROW, sampleBrowserState.active ? 15 : 5);
 	setEditorShellLevel(levels, 13, SEQUENCE64_NAV_ROW, 5);
 	setEditorShellLevel(levels, 15, SEQUENCE64_NAV_ROW, 6);
 }
@@ -2303,7 +2954,7 @@ function setEditorTrackGroup(trackIdx, channelIdx, shouldRecord) {
 	restoreEditorGateFx();
 	clearLoopVisualForTrackIndex(trackIdx, true);
 	trackState.channel = channelIdx + 1;
-	messnamed((trackIdx + 2) + "chn[box]", channelIdx + 1);
+	sendNamedInt((trackIdx + 2) + "chn[box]", channelIdx + 1);
 	if (shouldRecord !== false) recordEditorAutomationEvent("group", channelIdx);
 }
 
@@ -2313,23 +2964,38 @@ function setEditorVolume(channelIdx, volume, shouldRecord) {
 	var nextVolume = clamp(parseInt(volume, 10) || 0, 0, 158);
 	var delta = nextVolume - channelState.volume;
 	channelState.volume = nextVolume;
-	if (delta) messnamed((channelIdx + 1) + "vol_add", delta);
+	if (delta) sendNamedInt((channelIdx + 1) + "vol_add", delta);
 	if (shouldRecord !== false) recordEditorAutomationEvent("volume", nextVolume);
 }
 
 function setEditorOctave(trackIdx, octave, shouldRecord, sequenceOwned) {
 	var trackState = getTrackStateByIndex(trackIdx);
 	if (!trackState) return;
-	var nextOctave = clamp(parseInt(octave, 10) || 0, -3, 3);
+	var nextOctave = clamp(parseInt(octave, 10) || 0, -8, 8);
 	if (!sequenceOwned) clearSequence64PropertyOwnership(sequence64TrackPropertyKey(trackIdx, "octave"));
 	var delta = nextOctave - (parseInt(trackState.octave, 10) || 0);
 	if (delta) clearLoopVisualForTrackIndex(trackIdx, true);
 	var bus = (trackIdx + 2) + "[box]";
 	for (var i = 0; i < Math.abs(delta); i++) {
-		messnamed(bus + (delta > 0 ? "upOct" : "dwnOct"), 1);
+		sendNamedInt(bus + (delta > 0 ? "upOct" : "dwnOct"), 1);
 	}
 	trackState.octave = nextOctave;
 	if (shouldRecord !== false) recordEditorAutomationEvent("octave", nextOctave);
+}
+
+function setEditorTranspose(trackIdx, semitones, shouldRecord, sequenceOwned) {
+	var trackState = getTrackStateByIndex(trackIdx);
+	if (!trackState) return;
+	var nextTranspose = clamp(Math.round(parseFloat(semitones) || 0), -96, 96);
+	if (!sequenceOwned) {
+		clearSequence64PropertyOwnership(sequence64TrackPropertyKey(trackIdx, "transpose"));
+	}
+	trackState.transpose = nextTranspose;
+	// messnamed's second argument is a Max message selector, not the payload.
+	// Send a real int message so the per-track receive outputs the semitone
+	// value into ch.maxpat's floating-point rate calculation.
+	sendNamedInt((trackIdx + 2) + "[box]transpose", nextTranspose);
+	if (shouldRecord !== false) recordEditorAutomationEvent("transpose", nextTranspose);
 }
 
 function setEditorReverse(trackIdx, active, shouldRecord, sequenceOwned) {
@@ -2338,7 +3004,7 @@ function setEditorReverse(trackIdx, active, shouldRecord, sequenceOwned) {
 	if (!sequenceOwned) clearSequence64PropertyOwnership(sequence64TrackPropertyKey(trackIdx, "reverse"));
 	clearLoopVisualForTrackIndex(trackIdx, true);
 	trackState.reverse = active ? 1 : 0;
-	messnamed((trackIdx + 2) + "[box]rev", trackState.reverse);
+	sendNamedInt((trackIdx + 2) + "[box]rev", trackState.reverse);
 	if (shouldRecord !== false) recordEditorAutomationEvent("reverse", trackState.reverse);
 }
 
@@ -2347,7 +3013,7 @@ function setEditorRandomOffset(trackIdx, active, shouldRecord) {
 	if (!trackState) return;
 	clearLoopVisualForTrackIndex(trackIdx, true);
 	trackState.randomOffset = active ? 1 : 0;
-	messnamed((trackIdx + 2) + "[box]rndOff", trackState.randomOffset);
+	sendNamedInt((trackIdx + 2) + "[box]rndOff", trackState.randomOffset);
 	if (shouldRecord !== false) recordEditorAutomationEvent("randomOffset", trackState.randomOffset);
 }
 
@@ -2355,7 +3021,7 @@ function setEditorTimestretch(channelIdx, active, shouldRecord) {
 	var channelState = getChannelStateByIndex(channelIdx);
 	if (!channelState) return;
 	channelState.timestretch = active ? 1 : 0;
-	messnamed((channelIdx + 1) + "[ch]timestretch", channelState.timestretch);
+	sendNamedInt((channelIdx + 1) + "[ch]timestretch", channelState.timestretch);
 	if (shouldRecord !== false) recordEditorAutomationEvent("timestretch", channelState.timestretch);
 }
 
@@ -2363,7 +3029,7 @@ function setEditorMute(channelIdx, active, shouldRecord) {
 	var channelState = getChannelStateByIndex(channelIdx);
 	if (!channelState) return;
 	channelState.muted = active ? 1 : 0;
-	messnamed((channelIdx + 1) + "[box]mute", channelState.muted);
+	sendNamedInt((channelIdx + 1) + "[box]mute", channelState.muted);
 	if (shouldRecord !== false) recordEditorAutomationEvent("mute", channelState.muted);
 }
 
@@ -2383,6 +3049,8 @@ function applyEditorAutomationEvent(event) {
 		setEditorVolume(channelIdx, event.value, false);
 	} else if (event.type === "octave" && trackIdx >= 0) {
 		setEditorOctave(trackIdx, event.value, false);
+	} else if (event.type === "transpose" && trackIdx >= 0) {
+		setEditorTranspose(trackIdx, event.value, false);
 	} else if (event.type === "reverse" && trackIdx >= 0) {
 		setEditorReverse(trackIdx, event.value, false);
 	} else if (event.type === "randomOffset" && trackIdx >= 0) {
@@ -2476,7 +3144,8 @@ function sequence64CurrentPropertyValue(parameter, channelIdx, trackIdx) {
 	var trackState = getTrackStateByIndex(trackIdx);
 	if (!trackState) return 0;
 	if (parameter === "reverse") return trackState.reverse ? 1 : 0;
-	if (parameter === "octave") return clamp(parseInt(trackState.octave, 10) || 0, -3, 3);
+	if (parameter === "octave") return clamp(parseInt(trackState.octave, 10) || 0, -8, 8);
+	if (parameter === "transpose") return clamp(parseInt(trackState.transpose, 10) || 0, -96, 96);
 	if (parameter === "loopDivision") return currentTrackSubLoopDiv(trackIdx);
 	return 0;
 }
@@ -2499,6 +3168,7 @@ function sequence64ApplyPropertyFrame(propertyKey, frame, fallbackValue, rampMs)
 	var value = frame ? frame.value : fallbackValue;
 	if (trackParameter === "reverse") setEditorReverse(trackIdx, value ? 1 : 0, false, true);
 	else if (trackParameter === "octave") setEditorOctave(trackIdx, value, false, true);
+	else if (trackParameter === "transpose") setEditorTranspose(trackIdx, value, false, true);
 	else if (trackParameter === "loopDivision") setEditorSubLoopDivision(trackIdx, value, false, true);
 }
 
@@ -2720,6 +3390,7 @@ function captureSequence64StartSnapshotForTarget(targetType, targetId) {
 		track: trackState ? {
 			playPos: trackState.playPos,
 			octave: trackState.octave,
+			transpose: trackState.transpose,
 			reverse: trackState.reverse,
 			randomOffset: trackState.randomOffset,
 			subLoopDiv: trackState.subLoopDiv,
@@ -2755,12 +3426,14 @@ function restoreSequence64StartSnapshot() {
 			var restoredTrack = getTrackStateByIndex(snapshot.trackIdx);
 			restoredTrack.playPos = restorePosition;
 			var restoredChannel = getChannelStateByIndex(trackChannelIndex(snapshot.trackIdx));
+			cancelSequence64AudioForChannel(trackChannelIndex(snapshot.trackIdx));
 			restoredChannel.activeTrack = snapshot.trackIdx;
 			restoredChannel.sequence64Owner = null;
 			messnamed(trackInputBus(snapshot.trackIdx + 2), restorePosition, 1);
 			messnamed(trackInputBus(snapshot.trackIdx + 2), restorePosition, 0);
 		}
 		setEditorOctave(snapshot.trackIdx, snapshot.track.octave, false);
+		setEditorTranspose(snapshot.trackIdx, snapshot.track.transpose, false);
 		setEditorReverse(snapshot.trackIdx, snapshot.track.reverse, false);
 		setEditorRandomOffset(snapshot.trackIdx, snapshot.track.randomOffset, false);
 		setEditorSubLoopDivision(snapshot.trackIdx, snapshot.track.subLoopDiv, false);
@@ -2839,6 +3512,7 @@ function stopSequence64Target(targetType, targetId, reason, suppressStatus) {
 	if (!targetKey) return false;
 	var pattern = workspace.patterns64[targetKey];
 	var wasRunning = !!(pattern && pattern.running);
+	clearSequence64Decision(targetType, targetId);
 	if (pattern) {
 		pattern.running = 0;
 		var playback = sequence64PlaybackLocation(pattern);
@@ -2861,7 +3535,8 @@ function stopSequence64Target(targetType, targetId, reason, suppressStatus) {
 	for (var channelIdx = 0; channelIdx < s.NUM_CHANNELS; channelIdx++) {
 		var channelState = getChannelStateByIndex(channelIdx);
 		if (!channelState || channelState.sequence64Owner !== targetKey) continue;
-		messnamed((channelIdx + 1) + "[pl]stop", 1);
+		cancelSequence64AudioForChannel(channelIdx);
+		sendNamedInt((channelIdx + 1) + "[pl]stop", 1);
 		channelState.sequence64Owner = null;
 		if (channelState.activeTrack >= 0) channelState.lastActiveTrack = channelState.activeTrack;
 		channelState.activeTrack = -1;
@@ -2891,6 +3566,9 @@ function stopSequence64Target(targetType, targetId, reason, suppressStatus) {
 		releasedProperties: releasedProperties
 	});
 	if (!suppressStatus) outlet(2, "editor_run", targetType, targetId + 1, 0);
+	publishHudPatternSummary(targetType, targetId, pattern || null);
+	if (workspace.active && workspace.targetType === targetType &&
+		workspace.targetId === targetId) publishHudCurrentPattern();
 	return wasRunning || stoppedChannels.length > 0 || releasedProperties > 0;
 }
 
@@ -2911,6 +3589,7 @@ function startSequence64TrackPreview(trackIdx, reason) {
 		reason: reason || "preview"
 	});
 	outlet(2, "editor_run", "track", trackIdx + 1, 1);
+	publishHudPatternSummary("track", trackIdx, pattern);
 	return true;
 }
 
@@ -2919,6 +3598,7 @@ function restartSequence64Target(targetType, targetId, reason) {
 	var pattern = ensureSequence64Pattern(targetType, targetId);
 	if (!pattern) return false;
 	var wasRunning = !!pattern.running;
+	clearSequence64Decision(targetType, targetId);
 	pattern.phaseOrigin = sequence64ClockPosition;
 	pattern.lastSequencedFlat = -1;
 	pattern.lastSequencedAbsolute = -1;
@@ -2951,6 +3631,9 @@ function restartSequence64Target(targetType, targetId, reason) {
 		fired: fired
 	});
 	outlet(2, "editor_restart", targetType, targetId + 1, pattern.running ? 1 : 0);
+	publishHudPatternSummary(targetType, targetId, pattern);
+	if (workspace.active && workspace.targetType === targetType &&
+		workspace.targetId === targetId) publishHudCurrentPattern();
 	return true;
 }
 
@@ -3009,6 +3692,7 @@ function setSequence64PatternRate(targetType, targetId, numerator, denominator) 
 	});
 	outlet(2, "editor_rate", targetType, targetId + 1,
 		nextNumerator, nextDenominator);
+	markSessionDirty("ṛta rate");
 	redrawEditorShellDiff();
 	return true;
 }
@@ -3077,7 +3761,8 @@ function setSequence64TargetRunning(targetType, targetId, enabled) {
 	var playback = sequence64TargetPlaybackLocation(targetType, targetId, pattern);
 	if (pattern.restartArmed) {
 		pattern.restartArmed = 0;
-		runSequence64StepForTarget(targetType, targetId, pattern, playback.bar, playback.step);
+		runSequence64StepForTarget(targetType, targetId, pattern,
+			playback.bar, playback.step, playback.absolute);
 		pattern.lastSequencedFlat = playback.flat;
 	} else {
 		pattern.lastSequencedFlat = playback.flat;
@@ -3097,6 +3782,9 @@ function setSequence64TargetRunning(targetType, targetId, enabled) {
 		step: playback.step + 1
 	});
 	outlet(2, "editor_run", targetType, targetId + 1, next);
+	publishHudPatternSummary(targetType, targetId, pattern);
+	if (workspace.active && workspace.targetType === targetType &&
+		workspace.targetId === targetId) publishHudCurrentPattern();
 }
 
 function setCurrentSequence64Running(enabled) {
@@ -3117,7 +3805,7 @@ function applySequence64StepLockForTarget(targetType, targetId, parameter, lock,
 	} else if (parameter === "reverse" && trackIdx >= 0) {
 		sequence64WriteOwnedProperty(targetType, targetId, parameter,
 			lock.value ? 1 : 0, trackChannelIndex(trackIdx), trackIdx, 0, ownerKey);
-	} else if (parameter === "octave" && trackIdx >= 0) {
+	} else if (parameter === "transpose" && trackIdx >= 0) {
 		sequence64WriteOwnedProperty(targetType, targetId, parameter,
 			lock.value, trackChannelIndex(trackIdx), trackIdx, 0, ownerKey);
 	} else if (parameter === "loopDivision" && trackIdx >= 0) {
@@ -3165,7 +3853,8 @@ function finishSequence64Phrase(instance, reason, stopAudio) {
 	}
 	var channelState = getChannelStateByIndex(instance.channelIdx);
 	if (stopAudio && channelState && channelState.sequence64Owner === instance.audioOwnerKey) {
-		messnamed((instance.channelIdx + 1) + "[pl]stop", 1);
+		cancelSequence64AudioForChannel(instance.channelIdx);
+		sendNamedInt((instance.channelIdx + 1) + "[pl]stop", 1);
 		channelState.sequence64Owner = null;
 		if (channelState.activeTrack >= 0) channelState.lastActiveTrack = channelState.activeTrack;
 		channelState.activeTrack = -1;
@@ -3215,35 +3904,45 @@ function runSequence64PhraseStep(instance, flatStep) {
 	var pattern = ensureSequence64Pattern("track", instance.trackIdx);
 	var location = sequence64PatternLocationAtFlat(pattern, flatStep);
 	var step = pattern.bars[location.bar].steps[location.step];
-	var passes = step && editorProbabilityPass(step.probability);
+	var conditionPasses = step && sequence64ConditionPass(step, instance.conditionVisit);
+	var passes = sequence64StepDecisionPass("track", instance.trackIdx,
+		location.bar, location.step, step, instance.conditionVisit);
 	if (passes) {
 		for (var parameter in step.locks) {
 			applySequence64StepLockForTarget("track", instance.trackIdx, parameter,
 				step.locks[parameter], step, instance.trackIdx, instance.ownerKey);
 		}
 	}
-	var shouldTrigger = flatStep === 0 || (passes && step && step.cut);
+	var shouldTrigger = passes && (flatStep === 0 || (step && step.cut));
 	if (shouldTrigger) {
-		var slice = instance.seedSlice;
-		if (passes && step && step.cut) slice = step.cut.slice;
-		if (passes && step && step.locks.slice) slice = step.locks.slice.value;
+		var sliceOffset = 0;
+		if (passes && step && step.cut) sliceOffset = step.cut.slice;
+		if (passes && step && step.locks.slice) sliceOffset = step.locks.slice.value;
+		// Track phrases describe reusable motion around their parent cut. Their
+		// Slice value is therefore an offset, while group-pattern slices remain
+		// absolute. Preview uses the track's current slice as the same root.
+		var slice = (instance.seedSlice +
+			clamp(parseInt(sliceOffset, 10) || 0, 0, 15)) % 16;
 		pulseSequence64RunKey("track", instance.trackIdx);
 		triggerSequence64PhraseAudio(instance, slice);
 	}
 	instance.lastFlat = flatStep;
-	diagnosticEvent("sequence64_phrase_step", {
+	diagnosticEventRateLimited("sequence64_phrase_step", instance.ownerKey, {
 		track: instance.trackIdx + 1,
 		channel: instance.channelIdx + 1,
 		parent: instance.parentTargetKey,
 		owner: instance.ownerKey,
 		step: flatStep + 1,
+		condition: step ? step.condition : 0,
+		conditionVisit: instance.conditionVisit,
+		conditionPassed: conditionPasses ? 1 : 0,
 		passed: passes ? 1 : 0,
 		triggered: shouldTrigger ? 1 : 0
 	});
 	return passes || shouldTrigger ? 1 : 0;
 }
 
-function launchSequence64TrackPhrase(trackIdx, seedSlice, parentTargetKey, audioOwnerKey, preview) {
+function launchSequence64TrackPhrase(trackIdx, seedSlice, parentTargetKey, audioOwnerKey, preview, conditionVisit) {
 	var pattern = ensureSequence64Pattern("track", trackIdx);
 	var rate = sequence64PatternRate(pattern);
 	var channelIdx = trackChannelIndex(trackIdx);
@@ -3258,6 +3957,7 @@ function launchSequence64TrackPhrase(trackIdx, seedSlice, parentTargetKey, audio
 		trackIdx: trackIdx,
 		channelIdx: channelIdx,
 		seedSlice: clamp(parseInt(seedSlice, 10) || 0, 0, 15),
+		conditionVisit: Math.max(1, parseInt(conditionVisit, 10) || 1),
 		startClock: sequence64ClockPosition,
 		lastFlat: -1,
 		totalLength: sequence64PatternTotalLength(pattern),
@@ -3297,11 +3997,29 @@ function advanceSequence64PhraseInstances(instances) {
 	}
 }
 
-function runSequence64StepForTarget(targetType, targetId, pattern, barIndex, stepIndex) {
+function runSequence64StepForTarget(targetType, targetId, pattern, barIndex, stepIndex, absoluteStep) {
 	if (!pattern || !pattern.running) return 0;
 	var bar = pattern.bars[barIndex];
 	var step = bar ? bar.steps[stepIndex] : null;
-	if (!step || (!step.cut && !sequence64StepHasLocks(step)) || !editorProbabilityPass(step.probability)) return 0;
+	var flat = sequence64FlatForLocation(pattern, barIndex, stepIndex);
+	var logicalStep = isFinite(parseInt(absoluteStep, 10)) ? parseInt(absoluteStep, 10) : flat;
+	var conditionVisit = sequence64ConditionVisit(pattern, logicalStep);
+	if (!step || (!step.cut && !sequence64StepHasLocks(step))) return 0;
+	if (!sequence64StepDecisionPass(targetType, targetId, barIndex, stepIndex,
+		step, conditionVisit)) {
+		var decisionOutcome = sequence64DecisionOutcomeAt(targetType, targetId,
+			barIndex, stepIndex);
+		diagnosticEventRateLimited("sequence64_decision_skip",
+			editorTargetKey(targetType, targetId) + ":" + flat, {
+				targetType: targetType,
+				target: targetId + 1,
+				step: flat + 1,
+				condition: step.condition,
+				visit: conditionVisit,
+				outcome: decisionOutcome
+			});
+		return 0;
+	}
 	var trackIdx = sequence64TargetTrackIndex(targetType, targetId, step);
 	for (var parameter in step.locks) {
 		applySequence64StepLockForTarget(targetType, targetId, parameter,
@@ -3318,7 +4036,8 @@ function runSequence64StepForTarget(targetType, targetId, pattern, barIndex, ste
 			pulseSequence64RunKey(targetType, targetId);
 			if (targetType === "group" &&
 				sequence64PatternHasContent(ensureSequence64Pattern("track", trackIdx))) {
-				launchSequence64TrackPhrase(trackIdx, slice, targetKey, targetKey, false);
+				launchSequence64TrackPhrase(trackIdx, slice, targetKey, targetKey, false,
+					conditionVisit);
 			} else {
 				sequence64PlaybackCaptureGuard = {
 					track: trackIdx,
@@ -3365,7 +4084,7 @@ function advanceSequence64ClockSubstep() {
 		for (var logicalStep = lastAbsolute + 1; logicalStep <= absoluteStep; logicalStep++) {
 			playback = sequence64PatternLocationAtFlat(pattern, logicalStep);
 			fired += runSequence64StepForTarget(targetType, targetId, pattern,
-				playback.bar, playback.step);
+				playback.bar, playback.step, logicalStep);
 		}
 		pattern.lastSequencedAbsolute = absoluteStep;
 		if (!playback) playback = sequence64PatternLocationAtFlat(pattern, absoluteStep);
@@ -3377,6 +4096,15 @@ function advanceSequence64ClockSubstep() {
 		}
 	}
 	advanceSequence64PhraseInstances(existingPhraseInstances);
+	if (workspace.active) {
+		var hudPattern = ensureSequence64Pattern(workspace.targetType, workspace.targetId);
+		var hudPlayback = sequence64TargetPlaybackLocation(workspace.targetType,
+			workspace.targetId, hudPattern);
+		publishHud("pattern_playhead", workspace.targetType, workspace.targetId,
+			hudPlayback.bar, hudPlayback.step,
+			sequence64DecisionOutcomeAt(workspace.targetType, workspace.targetId,
+				hudPlayback.bar, hudPlayback.step));
+	}
 	if (editorWorkspaceAvailable() && !workspace.choosing && workspace.view64 === "sequence") {
 		return redrawEditorShellDiff();
 	}
@@ -3541,6 +4269,7 @@ function toggleSequence64Step(stepIndex) {
 	else step.cut = sequence64DefaultCutForStep(stepIndex);
 	outlet(2, "editor_step", workspace.targetType, workspace.targetId + 1,
 		stepIndex + 1, step.cut ? 1 : 0);
+	markSessionDirty("ṛta step");
 	redrawEditorShellDiff();
 }
 
@@ -3562,6 +4291,8 @@ function openSequence64StepEditorAfterHold() {
 	sequence64EditParameter = "slice";
 	outlet(2, "editor_step_editor", 1, sequence64HeldStep + 1);
 	redrawEditorShellDiff();
+	publishHudEditorState();
+	publishHudCurrentPattern();
 	return true;
 }
 
@@ -3585,7 +4316,6 @@ function handleSequence64StepKey(stepIndex, state) {
 				}
 				sequence64HeldStep = stepIndex;
 				sequence64HeldStepChanged = false;
-				sequence64EditParameter = "slice";
 				outlet(2, "editor_step_editor", 1, stepIndex + 1);
 				redrawEditorShellDiff();
 			}
@@ -3612,9 +4342,29 @@ function sequence64SetLockValue(parameter, column) {
 	var pattern = currentSequence64Pattern();
 	if (!pattern || sequence64HeldStep < 0) return;
 	var step = currentSequence64EditBar(pattern).steps[sequence64HeldStep];
+	if (parameter === "transpose") {
+		var pitchLock = ensureSequence64TransposeLock(step);
+		if (column < SEQUENCE64_TRANSPOSE_FIRST_COL) {
+			pitchLock.pitchOctave = clamp(pitchLock.pitchOctave +
+				(column === 0 ? -1 : 1), -8, 8);
+		} else {
+			pitchLock.pitchSemitone = clamp(column - 8,
+				SEQUENCE64_TRANSPOSE_MIN, SEQUENCE64_TRANSPOSE_MAX);
+		}
+		updateSequence64TransposeLock(pitchLock);
+		sequence64HeldStepChanged = true;
+		outlet(2, "editor_lock", workspace.targetType, workspace.targetId + 1,
+			sequence64HeldStep + 1, parameter, sequence64LockValueColumn(parameter, step) + 1,
+			pitchLock.pitchOctave, pitchLock.pitchSemitone, pitchLock.value);
+		markSessionDirty("ṛta lock");
+		redrawEditorShellDiff();
+		return;
+	}
 	sequence64HeldStepChanged = true;
 	if (parameter === "probability") {
 		step.probability = clamp(column, 0, 15);
+	} else if (parameter === "condition") {
+		step.condition = column < 8 ? column + 2 : -(column - 6);
 	} else if (parameter === "gateLength") {
 		if (!step.cut) step.cut = sequence64DefaultCutForStep(sequence64HeldStep);
 		step.cut.gateLength = clamp(column + 1, 1, 16);
@@ -3626,13 +4376,13 @@ function sequence64SetLockValue(parameter, column) {
 	} else {
 		var value = column;
 		if (parameter === "reverse") value = column >= 8 ? 1 : 0;
-		else if (parameter === "octave") value = clamp(column, 0, 6) - 3;
 		else if (parameter === "loopDivision") value = TRACK_SUB_LOOP_OPTIONS[clamp(column, 0, 7)];
 		if (!step.locks[parameter]) step.locks[parameter] = { value: value, behavior: "set" };
 		else step.locks[parameter].value = value;
 	}
 	outlet(2, "editor_lock", workspace.targetType, workspace.targetId + 1,
 		sequence64HeldStep + 1, parameter, sequence64LockValueColumn(parameter, step) + 1);
+	markSessionDirty("ṛta lock");
 	redrawEditorShellDiff();
 }
 
@@ -3641,6 +4391,7 @@ function sequence64ClearSelectedLock() {
 	if (!pattern || sequence64HeldStep < 0) return;
 	var step = currentSequence64EditBar(pattern).steps[sequence64HeldStep];
 	if (sequence64EditParameter === "probability") step.probability = 15;
+	else if (sequence64EditParameter === "condition") step.condition = 0;
 	else if (sequence64EditParameter === "gateLength") {
 		if (step.cut) step.cut.gateLength = 1;
 	} else if (sequence64EditParameter === "track") {
@@ -3648,6 +4399,7 @@ function sequence64ClearSelectedLock() {
 	} else delete step.locks[sequence64EditParameter];
 	sequence64HeldStepChanged = true;
 	outlet(2, "editor_lock_cleared", sequence64HeldStep + 1, sequence64EditParameter);
+	markSessionDirty("ṛta lock");
 	redrawEditorShellDiff();
 }
 
@@ -3667,6 +4419,7 @@ function sequence64SetBehavior(column) {
 	sequence64HeldStepChanged = true;
 	outlet(2, "editor_shape", sequence64HeldStep + 1,
 		sequence64EditParameter, SEQUENCE64_BEHAVIORS[column]);
+	markSessionDirty("ṛta shape");
 	redrawEditorShellDiff();
 }
 
@@ -3680,6 +4433,7 @@ function clearCurrentSequence64Pattern() {
 	sequence64ClearArmedUntil = 0;
 	outlet(2, "editor_steps_cleared", workspace.targetType, workspace.targetId + 1,
 		pattern.currentBar + 1);
+	markSessionDirty("ṛta pattern clear");
 	redrawEditorShellDiff();
 }
 
@@ -3726,6 +4480,7 @@ function addSequence64Bar() {
 		pattern, previous, "bar_add");
 	sequence64RemoveBarArmedUntil = 0;
 	outlet(2, "editor_bar_added", pattern.currentBar + 1, pattern.bars.length);
+	markSessionDirty("ṛta bars");
 	redrawEditorShellDiff();
 	return true;
 }
@@ -3756,6 +4511,7 @@ function setSequence64BarCount(barCount) {
 	if (changed) {
 		reconcileSequence64StructurePosition(workspace.targetType, workspace.targetId,
 			pattern, previous, "bar_count");
+		markSessionDirty("ṛta bars");
 	}
 	sequence64RemoveBarArmedUntil = 0;
 	outlet(2, "editor_bar_count", requested);
@@ -3818,6 +4574,7 @@ function removeCurrentSequence64Bar() {
 		pattern, previous, "bar_remove");
 	sequence64RemoveBarArmedUntil = 0;
 	outlet(2, "editor_bar_removed", removed + 1, pattern.bars.length);
+	markSessionDirty("ṛta bars");
 	redrawEditorShellDiff();
 	return true;
 }
@@ -3848,6 +4605,7 @@ function setCurrentSequence64BarLength(length) {
 	if (changed) {
 		reconcileSequence64StructurePosition(workspace.targetType, workspace.targetId,
 			pattern, previous, "bar_length");
+		markSessionDirty("ṛta length");
 	}
 	outlet(2, "editor_length", pattern.currentBar + 1, requestedLength);
 	redrawEditorShellDiff();
@@ -3880,15 +4638,36 @@ function handleSequence64LengthKey(lengthIndex, state) {
 }
 
 function recordSequence64SetupLock(parameter, value) {
-	if (!sequence64LockRecordHeld) return;
+	if (!sequence64LockRecordHeld) return value;
 	var pattern = currentSequence64Pattern();
-	if (!pattern) return;
+	if (!pattern) return value;
 	var playback = currentSequence64PlaybackLocation(pattern);
 	var stepIndex = playback.step;
 	var step = pattern.bars[playback.bar].steps[stepIndex];
 	if (parameter === "probability") step.probability = clamp(value, 0, 15);
-	else step.locks[parameter] = { value: value, behavior: "set" };
+	else if (parameter === "transpose") {
+		var pitchLock = ensureSequence64TransposeLock(step);
+		pitchLock.pitchSemitone = clamp(parseInt(value, 10) || 0,
+			SEQUENCE64_TRANSPOSE_MIN, SEQUENCE64_TRANSPOSE_MAX);
+		value = updateSequence64TransposeLock(pitchLock);
+	} else step.locks[parameter] = { value: value, behavior: "set" };
 	outlet(2, "editor_lock_recorded", stepIndex + 1, parameter, value);
+	markSessionDirty("ṛta lock record");
+	return value;
+}
+
+function recordSequence64SetupPitchOctave(delta) {
+	if (!sequence64LockRecordHeld) return null;
+	var pattern = currentSequence64Pattern();
+	if (!pattern) return null;
+	var playback = currentSequence64PlaybackLocation(pattern);
+	var step = pattern.bars[playback.bar].steps[playback.step];
+	var pitchLock = ensureSequence64TransposeLock(step);
+	pitchLock.pitchOctave = clamp(pitchLock.pitchOctave + delta, -8, 8);
+	var value = updateSequence64TransposeLock(pitchLock);
+	outlet(2, "editor_lock_recorded", playback.step + 1, "transpose", value);
+	markSessionDirty("ṛta lock record");
+	return value;
 }
 
 function recordSequence64LiveLaneCut(trackIdx, slice) {
@@ -3907,6 +4686,7 @@ function recordSequence64LiveLaneCut(trackIdx, slice) {
 	};
 	outlet(2, "editor_live_cut", workspace.targetType, workspace.targetId + 1,
 		playback.bar + 1, playback.step + 1, trackIdx + 1, slice + 1);
+	markSessionDirty("ṛta live cut");
 	redrawEditorShellDiff();
 	return true;
 }
@@ -3953,9 +4733,17 @@ function handleSequence64SetupKey(col, row, state) {
 			emitSequence64Parameter(workspace.targetType, workspace.targetId,
 				"volume", col, channelIdx, 0);
 		} else setEditorVolume(channelIdx, Math.round(col * 158 / 15), false);
-	} else if (row === 10 && trackState && col < 7) {
-		setEditorOctave(trackIdx, col - 3, false);
-		recordSequence64SetupLock("octave", col - 3);
+	} else if (row === 10 && trackState && col < SEQUENCE64_TRANSPOSE_FIRST_COL) {
+		var octaveDelta = col === 0 ? -1 : 1;
+		var recordedPitch = recordSequence64SetupPitchOctave(octaveDelta);
+		if (recordedPitch === null) {
+			setEditorOctave(trackIdx,
+				(parseInt(trackState.octave, 10) || 0) + octaveDelta, false);
+		} else setEditorTranspose(trackIdx, recordedPitch, false);
+	} else if (row === 10 && trackState) {
+		var transpose = clamp(col - 8, SEQUENCE64_TRANSPOSE_MIN, SEQUENCE64_TRANSPOSE_MAX);
+		transpose = recordSequence64SetupLock("transpose", transpose);
+		setEditorTranspose(trackIdx, transpose, false);
 	} else if (row === 11 && col === 0 && trackState) {
 		setEditorReverse(trackIdx, !trackState.reverse, false);
 		recordSequence64SetupLock("reverse", trackState.reverse);
@@ -4029,8 +4817,26 @@ function jumpSequence64GroupTrackTarget() {
 	return true;
 }
 
+function toggleSequence64SampleBrowser() {
+	var workspace = ensureEditorWorkspaceDefaults();
+	if (!workspace.active) return false;
+	if (sampleBrowserState.active) return sampleBrowserClose();
+	var trackIdx = currentEditorTrackIndex();
+	if (trackIdx < 0) {
+		outlet(2, "editor_waiting_for_track", workspace.targetType, workspace.targetId + 1);
+		publishHud("notice", "warn", "Assign or play a track in this group first");
+		return false;
+	}
+	messnamed("sample_bank", "browserOpen", trackIdx, -1);
+	return true;
+}
+
 function handleSequence64WorkspaceKey(col, row, state) {
 	var workspace = ensureEditorWorkspaceDefaults();
+	if (row === SEQUENCE64_NAV_ROW && col === 12) {
+		if (state === 1) toggleSequence64SampleBrowser();
+		return true;
+	}
 	if (row === SEQUENCE64_NAV_ROW && col === 11) {
 		if (workspace.view64 === "sequence") {
 			sequence64ShiftHeld = state === 1;
@@ -4175,9 +4981,9 @@ function handleSequence64WorkspaceKey(col, row, state) {
 	return true;
 }
 
-function selectEditorTarget(targetType, targetId) {
+function selectEditorTarget(targetType, targetId, forceOpen) {
 	var workspace = ensureEditorWorkspaceDefaults();
-	if (workspace.active && workspace.targetType === targetType && workspace.targetId === targetId) {
+	if (!forceOpen && workspace.active && workspace.targetType === targetType && workspace.targetId === targetId) {
 		clearEditorTarget(true);
 		return;
 	}
@@ -4223,18 +5029,20 @@ function selectEditorTarget(targetType, targetId) {
 	outlet(2, "editor_active", 1);
 	post("[grid_router] editor target " + targetType + " " + (targetId + 1) + "\n");
 	redrawEditorWorkspaceFrame();
+	publishHudEditorState();
+	publishHudCurrentPattern();
 }
 
 function clearEditorTarget(keepChooserOpen) {
 	var workspace = ensureEditorWorkspaceDefaults();
 	var chooserWasOpen = workspace.choosing;
 	resetEditorWorkspaceState(true, false);
-	if (s.editorBrightnessColors && s.autoPageColors && pageColorPresetReady[1]) recallColorPreset(1);
 	if (keepChooserOpen) workspace.choosing = chooserWasOpen;
 	outlet(2, "editor_target", "none", 0);
 	outlet(2, "editor_active", 0);
 	post("[grid_router] editor target cleared\n");
 	redrawEditorWorkspaceFrame();
+	publishHudEditorState();
 }
 
 function exitEditorWorkspace() {
@@ -4320,7 +5128,7 @@ function editorBrightnessColors(enabled) {
 	invalidateEditorColorCache();
 	if (!s.editorBrightnessColors) {
 		resetPageColorQueue();
-		if (s.kmod === 2 && s.autoPageColors && pageColorPresetReady[1]) recallColorPreset(1);
+		if (s.kmod === 2 && s.autoPageColors) applyPageColors(2);
 	}
 	if (s.kmod === 2 && ensureEditorWorkspaceDefaults().active) redrawEditorWorkspaceFrame();
 	post("[grid_router] editor semantic colors " +
@@ -4337,10 +5145,15 @@ function editorColors(enabled) {
  */
 function mechatrellis(enabled) {
 	var active = parseInt(enabled, 10) ? 1 : 0;
+	s.mechaTrellisExtensions = active;
 	outlet(1, "mechatrellis", active);
 	editorBrightnessColors(active);
 	if (active && s.autoPageColors) initializePageColorPresets();
 	else if (!active) resetPageColorQueue();
+	diagnosticEvent("mechatrellis_mode", {
+		enabled: active,
+		editorColors: s.editorBrightnessColors ? 1 : 0
+	});
 	post("[grid_router] MechaTrellis hardware mode " +
 		(active ? "enabled" : "disabled") + "\n");
 }
@@ -4550,28 +5363,105 @@ function postln(msg) {
 	post(msg + "\n");
 }
 
+function displayFrameCellIndex(x, y) {
+	return y * s.gridWidth + x;
+}
+
+/**
+ * Build a complete logical page away from the live Jitter matrix. The bridge
+ * receives the finished foreground/background pair in one replaceframe
+ * message, so neither hardware nor the HUD can observe a cleared half-frame.
+ */
+function beginDisplayFrame() {
+	if (displayFrameActive) {
+		post("[grid_router] nested display frame ignored\n");
+		return false;
+	}
+	displayFrameActive = true;
+	displayFrameForeground = new Array(s.gridWidth * s.gridHeight).fill(0);
+	displayFrameBackground = new Array(s.gridWidth * s.gridHeight).fill(0);
+	return true;
+}
+
+function finishDisplayFrame(commit) {
+	if (!displayFrameActive) return false;
+	var foreground = displayFrameForeground;
+	var background = displayFrameBackground;
+	displayFrameActive = false;
+	displayFrameForeground = null;
+	displayFrameBackground = null;
+	if (!commit) return false;
+	var message = [1, "replaceframe", s.gridWidth, s.gridHeight]
+		.concat(foreground, background);
+	outlet.apply(this, message);
+	return true;
+}
+
+function withSuppressedDisplayWrites(callback) {
+	suppressDisplayWritesDepth++;
+	try {
+		callback();
+	} finally {
+		suppressDisplayWritesDepth--;
+	}
+}
+
+function beginMatrixUpdate() {
+	if (displayFrameActive || suppressDisplayWritesDepth > 0) return false;
+	outlet(1, "beginupdate");
+	return true;
+}
+
+function endMatrixUpdate(opened) {
+	if (opened) outlet(1, "endupdate");
+}
+
 function led(x, y, level) {
+	if (sampleBrowserDrawDepth === 0 && sampleBrowserOwnsLedCell(x, y)) return;
 	if (editorOverlayDrawDepth === 0 && editorOwnsLedCell(x, y)) return;
-	outlet(1, "setcell", x, y, clamp(level | 0, 0, 15));
+	if (suppressDisplayWritesDepth > 0) return;
+	var normalized = clamp(level | 0, 0, 15);
+	if (displayFrameActive) {
+		if (x >= 0 && y >= 0 && x < s.gridWidth && y < s.gridHeight) {
+			displayFrameForeground[displayFrameCellIndex(x, y)] = normalized;
+		}
+		return;
+	}
+	outlet(1, "setcell", x, y, normalized);
 }
 
 function led_bg(x, y, level) {
-	outlet(1, "setcell_bg", x, y, clamp(level | 0, 0, 15));
+	if (sampleBrowserDrawDepth === 0 && sampleBrowserOwnsLedCell(x, y)) return;
+	if (suppressDisplayWritesDepth > 0) return;
+	var normalized = clamp(level | 0, 0, 15);
+	if (displayFrameActive) {
+		if (x >= 0 && y >= 0 && x < s.gridWidth && y < s.gridHeight) {
+			displayFrameBackground[displayFrameCellIndex(x, y)] = normalized;
+		}
+		return;
+	}
+	outlet(1, "setcell_bg", x, y, normalized);
 }
 
 function clear_bg() {
+	if (suppressDisplayWritesDepth > 0) return;
+	if (displayFrameActive) {
+		displayFrameBackground.fill(0);
+		return;
+	}
 	outlet(1, "clear_bg");
 }
 
 function kfping(x, y, level, time = 20) {
+	if (sampleBrowserDrawDepth === 0 && sampleBrowserOwnsLedCell(x, y)) return;
 	if (editorOverlayDrawDepth === 0 && editorOwnsLedCell(x, y)) return;
+	if (displayFrameActive || suppressDisplayWritesDepth > 0) return;
 	outlet(3, "kf", x, y, level, 1, 0, time);
 }
 
 function clear() {
-	post("[grid_router] clear() called — kmod=" + s.kmod + "\n");
-	outlet(1, "clear");
-	messnamed("togridmatrixanim", "clear_anim");
+	post("[grid_router] legacy clear request converted to full redraw — kmod=" + s.kmod + "\n");
+	redraw();
 }
 
 // ─── MechaTrellis private color / 8-bit helpers ────────────────────────
@@ -4677,8 +5567,8 @@ function drainPageColorQueue() {
 		pageColorPresetReady[colorPresetSlot(command[1])] = 1;
 	}
 	if (pageColorQueue.length) {
-		pageColorQueueTask.schedule(pageColorQueue[0][0] === "colormap" ? 1 :
-			PAGE_COLOR_INTERVAL_MS);
+		pageColorQueueTask.schedule(pageColorQueue[0][0] === "colormap" ?
+			PAGE_COLOR_MAP_INTERVAL_MS : PAGE_COLOR_INTERVAL_MS);
 	}
 }
 
@@ -4793,58 +5683,50 @@ function applyGroupsPageColors(palette) {
 	}
 }
 
-function applyGateFxPageColors(palette) {
-	paintColorPaletteRect(palette, 14, 0, 15, 0, PAGE_COLORS.mainClock);
-}
-
 function buildPageColorPalette(page) {
 	var base = PAGE_COLORS.mainBase;
 	if (page === 2) base = PAGE_COLORS.modBase;
 	else if (page === 3) base = PAGE_COLORS.groupsBase;
-	else if (page === 4) base = PAGE_COLORS.gateFxBase;
 	var palette = createColorPalette(base);
 	switch (page) {
 		case 1: applyMainPageColors(palette); break;
 		case 2: applyModPageColors(palette); break;
 		case 3: applyGroupsPageColors(palette); break;
-		case 4: applyGateFxPageColors(palette); break;
 	}
 	return palette;
 }
 
-/** Rebuild and store one page palette in firmware slot page-1. */
+/** Directly upload one complete page palette; no volatile firmware slot involved. */
 function applyPageColors(page) {
 	var requested = parseInt(page, 10);
-	var target = isFinite(requested) ? clamp(requested, 1, 4) : s.kmod;
+	var target = isFinite(requested) ? clamp(requested, 1, 3) : s.kmod;
 	resetPageColorQueue();
-	pageColorPresetReady[target - 1] = 0;
 	queueColorPaletteMaps(buildPageColorPalette(target));
-	queuePageColorCommand("colorpresetstore", target - 1);
 	if (target === 2 && s.kmod === 2) queueCurrentEditorShellColors(true);
 	startPageColorQueue();
 }
 
-/** Upload all four page palettes once, store slots 0-3, then recall this page. */
+/**
+ * Compatibility entry point retained for old patches. Automatic color state is
+ * now stateless: invalidate any remembered firmware slots and send only the
+ * currently visible page (or sample-browser overlay) as paced 4x4 maps.
+ */
 function initializePageColorPresets() {
 	resetPageColorQueue();
 	for (var slot = 0; slot < pageColorPresetReady.length; slot++) {
 		pageColorPresetReady[slot] = 0;
 	}
-	for (var page = 1; page <= 4; page++) {
-		queueColorPaletteMaps(buildPageColorPalette(page));
-		queuePageColorCommand("colorpresetstore", page - 1);
+	if (sampleBrowserState.active) queueSampleBrowserColors();
+	else {
+		queueColorPaletteMaps(buildPageColorPalette(clamp(s.kmod, 1, 3)));
+		if (s.kmod === 2) queueCurrentEditorShellColors(true);
 	}
-	queuePageColorCommand("colorpresetrecall", clamp(s.kmod, 1, 4) - 1);
-	queueCurrentEditorShellColors(true);
 	startPageColorQueue();
 }
 
 function activatePageColors(page) {
-	var target = clamp(parseInt(page, 10) || s.kmod, 1, 4);
-	// A page change during initial upload cancels the remaining stale colors.
-	if (pageColorQueue.length) resetPageColorQueue();
-	if (pageColorPresetReady[target - 1]) recallColorPreset(target - 1);
-	else applyPageColors(target);
+	var target = clamp(parseInt(page, 10) || s.kmod, 1, 3);
+	applyPageColors(target);
 }
 
 function autoPageColors(enabled) {
@@ -5102,9 +5984,273 @@ function timeMsUpdate(ms) {
 	s.timeMs = parsed;
 }
 
+function sessionColorObject() {
+	var result = {};
+	var entries = hudColorRoleEntries();
+	for (var index = 0; index < entries.length; index++) {
+		result[entries[index].name] = entries[index].value.slice();
+	}
+	return result;
+}
+
+function sessionRecordingSnapshot(tracks) {
+	var used = {};
+	var existing = s.sessionRecordings || [];
+	for (var index = 0; index < tracks.length; index++) {
+		var bufferIndex = parseInt(tracks[index].buffer, 10) || 0;
+		// MLR's seven live recording buffers are 1file–7file. Bank buffers begin
+		// at 8file, so ordinary samples are never copied into a session bundle.
+		if (bufferIndex < 1 || bufferIndex > 7) continue;
+		if (!used[bufferIndex]) used[bufferIndex] = [];
+		used[bufferIndex].push(index);
+	}
+	var result = [];
+	for (var buffer = 1; buffer <= 7; buffer++) {
+		if (!used[buffer]) continue;
+		var descriptor = null;
+		for (var saved = 0; saved < existing.length; saved++) {
+			if (String(existing[saved].bufferName || "") === buffer + "file" ||
+				parseInt(existing[saved].bufferIndex, 10) === buffer) {
+				descriptor = JSON.parse(JSON.stringify(existing[saved]));
+				break;
+			}
+		}
+		if (!descriptor) descriptor = {};
+		descriptor.source = "live-recording";
+		descriptor.bufferIndex = buffer;
+		descriptor.bufferName = buffer + "file";
+		descriptor.tracks = used[buffer].slice();
+		result.push(descriptor);
+	}
+	return result;
+}
+
+function sessionRouterSnapshotObject() {
+	var workspace = ensureEditorWorkspaceDefaults();
+	var tracks = [];
+	var groups = [];
+	for (var trackIndex = 0; trackIndex < s.NUM_TRACKS; trackIndex++) {
+		var track = getTrackStateByIndex(trackIndex);
+		tracks.push({
+			id: trackIndex,
+			group: clamp((parseInt(track.channel, 10) || 1) - 1, 0, 7),
+			buffer: parseInt(track.buffer, 10) || 0,
+			length: clamp(parseInt(track.length, 10) || 16, 1, 16),
+			octave: clamp(parseInt(track.octave, 10) || 0, -8, 8),
+			transpose: clamp(parseInt(track.transpose, 10) || 0, -96, 96),
+			speed: parseFloat(track.speed) || 0,
+			speedMode: parseInt(track.speedMode, 10) || 0,
+			reverse: track.reverse ? 1 : 0,
+			randomOffset: track.randomOffset ? 1 : 0,
+			loopStart: track.loopStart,
+			loopEnd: track.loopEnd,
+			loopDivision: track.subLoopDiv,
+			loopActive: track.loopActive ? 1 : 0
+		});
+	}
+	for (var groupIndex = 0; groupIndex < s.NUM_CHANNELS; groupIndex++) {
+		var channel = getChannelStateByIndex(groupIndex);
+		groups.push({ id: groupIndex, volume: channel.volume,
+			muted: channel.muted ? 1 : 0, timestretch: channel.timestretch ? 1 : 0,
+			gateLatch: channel.gateLatch ? 1 : 0 });
+	}
+	return {
+		tracks: tracks,
+		groups: groups,
+		patterns: JSON.parse(JSON.stringify(workspace.patterns64 || {})),
+		targetAutomation: JSON.parse(JSON.stringify(workspace.targetAutomation || {})),
+		automation: JSON.parse(JSON.stringify(s.automation || {})),
+		colors: sessionColorObject(),
+		recordings: sessionRecordingSnapshot(tracks)
+	};
+}
+
+function sessionSnapshot(requestId) {
+	var dictName = "mlr_session_router_fragment";
+	var dict = new Dict(dictName);
+	dict.parse(JSON.stringify(sessionRouterSnapshotObject()));
+	messnamed("mlr_session_fragment", "router_dict", String(requestId || ""), dictName);
+}
+
+function sessionApplyDict(dictName) {
+	try {
+		var dict = new Dict(String(dictName || ""));
+		return sessionApply(dict.stringify());
+	} catch (error) {
+		publishHud("notice", "error", "Could not read session router dictionary");
+		return false;
+	}
+}
+
+function sessionStopAndReset() {
+	var workspace = ensureEditorWorkspaceDefaults();
+	for (var key in workspace.patterns64) {
+		var parts = key.split(":");
+		if (parts.length === 2) {
+			stopSequence64Target(parts[0], parseInt(parts[1], 10), "session_stop", true);
+		}
+	}
+	restoreAllSequence64OwnedProperties();
+	workspace.phraseInstances64 = {};
+	workspace.propertyStacks64 = {};
+	for (var automationKey in workspace.targetAutomation) {
+		if (!workspace.targetAutomation[automationKey]) continue;
+		workspace.targetAutomation[automationKey].playing = 0;
+		workspace.targetAutomation[automationKey].recording = 0;
+	}
+	s.automation.armed = false;
+	s.automation.recording = false;
+	s.automation.playing = false;
+	for (var sequencer = 0; sequencer < s.sequencers.length; sequencer++) {
+		s.sequencers[sequencer].on = 0;
+		s.sequencers[sequencer].phase = 0;
+		sendNamedInt(sequencer + "pp", 0);
+	}
+	for (var channelIndex = 0; channelIndex < s.NUM_CHANNELS; channelIndex++) {
+		cancelSequence64PhraseForChannel(channelIndex, "session_stop", false);
+		cancelSequence64AudioForChannel(channelIndex);
+		var channel = getChannelStateByIndex(channelIndex);
+		channel.sequence64Owner = null;
+		channel.activeTrack = -1;
+		channel.lastActiveTrack = -1;
+		channel.on = 0;
+		clearChannelPlaybackPositions(channelIndex, -1);
+		sendNamedInt((channelIndex + 1) + "[pl]stop", 1);
+	}
+	resetEditorWorkspaceState(true, false);
+	restoreEditorGateFx();
+	publishHudEditorState();
+	return true;
+}
+
+function sessionApplyTrack(trackIndex, source) {
+	var track = getTrackStateByIndex(trackIndex);
+	if (!track || !source) return;
+	var group = clamp(parseInt(source.group, 10) || 0, 0, 7);
+	setEditorTrackGroup(trackIndex, group, false);
+	setEditorOctave(trackIndex, source.octave, false);
+	setEditorTranspose(trackIndex, source.transpose, false);
+	setEditorReverse(trackIndex, source.reverse, false);
+	setEditorRandomOffset(trackIndex, source.randomOffset, false);
+	track.buffer = parseInt(source.buffer, 10) || 0;
+	track.length = clamp(parseInt(source.length, 10) || 16, 1, 16);
+	track.speed = parseFloat(source.speed) || 0;
+	track.speedMode = parseInt(source.speedMode, 10) || 0;
+	track.channel = group + 1;
+	track.loopStart = clamp(parseInt(source.loopStart, 10) || 0, 0, 15);
+	track.loopEnd = clamp(parseInt(source.loopEnd, 10) || 16, 1, 16);
+	track.subLoopDiv = parseInt(source.loopDivision, 10) || 8;
+	track.loopActive = source.loopActive ? 1 : 0;
+	var trackNumber = trackIndex + 2;
+	sendNamedInt(trackNumber + "[sample]select", track.buffer);
+	sendNamedInt(trackNumber + "[box]len", track.length);
+	messnamed("[mlr]ch", "store", trackNumber, track.buffer, track.octave,
+		track.length, track.speed, track.reverse ? 1 : 0, track.speedMode,
+		track.channel, track.randomOffset ? 1 : 0);
+	sendNamedInt(track.channel + "[ch]update", 1);
+	setEditorLoopState(trackIndex, track.loopStart, track.loopEnd, track.loopActive, false);
+	setEditorSubLoopDivision(trackIndex, track.subLoopDiv, false);
+	publishHudTrackState(trackIndex);
+}
+
+function sessionApply(payload) {
+	var source;
+	try { source = JSON.parse(String(payload || "{}")); }
+	catch (error) {
+		publishHud("notice", "error", "Could not parse session state");
+		return false;
+	}
+	sessionStateApplying = true;
+	try {
+		sessionStopAndReset();
+		var recordings = source.recordings || [];
+		for (var recordingIndex = 0; recordingIndex < recordings.length; recordingIndex++) {
+			var recording = recordings[recordingIndex] || {};
+			var recordingBuffer = clamp(parseInt(recording.bufferIndex, 10) || 0, 0, 7);
+			if (recordingBuffer && recording.resolvedPath) {
+				messnamed(recordingBuffer + "load", "replace", String(recording.resolvedPath));
+			}
+		}
+		var groups = source.groups || [];
+		for (var group = 0; group < s.NUM_CHANNELS; group++) {
+			var savedGroup = groups[group] || {};
+			setEditorVolume(group, savedGroup.volume === undefined ? 100 : savedGroup.volume, false);
+			setEditorMute(group, savedGroup.muted, false);
+			setEditorTimestretch(group, savedGroup.timestretch, false);
+			setEditorChannelLatch(group, savedGroup.gateLatch, false);
+		}
+		var tracks = source.tracks || [];
+		for (var track = 0; track < s.NUM_TRACKS; track++) sessionApplyTrack(track, tracks[track] || {});
+		var workspace = ensureEditorWorkspaceDefaults();
+		var rta = source.rta || source;
+		workspace.patterns64 = JSON.parse(JSON.stringify(rta.patterns || source.patterns || {}));
+		workspace.targetAutomation = JSON.parse(JSON.stringify(rta.targetAutomation || source.targetAutomation || {}));
+		workspace.parameterValues64 = {};
+		workspace.startSnapshots64 = {};
+		workspace.propertyStacks64 = {};
+		workspace.phraseInstances64 = {};
+		for (var patternKey in workspace.patterns64) {
+			if (!workspace.patterns64[patternKey]) continue;
+			workspace.patterns64[patternKey].running = 0;
+			workspace.patterns64[patternKey].phaseOrigin = 0;
+			workspace.patterns64[patternKey].lastSequencedFlat = -1;
+			workspace.patterns64[patternKey].lastSequencedAbsolute = -1;
+			workspace.patterns64[patternKey].restartArmed = 0;
+		}
+		s.automation = JSON.parse(JSON.stringify(source.automation || {}));
+		s.automation.armed = false;
+		s.automation.recording = false;
+		s.automation.playing = false;
+		s.automation.tick = 0;
+		s.automation.startTick = 0;
+		s.automation.playHead = 0;
+		var colors = source.colors || {};
+		for (var colorName in colors) {
+			var rgb = colors[colorName];
+			if (rgb && rgb.length >= 3) hudColorRole(colorName, rgb[0], rgb[1], rgb[2]);
+		}
+		s.sessionRecordings = source.recordings || [];
+	} finally {
+		sessionStateApplying = false;
+	}
+	renderCompletePage(s.kmod, true);
+	hudSnapshot();
+	return true;
+}
+
+function sessionNew() {
+	var tracks = [];
+	var groups = [];
+	for (var track = 0; track < s.NUM_TRACKS; track++) {
+		tracks.push({ group: 7, buffer: 0, length: 16, octave: 0, transpose: 0,
+			speed: 0, speedMode: 0, reverse: 0, randomOffset: 0,
+			loopStart: 0, loopEnd: 16, loopDivision: 8, loopActive: 0 });
+	}
+	for (var group = 0; group < s.NUM_CHANNELS; group++) {
+		groups.push({ volume: 100, muted: 0, timestretch: 0, gateLatch: 0 });
+	}
+	sessionApply(JSON.stringify({ tracks: tracks, groups: groups,
+		rta: { patterns: {}, targetAutomation: {} },
+		automation: { events: [], length: 128, looping: false } }));
+	sessionStateApplying = true;
+	hudColorReset("all");
+	sessionStateApplying = false;
+	return true;
+}
+
 // ─── Entry Points ───────────────────────────────────────────────────────
 
 function loadbang() {
+	// This project is one logical 16x16 surface. It may be backed by one physical
+	// 256 or split by grid_composite_2x128, but the router/matrix/HUD must never
+	// inherit a stale 16x8 edition from Max's persistent Global state.
+	s.edition = 256;
+	s.gridWidth = 16;
+	s.gridHeight = 16;
+	s.dual128Mode = 0;
+	outlet(1, "edition", 256);
+	outlet(1, "dual128", 0);
+	messnamed("togridmatrixanim", "edition", 256);
 	post("[grid_router] ready — kmod=" + s.kmod + " edition=" + s.edition + "\n");
 	diagnosticEvent("router_loaded", {
 		edition: s.edition,
@@ -5113,6 +6259,7 @@ function loadbang() {
 		layout: ensureEditorWorkspaceDefaults().layoutMode
 	});
 	post("[grid_router] diagnostic logging on — " + DIAGNOSTIC_LOG_PATH + "\n");
+	initialDisplayFrameTask.schedule(150);
 	initialPageColorTask.schedule(750);
 }
 
@@ -5159,7 +6306,7 @@ function key() {
 // ─── kmod ───────────────────────────────────────────────────────────────
 
 const sequpdate = function (idx, on) {
-	messnamed(idx + "pp", on);
+	sendNamedInt(idx + "pp", on);
 	s.sequencers[idx].on = on ? 1 : 0;
 	if (!on) {
 		s.sequencers[idx].phase = 0;
@@ -5170,9 +6317,14 @@ const sequpdate = function (idx, on) {
 s.sequpdate = sequpdate;
 
 function setKmod(val) {
-	if (val !== s.kmod) {
+	var normalized = parseInt(val, 10);
+	if (!isFinite(normalized)) return;
+	// Retired mode 4 is mapped to Main so old presets cannot open a blank page.
+	if (normalized === 4) normalized = 1;
+	if (normalized < 1 || normalized > 3) return;
+	if (normalized !== s.kmod) {
 		var prev = s.kmod;
-		s.kmod = val;
+		s.kmod = normalized;
 		onKmodChange(prev, s.kmod);
 	}
 }
@@ -5182,12 +6334,273 @@ function drawPage(page) {
 		case 1: drawMainPage(); break;
 		case 2: drawModPage(); break;
 		case 3: drawGroupsPage(); break;
-		case 4: drawGateFxPage(); break;
 	}
+}
+
+function drawModeIndicator(page) {
+	if (page === 2) led(15, 0, 15);
+	else if (page === 3) led(14, 0, 10);
+}
+
+function publishSampleBrowserState() {
+	publishHud("sample_browser", sampleBrowserState.active ? 1 : 0,
+		sampleBrowserState.selectedTrack, sampleBrowserState.selectedSample,
+		sampleBrowserState.page);
+}
+
+function sampleBrowserPageCount() {
+	return Math.max(1, Math.ceil(sampleBrowserState.count / SAMPLE_BROWSER_PAGE_SIZE));
+}
+
+function setSampleBrowserPage(page) {
+	var next = clamp(parseInt(page, 10) || 0, 0, sampleBrowserPageCount() - 1);
+	if (next === sampleBrowserState.page) return false;
+	sampleBrowserState.page = next;
+	applySampleBrowserColors();
+	renderSampleBrowserFrame(false);
+	publishSampleBrowserState();
+	return true;
+}
+
+function sampleBrowserReset(count) {
+	sampleBrowserExitHoldTask.cancel();
+	sampleBrowserState.active = false;
+	sampleBrowserState.count = clamp(parseInt(count, 10) || 0, 0, SAMPLE_BROWSER_LIMIT);
+	sampleBrowserState.page = 0;
+	sampleBrowserState.colors = new Array(SAMPLE_BROWSER_LIMIT).fill(null);
+	sampleBrowserState.assignments = new Array(16).fill(-1);
+	sampleBrowserState.exitTrack = -1;
+}
+
+function sampleBrowserColor(index, red, green, blue) {
+	var sample = parseInt(index, 10);
+	if (!isFinite(sample) || sample < 0 || sample >= SAMPLE_BROWSER_LIMIT) return;
+	sampleBrowserState.colors[sample] = [clamp8(red), clamp8(green), clamp8(blue)];
+}
+
+function sampleBrowserAssignment(track, sample) {
+	var trackIdx = parseInt(track, 10);
+	var sampleIdx = parseInt(sample, 10);
+	if (!isFinite(trackIdx) || trackIdx < 0 || trackIdx >= 16) return;
+	sampleBrowserState.assignments[trackIdx] = isFinite(sampleIdx) && sampleIdx >= 0 &&
+		sampleIdx < sampleBrowserState.count ? sampleIdx : -1;
+	if (sampleBrowserState.active) renderSampleBrowserFrame(false);
+}
+
+function buildSampleBrowserPalette() {
+	// Preserve the real page/editor palette below the split while replacing only
+	// the top eight rows with browser semantics.
+	var palette = buildPageColorPalette(clamp(s.kmod, 1, 3));
+	for (var clearY = 0; clearY <= SAMPLE_BROWSER_TOP_LAST_ROW; clearY++) {
+		paintColorPaletteRect(palette, 0, clearY, 15, clearY, SEQUENCE64_COLORS.unavailable);
+	}
+	for (var track = 0; track < 16; track++) {
+		palette[track] = GROUP_COLORS[clamp(trackChannelIndex(track), 0, GROUP_COLORS.length - 1)];
+	}
+	var firstSample = sampleBrowserState.page * SAMPLE_BROWSER_PAGE_SIZE;
+	for (var slot = 0; slot < SAMPLE_BROWSER_PAGE_SIZE; slot++) {
+		var sample = firstSample + slot;
+		if (sample >= sampleBrowserState.count) break;
+		palette[(Math.floor(slot / 16) + SAMPLE_BROWSER_SAMPLE_FIRST_ROW) * 16 + (slot % 16)] =
+			sampleBrowserState.colors[sample] || SEQUENCE64_COLORS.unavailable;
+	}
+	palette[SAMPLE_BROWSER_FOOTER_ROW * 16] = SEQUENCE64_COLORS.sequence;
+	palette[SAMPLE_BROWSER_FOOTER_ROW * 16 + 1] = SEQUENCE64_COLORS.sequence;
+	for (var page = 0; page < sampleBrowserPageCount(); page++) {
+		palette[SAMPLE_BROWSER_FOOTER_ROW * 16 + 4 + page] = SEQUENCE64_COLORS.sampleBrowser;
+	}
+	palette[SAMPLE_BROWSER_FOOTER_ROW * 16 + 15] = SEQUENCE64_COLORS.exit;
+	return palette;
+}
+
+function queueSampleBrowserColors() {
+	queueColorPaletteMaps(buildSampleBrowserPalette());
+	queueCurrentEditorShellColors(true);
+}
+
+function applySampleBrowserColors() {
+	if (!s.autoPageColors) return;
+	resetPageColorQueue();
+	queueSampleBrowserColors();
+	startPageColorQueue();
+}
+
+function renderSampleBrowserFrame(refreshColors) {
+	if (!sampleBrowserState.active) return false;
+	messnamed("togridmatrixanim", "clear_anim");
+	if (refreshColors) applySampleBrowserColors();
+	if (!beginDisplayFrame()) return false;
+	var complete = false;
+	try {
+		// The ordinary page renderer owns the lower half. Browser ownership blocks
+		// its top-half writes, preventing clock/playback callbacks from painting
+		// through the sample overlay after this frame commits.
+		drawModeIndicator(s.kmod);
+		drawPage(s.kmod);
+		withSampleBrowserOverlayDraw(function () {
+			for (var track = 0; track < 16; track++) {
+				led(track, 0, track === sampleBrowserState.selectedTrack ? 15 : 6);
+			}
+			var assigned = sampleBrowserState.assignments[sampleBrowserState.selectedTrack];
+			var firstSample = sampleBrowserState.page * SAMPLE_BROWSER_PAGE_SIZE;
+			for (var slot = 0; slot < SAMPLE_BROWSER_PAGE_SIZE; slot++) {
+				var sample = firstSample + slot;
+				if (sample >= sampleBrowserState.count) break;
+				var level = sample === assigned ? 10 : 4;
+				if (sample === sampleBrowserState.selectedSample) level = 15;
+				led(slot % 16, Math.floor(slot / 16) + SAMPLE_BROWSER_SAMPLE_FIRST_ROW, level);
+			}
+			var pageCount = sampleBrowserPageCount();
+			led(0, SAMPLE_BROWSER_FOOTER_ROW, sampleBrowserState.page > 0 ? 7 : 2);
+			led(1, SAMPLE_BROWSER_FOOTER_ROW,
+				sampleBrowserState.page < pageCount - 1 ? 7 : 2);
+			for (var page = 0; page < pageCount; page++) {
+				led(4 + page, SAMPLE_BROWSER_FOOTER_ROW,
+					page === sampleBrowserState.page ? 15 : 4);
+			}
+			led(15, SAMPLE_BROWSER_FOOTER_ROW, 6);
+		});
+		complete = true;
+	} finally {
+		finishDisplayFrame(complete);
+	}
+	return complete;
+}
+
+function sampleBrowserOpen(track, sample) {
+	if (!sampleBrowserState.count) {
+		publishHud("notice", "warn", "Load or scan a sample bank first");
+		return false;
+	}
+	sampleBrowserState.selectedTrack = clamp(parseInt(track, 10) || 0, 0, 15);
+	var requestedSample = parseInt(sample, 10);
+	sampleBrowserState.selectedSample = isFinite(requestedSample) && requestedSample >= 0 ?
+		clamp(requestedSample, 0, sampleBrowserState.count - 1) : -1;
+	sampleBrowserState.page = sampleBrowserState.selectedSample >= 0 ?
+		Math.floor(sampleBrowserState.selectedSample / SAMPLE_BROWSER_PAGE_SIZE) : 0;
+	resetModRandomizeGesture();
+	sampleBrowserState.active = true;
+	sampleBrowserState.exitTrack = -1;
+	applySampleBrowserColors();
+	renderSampleBrowserFrame(false);
+	publishSampleBrowserState();
+	publishHud("notice", "info", "Sample grid above, ṛta below: tap to assign immediately");
+	return true;
+}
+
+function sampleBrowserClose() {
+	if (!sampleBrowserState.active) return false;
+	sampleBrowserExitHoldTask.cancel();
+	sampleBrowserState.active = false;
+	sampleBrowserState.exitTrack = -1;
+	renderCompletePage(s.kmod, false);
+	publishSampleBrowserState();
+	publishHud("notice", "info", "Sample grid closed");
+	return true;
+}
+
+function commitSampleBrowserExitHold() {
+	if (sampleBrowserState.active &&
+		sampleBrowserState.exitTrack === sampleBrowserState.selectedTrack) sampleBrowserClose();
+}
+
+function dispatchSampleBrowser(col, row, state) {
+	if (!sampleBrowserState.active) return false;
+	if (row > SAMPLE_BROWSER_TOP_LAST_ROW) return false;
+	if (row === 0) {
+		if (state) {
+			if (col === sampleBrowserState.selectedTrack) {
+				sampleBrowserState.exitTrack = col;
+				sampleBrowserExitHoldTask.cancel();
+				sampleBrowserExitHoldTask.schedule(SAMPLE_BROWSER_EXIT_HOLD_MS);
+			} else {
+				sampleBrowserExitHoldTask.cancel();
+				sampleBrowserState.exitTrack = -1;
+				sampleBrowserState.selectedTrack = col;
+				publishHud("browser_selection", col, -1);
+				renderSampleBrowserFrame(false);
+				publishSampleBrowserState();
+			}
+		} else if (sampleBrowserState.exitTrack === col) {
+			sampleBrowserExitHoldTask.cancel();
+			sampleBrowserState.exitTrack = -1;
+		}
+		return true;
+	}
+	if (row === SAMPLE_BROWSER_FOOTER_ROW) {
+		if (!state) return true;
+		if (col === 0) setSampleBrowserPage(sampleBrowserState.page - 1);
+		else if (col === 1) setSampleBrowserPage(sampleBrowserState.page + 1);
+		else if (col >= 4 && col < 4 + sampleBrowserPageCount()) {
+			setSampleBrowserPage(col - 4);
+		} else if (col === 15) sampleBrowserClose();
+		return true;
+	}
+	if (!state) return true;
+	var sample = sampleBrowserState.page * SAMPLE_BROWSER_PAGE_SIZE +
+		(row - SAMPLE_BROWSER_SAMPLE_FIRST_ROW) * 16 + col;
+	if (sample < 0 || sample >= sampleBrowserState.count) return true;
+	sampleBrowserState.selectedSample = sample;
+	sampleBrowserState.assignments[sampleBrowserState.selectedTrack] = sample;
+	messnamed("sample_bank", "assign", sampleBrowserState.selectedTrack, sample);
+	renderSampleBrowserFrame(false);
+	publishSampleBrowserState();
+	return true;
+}
+
+/**
+ * Synchronize legacy control state, render a complete router-owned page into
+ * scratch arrays, then atomically swap it into the matrix bridge. Legacy Max
+ * patchers still receive kmod, but their callback-time LED writes are ignored;
+ * the renderer below is the only display authority for the committed frame.
+ */
+function renderCompletePage(page, synchronizeLegacyState, skipColorRefresh) {
+	var target = clamp(parseInt(page, 10) || 1, 1, 3);
+	if (sampleBrowserState.active) return renderSampleBrowserFrame(false);
+	messnamed("togridmatrixanim", "clear_anim");
+	if (synchronizeLegacyState) {
+		withSuppressedDisplayWrites(function () {
+			messnamed("kmod", "int", target);
+		});
+	}
+	// Retire stale editor-overlay commands before the complete page palette is
+	// queued. Doing this afterward also removed the new lower-half base maps,
+	// leaving old ṛta colors visible when no editor target was active.
+	if (s.editorBrightnessColors) {
+		clearQueuedEditorShellColors();
+		invalidateEditorColorCache();
+	}
+	if (s.autoPageColors && !skipColorRefresh) activatePageColors(target);
+	if (!beginDisplayFrame()) return false;
+	var complete = false;
+	try {
+		drawModeIndicator(target);
+		drawPage(target);
+		complete = true;
+	} finally {
+		finishDisplayFrame(complete);
+	}
+	if (complete) {
+		diagnosticEvent("display_frame_commit", {
+			page: target,
+			width: s.gridWidth,
+			height: s.gridHeight,
+			legacySync: synchronizeLegacyState ? 1 : 0
+		});
+	}
+	return complete;
 }
 
 function onKmodChange(prev, next) {
 	post("[grid_router] kmod " + prev + " -> " + next + " (tick=" + s.automation.tick + ")\n");
+	diagnosticEvent("kmod_change", { previous: prev, next: next });
+	if (sampleBrowserState.active) {
+		sampleBrowserExitHoldTask.cancel();
+		sampleBrowserState.active = false;
+		sampleBrowserState.exitTrack = -1;
+		publishSampleBrowserState();
+	}
+	resetModRandomizeGesture();
 	resetHeldLoopCols();
 	if (sequence64LayoutEnabled()) {
 		var workspace = ensureEditorWorkspaceDefaults();
@@ -5202,46 +6615,18 @@ function onKmodChange(prev, next) {
 		sequence64StepHoldTask.cancel();
 		sequence64LengthHoldTask.cancel();
 		sequence64BarHoldTask.cancel();
+		sequence64RunShortcutHoldTask.cancel();
+		sequence64PendingRunShortcut = null;
 		if (sequence64LiveRecordHeld || sequence64LiveRecordTake) {
 			releaseSequence64LiveRecording(true);
 		}
 		sequence64LockRecordHeld = false;
 	} else if (next !== 2) resetEditorWorkspaceState(true);
 
-	// 1. Broadcast kmod FIRST (synchronous via messnamed) so all downstream
-	//    patches settle their gates/switches before we draw.
-	messnamed("kmod", s.kmod);
-
-	// 2. Clear animations (synchronous — empties anim queue immediately so
-	//    no pending tick() can overwrite our draws).
-	messnamed("togridmatrixanim", "clear_anim");
-
-	// 3. Replace the page as one bridge transaction. The bridge suppresses its
-	//    periodic flush until endframe, so no intermediate blank frame escapes.
-	outlet(1, "beginframe");
-	try {
-		if (s.autoPageColors) activatePageColors(next);
-		if (s.editorBrightnessColors) {
-			clearQueuedEditorShellColors();
-			invalidateEditorColorCache();
-		}
-
-		// Kmod page indicators: [col, brightness]
-		var kmodIndicators = [
-			[15, 0],   // kmod 1 - no indicator
-			[15, 15],  // kmod 2 - mod overlay
-			[14, 10],  // kmod 3 - group/channel assign overlay
-			[14, 15]   // kmod 4 - reserved overlay
-		];
-
-		if (next >= 1 && next <= kmodIndicators.length) {
-			led(kmodIndicators[next - 1][0], 0, kmodIndicators[next - 1][1]);
-		}
-
-		drawPage(next);
-	} finally {
-		outlet(1, "endframe");
-	}
+	renderCompletePage(next, true);
+	publishHud("mode", s.kmod);
+	publishHudEditorState();
+	publishHudCurrentPattern();
 }
 
 // ─── Main Dispatch ──────────────────────────────────────────────────────
@@ -5251,6 +6636,12 @@ function dispatch(col, row, state) {
 	col = clamp(col, 0, s.gridWidth - 1);
 	row = clamp(row, 0, s.gridHeight - 1);
 	state = state ? 1 : 0;
+	// The browser is a modal performance overlay. Legacy grid automation was
+	// recorded against Main/Mod controls and must not be reinterpreted as sample
+	// audition or assignment gestures while the overlay is visible.
+	if (sampleBrowserState.active && playbackDispatching &&
+		row <= SAMPLE_BROWSER_TOP_LAST_ROW) return;
+	if (dispatchSampleBrowser(col, row, state)) return;
 
 	if (s.kmod === 1 && row > 0 && state === 1) {
 		var manualDetails = diagnosticTrackSnapshot(row - 1, col);
@@ -5264,10 +6655,30 @@ function dispatch(col, row, state) {
 		else releaseSequence64LiveRecording(false);
 		led(EDITOR_BUTTON_COL, 0, sequence64LiveRecordHeld ? 15 : 6);
 		outlet(2, "editor_live_record", sequence64LiveRecordHeld ? 1 : 0);
+		publishHudEditorState();
 		return;
 	}
 
-	if (handleEditorWorkspaceKey(col, row, state)) return;
+	// A hold may open the lower-half editor over a track shortcut before that
+	// button is released. Finish the gesture before editor ownership can consume
+	// the release, otherwise tracks 8-15 would leave a stale pending hold.
+	if (state === 0 && s.kmod === 2 && sequence64PendingRunShortcut) {
+		var pendingRunCoordinates = sequence64RunShortcutCoordinates(
+			sequence64PendingRunShortcut.targetType,
+			sequence64PendingRunShortcut.targetId);
+		if (pendingRunCoordinates && pendingRunCoordinates.x === col &&
+			pendingRunCoordinates.y === row) {
+			handleSequence64RunShortcutKey(
+				sequence64PendingRunShortcut.targetType,
+				sequence64PendingRunShortcut.targetId, state);
+			return;
+		}
+	}
+
+	if (handleEditorWorkspaceKey(col, row, state)) {
+		publishHudAfterGridAction(state, col, row);
+		return;
+	}
 
 	if (shouldRecordAutomationEvent(col, row, state)) {
 		recordEvent(col, row, state);
@@ -5275,6 +6686,7 @@ function dispatch(col, row, state) {
 
 	if (row === 0) {
 		handleRow0(col, state);
+		publishHudAfterGridAction(state, col, row);
 		return;
 	}
 
@@ -5282,8 +6694,8 @@ function dispatch(col, row, state) {
 		case 1: handleNormalMode(col, row, state); break;
 		case 2: handleModPage(col, row, state); break;
 		case 3: handleGroupsPage(col, row, state); break;
-		case 4: handleStepSeqPage(col, row, state); break;
 	}
+	publishHudAfterGridAction(state, col, row);
 }
 
 // ─── Row 0 (top row) ───────────────────────────────────────────────────
@@ -5297,11 +6709,11 @@ function handleRow0(col, state) {
 		if (s.kmod === 1) handlePatternRecorder(col - 8);
 		// In kmod 2, col 8 row 0 = randomize all (handled below).
 		if (s.kmod === 2 && col === 8) {
-			messnamed("[ch]randomfun", 1);
+			sendNamedInt("[ch]randomfun", 1);
 			kfping(8, 0, 6);
 		}
 	} else if (col === 14) {
-		setKmod(s.kmod !== 3 ? 3 : 4); // groups page toggle
+		setKmod(s.kmod === 3 ? 1 : 3); // groups page toggles directly with Main
 	} else if (col === 15) {
 		setKmod(s.kmod !== 1 ? 1 : 2); // mod page toggle
 	}
@@ -5312,8 +6724,10 @@ function handleRow0Channel(col) {
 	if (s.kmod === 1) {
 		diagnosticEvent("channel_stop", { channel: ch });
 		cancelSequence64PhraseForChannel(col, "manual_stop", false);
+		cancelSequence64AudioForChannel(col);
 		getChannelStateByIndex(col).sequence64Owner = null;
-		messnamed(ch + "[pl]stop", 1);
+		clearChannelPlaybackPositions(col, -1);
+		sendNamedInt(ch + "[pl]stop", 1);
 		outlet(0, col, 0, 1);
 	} else if (s.kmod === 2) {
 		handleModMute(col);
@@ -5327,13 +6741,13 @@ function handlePatternRecorder(idx) {
 		s.sequencers[idx].on = 0;
 		s.sequencers[idx].phase = 0;
 		led(idx + 8, 0, 0);
-		messnamed(idx + "pp", 0);
+		sendNamedInt(idx + "pp", 0);
 		drawSequencerLed(idx);
 		outlet(2, "pattern", idx, 0, "off");
 	} else {
 		s.sequencers[idx].on = 1;
 		s.sequencers[idx].phase = 0;
-		messnamed(idx + "pp", 1);
+		sendNamedInt(idx + "pp", 1);
 		drawSequencerLed(idx);
 		outlet(2, "pattern", idx, 1, "on");
 	}
@@ -5352,8 +6766,10 @@ function chUpdateCollEvent(ch, fileindex, oct, length, speed, reverse, speed2, g
 	if (trackIdx < 0 || trackIdx >= s.NUM_TRACKS || !s.tracks[trackIdx]) return;
 
 	s.tracks[trackIdx].buffer = fileindex;
-	s.tracks[trackIdx].octave = oct;
+	s.tracks[trackIdx].octave = clamp(parseInt(oct, 10) || 0, -8, 8);
 	s.tracks[trackIdx].length = clamp(parseInt(length, 10) || 16, 1, 16);
+	s.tracks[trackIdx].speed = parseFloat(speed) || 0;
+	s.tracks[trackIdx].speedMode = parseInt(speed2, 10) || 0;
 	s.tracks[trackIdx].reverse = reverse;
 	s.tracks[trackIdx].channel = group;
 	s.tracks[trackIdx].randomOffset = randomOffset;
@@ -5367,7 +6783,7 @@ function chUpdateCollEvent(ch, fileindex, oct, length, speed, reverse, speed2, g
 		clearLoopVisualForTrackIndex(trackIdx, true);
 	}
 
-	messnamed(group + "[ch]update", 1);
+	sendNamedInt(group + "[ch]update", 1);
 	var channelState = getChannelStateByIndex(clamp((parseInt(group, 10) || 1) - 1, 0, s.NUM_CHANNELS - 1));
 	if (channelState && channelState.gateLatch && channelState.activeTrack === trackIdx) {
 		reapplyTrackSubLoopAfterTrigger(trackIdx);
@@ -5380,6 +6796,10 @@ function chUpdateCollEvent(ch, fileindex, oct, length, speed, reverse, speed2, g
 		refreshActiveEditorShell();
 	}
 	if (s.kmod === 3) drawGroupsPage();
+	publishHudTrackState(trackIdx);
+	publishHudChannelState(clamp((parseInt(group, 10) || 1) - 1,
+		0, s.NUM_CHANNELS - 1));
+	markSessionDirty("track");
 }
 
 function chGroup(ch, grp) {
@@ -5394,6 +6814,9 @@ function chGroup(ch, grp) {
 		drawGroupsPage();
 	}
 	refreshActiveEditorShell();
+	publishHudTrackState(ch - 2);
+	publishHudChannelState(clamp((parseInt(grp, 10) || 1) - 1,
+		0, s.NUM_CHANNELS - 1));
 }
 
 function captureSequence64RowPosition(trackIdx, pos) {
@@ -5443,13 +6866,20 @@ function chRowPos(row, pos) {
 	var trackState = getTrackStateByIndex(trackIdx);
 	if (trackState) {
 		trackState.playPos = normalizedPosition;
-		var positionChannel = getChannelStateByIndex(trackChannelIndex(trackIdx));
+		var positionChannelIdx = trackChannelIndex(trackIdx);
+		var positionChannel = getChannelStateByIndex(positionChannelIdx);
 		positionChannel.activeTrack = trackIdx;
+		// Playback telemetry is the authoritative persistent playhead. Sequencer
+		// and live-lane trigger flashes are foreground hints only; without this
+		// update their primed slice can remain visible while groove~ moves on.
+		clearChannelPlaybackPositions(positionChannelIdx, trackIdx);
+		primeTrackPlaybackPosition(trackIdx, normalizedPosition);
 		// chRowPos is playback telemetry and may arrive continuously while a
 		// sample plays. It cannot by itself distinguish a manual cut from normal
 		// motion, so it must never cancel the phrase that produced it. Explicit
 		// manual grid/live-lane trigger paths perform that cancellation directly.
-		diagnosticEvent("playback_position", diagnosticTrackSnapshot(trackIdx, normalizedPosition));
+		diagnosticEventRateLimited("playback_position", trackIdx,
+			diagnosticTrackSnapshot(trackIdx, normalizedPosition));
 	}
 	captureSequence64RowPosition(trackIdx, pos);
 
@@ -5480,6 +6910,10 @@ function chRowPos(row, pos) {
 			refreshActiveEditorShell();
 		}
 	}
+	if (trackState) {
+		publishHudTrackState(trackIdx);
+		publishHudChannelState(trackChannelIndex(trackIdx));
+	}
 }
 
 // ─── Normal Mode (kmod 1) ──────────────────────────────────────────────
@@ -5495,6 +6929,7 @@ function handleNormalMode(col, row, state) {
 			var channelState = getChannelStateByIndex(trackChannelIndex(trackIdx));
 			cancelSequence64PhraseForChannel(trackChannelIndex(trackIdx),
 				"manual_cut", false);
+			cancelSequence64AudioForChannel(trackChannelIndex(trackIdx));
 			channelState.activeTrack = trackIdx;
 			channelState.sequence64Owner = null;
 		}
@@ -5568,12 +7003,24 @@ function handleTimestretchToggle(col) {
 	if (s.kmod !== 2) return;
 	var ch = col + 1;
 	s.channels[col].timestretch = 1 - s.channels[col].timestretch;
-	messnamed(ch + "[ch]timestretch", s.channels[col].timestretch ? 1 : 0);
+	sendNamedInt(ch + "[ch]timestretch", s.channels[col].timestretch ? 1 : 0);
 	led(col, 3, s.channels[col].timestretch ? 15 : 0);
 	refreshActiveEditorShell();
 }
 
 function handleModPage(col, row, state) {
+	if (col < 8 && row === 4) {
+		handleSequence64RunShortcutKey("group", col, state);
+		return;
+	}
+	if (col === 11 && row >= 1) {
+		handleSequence64RunShortcutKey("track", row - 1, state);
+		return;
+	}
+	if (col === 8 && row >= 1) {
+		handleModRandomizeGesture(row, state);
+		return;
+	}
 	if (state !== 1) return;
 
 	if (col < 8) {
@@ -5583,17 +7030,11 @@ function handleModPage(col, row, state) {
 			handleModVolume(col, row);
 		} else if (row === 3) {
 			handleTimestretchToggle(col);
-		} else if (row === 4) {
-			handleSequence64GroupRunToggle(col);
 		}
-	} else if (col === 8) {
-		handleModRandomize(row);
 	} else if (col === 9) {
 		handleAutomationControl(row);
 	} else if (col === 10 && row >= 1 && row <= 5) {
 		handleQuantize(row);
-	} else if (col === 11 && row >= 1) {
-		handleSequence64TrackRunToggle(row);
 	} else if (col === 12 && row >= 1) {
 		handleModRandomOffset(row);
 	} else if (col === 13 && row >= 1) {
@@ -5605,11 +7046,51 @@ function handleModPage(col, row, state) {
 	}
 }
 
+function resetModRandomizeGesture() {
+	modRandomizeHoldTask.cancel();
+	modRandomizePendingRow = -1;
+	modRandomizeHoldCommitted = false;
+}
+
+function commitModRandomizeHold() {
+	if (s.kmod !== 2 || modRandomizePendingRow < 1) return;
+	modRandomizeHoldCommitted = true;
+	// Record the resolved long-press action, not the initial touch. Playback of
+	// that stored event takes the immediate path below and never waits for a
+	// release event that the legacy automation recorder does not store.
+	if (!playbackDispatching && (s.automation.armed || s.automation.recording)) {
+		recordEvent(8, modRandomizePendingRow, 1);
+	}
+	handleModRandomize(modRandomizePendingRow);
+}
+
+function handleModRandomizeGesture(row, state) {
+	if (s.kmod !== 2 || row < 1 || row >= s.gridHeight) return;
+	if (playbackDispatching) {
+		if (state) handleModRandomize(row);
+		return;
+	}
+	if (state) {
+		modRandomizeHoldTask.cancel();
+		modRandomizePendingRow = row;
+		modRandomizeHoldCommitted = false;
+		modRandomizeHoldTask.schedule(MOD_RANDOMIZE_HOLD_MS);
+		return;
+	}
+	if (modRandomizePendingRow !== row) return;
+	modRandomizeHoldTask.cancel();
+	if (!modRandomizeHoldCommitted) {
+		messnamed("sample_bank", "browserOpen", row - 1, -1);
+	}
+	modRandomizePendingRow = -1;
+	modRandomizeHoldCommitted = false;
+}
+
 /** Col 8 mod page: row 0 = randomize all channels; rows 1+ = per-track only. */
 function handleModRandomize(row) {
 	if (s.kmod !== 2) return;
 	if (row === 0) {
-		messnamed("[ch]randomfun", 1);
+		sendNamedInt("[ch]randomfun", 1);
 		for (var i = 0; i < s.NUM_TRACKS; i++) {
 			clearLoopVisualForTrackIndex(i, true);
 		}
@@ -5618,7 +7099,7 @@ function handleModRandomize(row) {
 	}
 	var trackId = row + 1;
 	clearLoopVisualForTrackIndex(row - 1, true);
-	messnamed(trackId + "[box]rnd", 1);
+	sendNamedInt(trackId + "[box]rnd", 1);
 	//led(8, row, 15);
 	kfping(8, row, 6);
 }
@@ -5634,7 +7115,7 @@ function handleInsertFxToggle(col, row) {
 function handleModMute(col) {
 	if (s.kmod !== 2) return;
 	s.channels[col].muted = s.channels[col].muted ? 0 : 1;
-	messnamed((col + 1) + "[box]mute", s.channels[col].muted);
+	sendNamedInt((col + 1) + "[box]mute", s.channels[col].muted);
 	drawMuteRow();
 	refreshActiveEditorShell();
 }
@@ -5642,7 +7123,7 @@ function handleModMute(col) {
 function handleModVolume(col, row) {
 	if (s.kmod !== 2) return;
 	var delta = (row === 1) ? 4 : -4;
-	messnamed((col + 1) + "vol_add", delta);
+	sendNamedInt((col + 1) + "vol_add", delta);
 	s.channels[col].volume = clamp(s.channels[col].volume + delta, 0, 158);
 	updateVolumeDisplay(col);
 	refreshActiveEditorShell();
@@ -5653,7 +7134,7 @@ function handleQuantize(row) {
 	var qValues = { 1: 32, 2: 16, 3: 8, 4: 4, 5: 2 };
 	var qVal = qValues[row];
 	if (qVal !== undefined) {
-		messnamed("[mlr]q", qVal);
+		sendNamedInt("[mlr]q", qVal);
 		modQuantizeRow = row;
 		drawQuantizeColumn();
 		post("[grid_router] quantize=" + qVal + "\n");
@@ -5679,20 +7160,67 @@ function handleTrackSubLoopCycle(row) {
 	refreshActiveEditorShell();
 }
 
-function handleSequence64GroupRunToggle(groupIdx) {
-	if (s.kmod !== 2 || !sequence64LayoutEnabled()) return;
-	var pattern = ensureSequence64Pattern("group", groupIdx);
-	setSequence64TargetRunning("group", groupIdx, !pattern.running);
-	drawSequence64GroupRunRow();
+function sequence64RunShortcutCoordinates(targetType, targetId) {
+	if (targetType === "group" && targetId >= 0 && targetId < s.NUM_CHANNELS) {
+		return { x: targetId, y: 4 };
+	}
+	if (targetType === "track" && targetId >= 0 && targetId < s.NUM_TRACKS) {
+		return { x: 11, y: targetId + 1 };
+	}
+	return null;
 }
 
-function handleSequence64TrackRunToggle(row) {
+function drawSequence64RunShortcut(targetType, targetId) {
+	var coordinates = sequence64RunShortcutCoordinates(targetType, targetId);
+	if (!coordinates || editorOwnsLedCell(coordinates.x, coordinates.y)) return;
+	var pattern = ensureSequence64Pattern(targetType, targetId);
+	led(coordinates.x, coordinates.y, pattern && pattern.running ? 15 : 3);
+}
+
+function toggleSequence64RunShortcut(targetType, targetId) {
+	var pattern = ensureSequence64Pattern(targetType, targetId);
+	if (!pattern) return false;
+	setSequence64TargetRunning(targetType, targetId, !pattern.running);
+	drawSequence64RunShortcut(targetType, targetId);
+	return true;
+}
+
+function openSequence64RunShortcutAfterHold() {
+	var pending = sequence64PendingRunShortcut;
+	if (!pending || s.kmod !== 2 || !sequence64LayoutEnabled()) return false;
+	pending.holdOpened = true;
+	selectEditorTarget(pending.targetType, pending.targetId, true);
+	diagnosticEvent("sequence64_run_shortcut_hold", {
+		targetType: pending.targetType,
+		target: pending.targetId + 1
+	});
+	outlet(2, "editor_shortcut", pending.targetType, pending.targetId + 1);
+	return true;
+}
+
+function handleSequence64RunShortcutKey(targetType, targetId, state) {
 	if (s.kmod !== 2 || !sequence64LayoutEnabled()) return;
-	var trackIdx = row - 1;
-	if (trackIdx < 0 || trackIdx >= s.NUM_TRACKS) return;
-	var pattern = ensureSequence64Pattern("track", trackIdx);
-	setSequence64TargetRunning("track", trackIdx, !pattern.running);
-	drawSequence64TrackRunColumn();
+	var coordinates = sequence64RunShortcutCoordinates(targetType, targetId);
+	if (!coordinates) return;
+	if (state === 1) {
+		sequence64RunShortcutHoldTask.cancel();
+		sequence64PendingRunShortcut = {
+			targetType: targetType,
+			targetId: targetId,
+			holdOpened: false
+		};
+		var pattern = ensureSequence64Pattern(targetType, targetId);
+		led(coordinates.x, coordinates.y, pattern && pattern.running ? 10 : 8);
+		sequence64RunShortcutHoldTask.schedule(SEQUENCE64_HOLD_MS);
+		return;
+	}
+
+	var pending = sequence64PendingRunShortcut;
+	if (!pending || pending.targetType !== targetType || pending.targetId !== targetId) return;
+	sequence64RunShortcutHoldTask.cancel();
+	sequence64PendingRunShortcut = null;
+	if (!pending.holdOpened) toggleSequence64RunShortcut(targetType, targetId);
+	else drawSequence64RunShortcut(targetType, targetId);
 }
 
 function handleModRandomOffset(row) {
@@ -5700,7 +7228,7 @@ function handleModRandomOffset(row) {
 	var track = row - 1;
 	clearLoopVisualForTrackIndex(track, true);
 	s.tracks[track].randomOffset = 1 - s.tracks[track].randomOffset;
-	messnamed((row + 1) + "[box]rndOff", s.tracks[track].randomOffset);
+	sendNamedInt((row + 1) + "[box]rndOff", s.tracks[track].randomOffset);
 	drawRandomOffsetColumn();
 	refreshActiveEditorShell();
 }
@@ -5708,9 +7236,7 @@ function handleModRandomOffset(row) {
 function handleHalfTime(row) {
 	if (s.kmod !== 2) return;
 	var track = row - 1;
-	clearLoopVisualForTrackIndex(track, true);
-	messnamed((row + 1) + "[box]dwnOct", 1);
-	s.tracks[track].octave--;
+	setEditorOctave(track, (parseInt(s.tracks[track].octave, 10) || 0) - 1, false);
 	drawOctaveCell(row);
 	refreshActiveEditorShell();
 }
@@ -5718,9 +7244,7 @@ function handleHalfTime(row) {
 function handleDoubleTime(row) {
 	if (s.kmod !== 2) return;
 	var track = row - 1;
-	clearLoopVisualForTrackIndex(track, true);
-	messnamed((row + 1) + "[box]upOct", 1);
-	s.tracks[track].octave++;
+	setEditorOctave(track, (parseInt(s.tracks[track].octave, 10) || 0) + 1, false);
 	drawOctaveCell(row);
 	refreshActiveEditorShell();
 }
@@ -5730,7 +7254,7 @@ function handleReverse(row) {
 	var track = row - 1;
 	clearLoopVisualForTrackIndex(track, true);
 	s.tracks[track].reverse = 1 - s.tracks[track].reverse;
-	messnamed((row + 1) + "[box]rev", s.tracks[track].reverse);
+	sendNamedInt((row + 1) + "[box]rev", s.tracks[track].reverse);
 	drawReverseColumn();
 	refreshActiveEditorShell();
 }
@@ -5742,15 +7266,9 @@ function handleGroupsPage(col, row, state) {
 	var track = row - 1;
 	var channelId = col - 7;
 	clearLoopVisualForTrackIndex(track, true);
-	messnamed((row + 1) + "chn[box]", channelId);
+	sendNamedInt((row + 1) + "chn[box]", channelId);
 	//s.tracks[track].channel = channelId;
 	//drawGroupsPage();
-}
-
-// ─── Reserved Page (kmod 4) ─────────────────────────────────────────────
-
-function handleStepSeqPage(col, row, state) {
-	return;
 }
 
 // ─── Draw Functions ─────────────────────────────────────────────────────
@@ -5903,28 +7421,6 @@ function drawReverseColumn() {
 	for (var y = 1; y < s.gridHeight; y++) {
 		led(15, y, s.tracks[y - 1].reverse ? 15 : 0);
 	}
-}
-
-function drawGateFxOptionRow(row, options, selected) {
-	ledRow(row, 0);
-	for (var x = 0; x < options.length && x < s.gridWidth; x++) {
-		led(x, row, options[x] === selected ? 15 : 4);
-	}
-}
-
-function drawGateFxValueRow(row, value) {
-	ledRow(row, 0);
-	for (var x = 0; x < s.gridWidth; x++) {
-		if (x === value) {
-			led(x, row, 15);
-		} else if (x < value) {
-			led(x, row, 6);
-		}
-	}
-}
-
-function drawGateFxPage() {
-	return;
 }
 
 // ─── LED Updates from Audio Engine ──────────────────────────────────────
@@ -6113,9 +7609,11 @@ function finishSequence64LiveRecording() {
 	}
 	outlet(2, "editor_live_take", take.targetType, take.targetId + 1,
 		totalSteps, pattern.bars.length, take.events.length);
+	markSessionDirty("ṛta live take");
 	post("[grid_router] live take " + take.targetKey + " length=" + totalSteps +
 		" steps bars=" + pattern.bars.length + " events=" + take.events.length + "\n");
 	if (editorWorkspaceAvailable() && workspace.active) redrawEditorShellDiff();
+	publishHudPatternSnapshot(take.targetType, take.targetId, pattern);
 	return true;
 }
 
@@ -6145,10 +7643,12 @@ function handleChannelOnArray() {
 		channelState.on = arguments[i];
 		if (!channelState.on) {
 			cancelSequence64PhraseForChannel(i, "channel_off", false);
+			cancelSequence64AudioForChannel(i);
 			if (channelState.activeTrack >= 0) channelState.lastActiveTrack = channelState.activeTrack;
 			channelState.activeTrack = -1;
 			channelState.sequence64Owner = null;
 		}
+		publishHudChannelState(i);
 	}
 	drawChannelsPlaying();
 	refreshActiveEditorShell();
@@ -6163,7 +7663,7 @@ function handleSeqOnArray() {
 /**
  * boxled col row level — playback position LED from [s box/led].
  * Writes to the background plane so positions show as minimum brightness,
- * visible beneath foreground overlays and animations.
+ * visible beneath the stable foreground and restored after transient animation.
  * Cached even off-page so main-page background redraws stay current.
  */
 function boxled() {
@@ -6208,6 +7708,9 @@ function shouldRecordAutomationEvent(col, row, state) {
 	// playback events. In particular, recording the arm/stop pad would restart
 	// or disarm the recorder when the sequence played back.
 	if (s.kmod === 2 && col === 9) return false;
+	// Per-track randomize is now a tap/hold gesture. Only its resolved hold
+	// action is recorded by commitModRandomizeHold().
+	if (s.kmod === 2 && col === 8 && row >= 1) return false;
 	return true;
 }
 
@@ -6381,17 +7884,142 @@ function dump() {
 	messnamed("togridmatrixio", "dump");
 }
 
+function flattenDisplayPalette(palette) {
+	var flattened = [];
+	if (!palette) return flattened;
+	for (var cell = 0; cell < palette.length; cell++) {
+		var rgb = palette[cell] || [0, 0, 0];
+		flattened.push(clamp8(rgb[0]), clamp8(rgb[1]), clamp8(rgb[2]));
+	}
+	return flattened;
+}
+
+function displayRouterDiagnosticState() {
+	var workspace = ensureEditorWorkspaceDefaults();
+	var queued = [];
+	for (var index = 0; index < pageColorQueue.length; index++) {
+		queued.push(pageColorQueue[index].slice());
+	}
+	return {
+		page: s.kmod,
+		edition: s.edition,
+		width: s.gridWidth,
+		height: s.gridHeight,
+		mechaTrellisExtensions: s.mechaTrellisExtensions ? 1 : 0,
+		autoPageColors: s.autoPageColors ? 1 : 0,
+		editorBrightnessColors: s.editorBrightnessColors ? 1 : 0,
+		editorActive: workspace.active ? 1 : 0,
+		editorChoosing: workspace.choosing ? 1 : 0,
+		editorTargetType: workspace.targetType,
+		editorTargetId: workspace.targetId,
+		editorView: sequence64LayoutEnabled() ? workspace.view64 : workspace.editorId,
+		sampleBrowserActive: sampleBrowserState.active ? 1 : 0,
+		pageColorPresetReady: pageColorPresetReady.slice(),
+		pageColorQueue: queued,
+		editorLevelCache: editorLevelCache.slice(),
+		editorColorCache: editorColorCache.slice(),
+		playbackBackground: playbackBg.slice(),
+		expectedBasePalette: flattenDisplayPalette(buildPageColorPalette(s.kmod)),
+		firmwareStateReadable: 0,
+		firmwareVerification: "private color packets have no reply"
+	};
+}
+
+function displayDiagnosticSnapshot(incidentId, payload) {
+	var requested = String(incidentId || "unknown");
+	var afterSuffix = ":after";
+	var isAfter = requested.length > afterSuffix.length &&
+		requested.substring(requested.length - afterSuffix.length) === afterSuffix;
+	var rootId = isAfter ? requested.substring(0, requested.length - afterSuffix.length) : requested;
+	var matrixState = null;
+	try {
+		matrixState = JSON.parse(String(payload || "{}"));
+	} catch (error) {
+		matrixState = { parseError: String(error), raw: String(payload || "") };
+	}
+	var record = {
+		time: new Date().toISOString(),
+		incident: rootId,
+		phase: isAfter ? "after" : "before",
+		diagnosticSession: diagnosticSession,
+		diagnosticSerial: diagnosticSerial,
+		router: isAfter || !pendingDisplayIncidents[rootId] ?
+			displayRouterDiagnosticState() : pendingDisplayIncidents[rootId],
+		matrix: matrixState
+	};
+	writeDisplayIncident(record);
+	diagnosticEvent("display_state_snapshot", {
+		incident: rootId,
+		phase: record.phase,
+		path: DISPLAY_INCIDENT_LOG_PATH,
+		levelHash: matrixState.compositeHash || 0,
+		colorHash: matrixState.colorHash || 0,
+		queueRemaining: pageColorQueue.length
+	});
+	if (isAfter) delete pendingDisplayIncidents[rootId];
+}
+
+/** Preserve diagnostics, then rebuild the logical layout, levels, and colors. */
+function displayRecover() {
+	var incidentId = diagnosticSession + "-display-" + (++displayIncidentSerial);
+	displayRecoveryCompleteTask.cancel();
+	pendingDisplayRecoveryId = incidentId;
+	pendingDisplayIncidents[incidentId] = displayRouterDiagnosticState();
+	diagnosticEvent("display_recover_requested", {
+		incident: incidentId,
+		page: s.kmod,
+		path: DISPLAY_INCIDENT_LOG_PATH,
+		colorQueueLength: pageColorQueue.length
+	});
+	messnamed("togridmatrixio", "diagnostic_snapshot", incidentId);
+	publishHud("notice", "warn", "Grid state captured · reinitializing");
+	hardwareResync();
+	// One 16-map palette plus the current semantic overlay can still take several
+	// hundred milliseconds at the safe pace. Capture only after it has settled.
+	displayRecoveryCompleteTask.schedule(900);
+}
+
 /** Send "redraw" to gridrouter to force-redraw the current page. */
 function redraw() {
 	post("[grid_router] redraw kmod=" + s.kmod + "\n");
-	messnamed("togridmatrixanim", "clear_anim");
-	outlet(1, "beginframe");
-	try {
-		if (s.autoPageColors) activatePageColors(s.kmod);
-		drawPage(s.kmod);
-	} finally {
-		outlet(1, "endframe");
-	}
+	renderCompletePage(s.kmod, false);
+}
+
+/**
+ * Restore device-local state after a serialosc hot-plug/restart. The Max-side
+ * frame remains authoritative, but the hardware has forgotten its levels and
+ * semantic colors.
+ */
+function hardwareResync() {
+	post("[grid_router] hardware resync kmod=" + s.kmod + "\n");
+	diagnosticEvent("hardware_resync", {
+		page: s.kmod,
+		mechaTrellisExtensions: s.mechaTrellisExtensions ? 1 : 0,
+		editorColors: s.editorBrightnessColors ? 1 : 0
+	});
+	hardwareResyncVerifyTask.cancel();
+	resetPageColorQueue();
+	invalidateEditorLevelCache();
+	invalidateEditorColorCache();
+	// One logical 16x16 is authoritative. grid_composite_2x128 performs any
+	// physical split downstream; the matrix bridge itself remains single-256.
+	s.edition = 256;
+	s.gridWidth = 16;
+	s.gridHeight = 16;
+	s.dual128Mode = 0;
+	outlet(1, "edition", 256);
+	outlet(1, "dual128", 0);
+	messnamed("togridmatrixanim", "edition", 256);
+	// grid_matrix_bridge.js owns separate runtime flags and may itself have
+	// recompiled or reconnected, so reassert the extension mode too.
+	outlet(1, "mechatrellis", s.mechaTrellisExtensions ? 1 : 0);
+
+	// Commit the complete level frame, then directly upload only the visible
+	// palette. No automatic device-local store/recall state is involved.
+	renderCompletePage(s.kmod, false, true);
+	if (s.autoPageColors) initializePageColorPresets();
+	hardwareResyncVerifyTask.schedule(250);
+	outlet(2, "hardware_resync", s.kmod);
 }
 
 // ─── Message Router ────────────────────────────────────────────────────
@@ -6408,6 +8036,7 @@ function clear_automation() {
 		drawAutomationColumn();
 	}
 	post("[grid_router] automation cleared\n");
+	markSessionDirty("automation");
 }
 
 // Only messages without dedicated handlers reach anything():
@@ -6429,6 +8058,7 @@ function anything() {
 					// Forward to bridge + anim engine so all layers agree on dimensions
 					outlet(1, "edition", e);
 					messnamed("togridmatrixanim", "edition", e);
+					renderCompletePage(s.kmod, false);
 					post("[grid_router] edition=" + s.edition + " grid=" + s.gridWidth + "x" + s.gridHeight + "\n");
 				}
 			break;

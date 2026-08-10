@@ -62,12 +62,17 @@ function reload() {
 	emitSettings(settings);
 }
 
+// Keep the Task alive for the lifetime of the js object. A function-local Task
+// can be collected before its callback runs, which silently leaves the bridge
+// in ordinary-monome-safe mode even when mlr.local.json enables MechaTrellis.
+var startupApplyTask = new Task(reload, this);
+
 function loadbang() {
-	var task = new Task(reload, this);
-	task.schedule(50);
+	startupApplyTask.cancel();
+	// Allow the grid router and matrix bridge receivers to finish loading first.
+	startupApplyTask.schedule(250);
 }
 
 function bang() {
 	reload();
 }
-

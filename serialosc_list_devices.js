@@ -1,6 +1,6 @@
 autowatch = 1;
 inlets = 2;
-outlets = 3;
+outlets = 4;
 
 /**
  * Discover Monome grid UDP ports via serialosc (see monome.org/docs/serialosc/osc/).
@@ -21,6 +21,7 @@ var serverHost = "127.0.0.1";
 var replyHost = "127.0.0.1";
 var deviceIndex = 0;
 var seenPorts = {};
+var deviceSettleTask = new Task(announceDevicesReady, this);
 
 function postln(s) {
 	post("[serialosc_list_devices] " + s + "\n");
@@ -29,6 +30,17 @@ function postln(s) {
 function resetDisplays() {
 	outlet(1, 0);
 	outlet(2, 0);
+}
+
+function announceDevicesReady() {
+	// The parent patch waits for this before restoring the complete hardware
+	// frame. By now grid_composite_2x128 has reapplied /sys host/port/prefix.
+	outlet(3, "bang");
+}
+
+function scheduleDevicesReady() {
+	deviceSettleTask.cancel();
+	deviceSettleTask.schedule(200);
 }
 
 function processDevice(id, typ, port) {
@@ -44,14 +56,34 @@ function processDevice(id, typ, port) {
 		outlet(2, port);
 	}
 	deviceIndex++;
+	scheduleDevicesReady();
 }
 
 function startQuery() {
 	deviceIndex = 0;
 	seenPorts = {};
+	deviceSettleTask.cancel();
 	resetDisplays();
+	// /serialosc/notify is one-shot. Re-registering on every notification keeps
+	// hot-plug detection alive; older serialosc versions may safely ignore it.
+	outlet(0, "/serialosc/notify", replyHost, replyPort);
 	outlet(0, "/serialosc/list", replyHost, replyPort);
-	postln("→ /serialosc/list " + replyHost + " " + replyPort + " (serialosc " + serverHost + ":" + serverPort + ")");
+	postln("→ /serialosc/notify + /serialosc/list " + replyHost + " " + replyPort +
+		" (serialosc " + serverHost + ":" + serverPort + ")");
+}
+
+function processServerMessage(path, args) {
+	if (path.indexOf("serialosc/device") >= 0 && args.length >= 3) {
+		processDevice(args[0], args[1], args[2]);
+		return true;
+	}
+	if (path.indexOf("serialosc/add") >= 0 || path.indexOf("serialosc/remove") >= 0) {
+		postln(path.indexOf("/add") >= 0 ? "device added; refreshing ports" :
+			"device removed; refreshing ports");
+		startQuery();
+		return true;
+	}
+	return false;
 }
 
 function bang() {
@@ -78,9 +110,9 @@ function list() {
 	}
 	if (a.length >= 4) {
 		var path = String(a[0]);
-		if (path.indexOf("serialosc/device") >= 0) {
-			processDevice(a[1], a[2], a[3]);
-		}
+		processServerMessage(path, a.slice(1));
+	} else if (a.length >= 1) {
+		processServerMessage(String(a[0]), a.slice(1));
 	}
 }
 
@@ -102,12 +134,7 @@ function anything() {
 	}
 	if (inlet === 0) {
 		var p = String(messagename);
-		if (p.indexOf("serialosc/device") >= 0) {
-			var args = arrayfromargs(arguments);
-			if (args.length >= 3) {
-				processDevice(args[0], args[1], args[2]);
-			}
-		}
+		processServerMessage(p, arrayfromargs(arguments));
 	}
 }
 

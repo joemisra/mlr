@@ -10,9 +10,11 @@ const ROUTER_SOURCE = fs.readFileSync(ROUTER_PATH, 'utf8');
 function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 	const outlets = [];
 	const namedMessages = [];
+	const hudMessages = [];
 	const posts = [];
 	const tasks = [];
 	const diagnosticLines = [];
+	const timeline = [];
 	const globalStores = sharedGlobalStores || Object.create(null);
 
 	function Global(name) {
@@ -71,10 +73,34 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 		inlet: 0,
 		messagename: '',
 		messnamed(...args) {
+			if (args[0] === 'mlr_hud_state') {
+				hudMessages.push(args.slice(1));
+				return;
+			}
 			namedMessages.push(args);
+			timeline.push(['messnamed', ...args]);
+			// The real patch holds this list in sequence64_audio_bridge.maxpat and
+			// releases it on the next raw audio-derived pulse. JS unit tests do not
+			// execute Max patchers, so mirror that native release here to retain the
+			// existing end-to-end trigger assertions.
+			if (args[0] === 'sequence64_audio_arm') {
+				const channel = args[1];
+				const track = args[2];
+				const slice = args[3];
+				const nativeMessages = [
+					[`${track}input`, slice, 1],
+					[`${channel}[mlr]pl-trig-now`, 'bang'],
+					[`${track}input`, slice, 0]
+				];
+				for (const message of nativeMessages) {
+					namedMessages.push(message);
+					timeline.push(['native', ...message]);
+				}
+			}
 		},
 		outlet(...args) {
 			outlets.push(args);
+			timeline.push(['outlet', ...args]);
 		},
 		post(...args) {
 			posts.push(args.join(''));
@@ -93,14 +119,18 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 		context,
 		globalStores,
 		namedMessages,
+		hudMessages,
 		outlets,
 		posts,
 		tasks,
 		diagnosticLines,
+		timeline,
 		clearLog() {
 			namedMessages.length = 0;
+			hudMessages.length = 0;
 			outlets.length = 0;
 			posts.length = 0;
+			timeline.length = 0;
 		}
 	};
 }
@@ -116,8 +146,10 @@ function audioMessages(harness) {
 
 function hasLed(harness, x, y, level) {
 	return harness.outlets.some((message) =>
-		message[0] === 1 && message[1] === 'setcell' &&
-		message[2] === x && message[3] === y && message[4] === level);
+		(message[0] === 1 && message[1] === 'setcell' &&
+			message[2] === x && message[3] === y && message[4] === level) ||
+		(message[0] === 1 && message[1] === 'replaceframe' &&
+			message[4 + y * message[2] + x] === level));
 }
 
 function selectTrack(harness, trackIdx) {
@@ -143,13 +175,257 @@ test('inactive workspace preserves legacy mode-2 routing', () => {
 	router.dispatch(12, 8, 1);
 
 	assert.deepEqual(audioMessages(harness), [
-		['1[ch]timestretch', 1],
-		['2[box]rev', 1],
-		['9[box]rndOff', 1]
+		['1[ch]timestretch', 'int', 1],
+		['2[box]rev', 'int', 1],
+		['9[box]rndOff', 'int', 1]
 	]);
 	assert.equal(router.s.channels[0].timestretch, 1);
 	assert.equal(router.s.tracks[0].reverse, 1);
 	assert.equal(router.s.tracks[7].randomOffset, 1);
+});
+
+test('per-track Randomize column taps open samples and holds retain the legacy Max bus', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	harness.clearLog();
+
+	// Physical column 9, row 4 addresses the third MLR track (2[box] is row 1).
+	router.dispatch(8, 3, 1);
+	assert.equal(router.modRandomizeHoldTask.running, true);
+	assert.equal(harness.namedMessages.some((message) => /\[box\]rnd$/.test(message[0])), false);
+	router.dispatch(8, 3, 0);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'browserOpen' &&
+		message[2] === 2 && message[3] === -1), true);
+	assert.equal(harness.namedMessages.some((message) => /\[box\]rnd$/.test(message[0])), false);
+
+	harness.clearLog();
+	router.dispatch(8, 3, 1);
+	router.modRandomizeHoldTask.callback.call(router.modRandomizeHoldTask.owner);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '4[box]rnd' && message[1] === 'int' && message[2] === 1), true);
+	router.dispatch(8, 3, 0);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'browserOpen'), false);
+});
+
+test('resolved Randomize holds remain compatible with the legacy automation recorder', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	router.s.automation.armed = true;
+
+	router.dispatch(8, 2, 1);
+	router.dispatch(8, 2, 0);
+	assert.equal(router.s.automation.recording, false);
+	assert.equal(router.s.automation.events.length, 0);
+
+	router.dispatch(8, 2, 1);
+	router.modRandomizeHoldTask.callback.call(router.modRandomizeHoldTask.owner);
+	router.dispatch(8, 2, 0);
+	assert.equal(router.s.automation.recording, true);
+	assert.equal(router.s.automation.events.length, 1);
+	assert.equal(router.s.automation.events[0].col, 8);
+	assert.equal(router.s.automation.events[0].row, 2);
+
+	harness.clearLog();
+	router.playbackDispatching = true;
+	router.dispatch(8, 2, 1);
+	router.playbackDispatching = false;
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '3[box]rnd' && message[1] === 'int' && message[2] === 1), true);
+	assert.equal(router.modRandomizeHoldTask.running, false);
+});
+
+test('mode changes synchronize legacy state before one complete atomic frame', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	harness.clearLog();
+
+	router.setKmod(1);
+
+	const broadcast = harness.timeline.findIndex((message) =>
+		message[0] === 'messnamed' && message[1] === 'kmod' &&
+		message[2] === 'int' && message[3] === 1);
+	const replacement = harness.timeline.findIndex((message) =>
+		message[0] === 'outlet' && message[1] === 1 && message[2] === 'replaceframe');
+	assert.equal(broadcast >= 0, true);
+	assert.equal(broadcast < replacement, true);
+	assert.equal(harness.timeline.filter((message) =>
+		message[0] === 'outlet' && message[1] === 1 &&
+		message[2] === 'replaceframe').length, 1);
+	assert.equal(harness.timeline.some((message) =>
+		message[0] === 'outlet' && message[1] === 1 &&
+		(message[2] === 'beginframe' || message[2] === 'endframe' ||
+			message[2] === 'clear')), false);
+	const frame = harness.outlets.find((message) =>
+		message[0] === 1 && message[1] === 'replaceframe');
+	assert.equal(frame[2], 16);
+	assert.equal(frame[3], 16);
+	assert.equal(frame.length, 4 + 16 * 16 * 2);
+	assert.equal(harness.diagnosticLines.some((line) => {
+		const event = JSON.parse(line);
+		return event.event === 'kmod_change' && event.previous === 2 && event.next === 1;
+	}), true);
+});
+
+test('hardware resync reasserts 256, restores a full frame, and directly rebuilds colors', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	router.s.autoPageColors = 1;
+	router.s.edition = 128;
+	router.s.gridWidth = 16;
+	router.s.gridHeight = 8;
+	harness.clearLog();
+
+	router.hardwareResync();
+
+	assert.equal(router.s.edition, 256);
+	assert.equal(router.s.gridWidth, 16);
+	assert.equal(router.s.gridHeight, 16);
+	assert.equal(harness.outlets.filter((message) =>
+		message[0] === 1 && message[1] === 'replaceframe').length, 1);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'edition' && message[2] === 256), true);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'dual128' && message[2] === 0), true);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'mechatrellis' && message[2] === 0), true);
+	assert.equal(router.pageColorQueue.filter((command) =>
+		command[0] === 'colormap').length, 16);
+	assert.equal(router.pageColorQueue.some((command) =>
+		command[0] === 'colorpresetstore' || command[0] === 'colorpresetrecall'), false);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'togridmatrixanim' && message[1] === 'edition' && message[2] === 256), true);
+	assert.equal(router.hardwareResyncVerifyTask.running, true);
+	assert.equal(router.hardwareResyncVerifyTask.scheduledDelay, 250);
+
+	router.hardwareResyncVerifyTask.running = false;
+	router.hardwareResyncVerifyTask.callback.call(router.hardwareResyncVerifyTask.owner);
+	assert.equal(harness.outlets.filter((message) =>
+		message[0] === 1 && message[1] === 'replaceframe').length, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'togridmatrixio' && message[1] === 'flush'), true);
+	assert.equal(harness.diagnosticLines.some((line) => {
+		const event = JSON.parse(line);
+		return event.event === 'hardware_resync_level_verify';
+	}), true);
+});
+
+test('display recovery captures the bad state before rebuilding hardware and records an incident', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	router.s.autoPageColors = 1;
+	router.s.mechaTrellisExtensions = 1;
+	harness.clearLog();
+
+	router.displayRecover();
+	const request = harness.namedMessages.find((message) =>
+		message[0] === 'togridmatrixio' && message[1] === 'diagnostic_snapshot');
+	assert.ok(request);
+	const incidentId = request[2];
+	assert.match(incidentId, /-display-1$/);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'replaceframe'), true);
+	assert.equal(router.displayRecoveryCompleteTask.running, true);
+	assert.equal(router.displayRecoveryCompleteTask.scheduledDelay, 900);
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'notice' && message[1] === 'warn'), true);
+
+	router.displayDiagnosticSnapshot(incidentId, JSON.stringify({
+		compositeHash: 123, colorHash: 456, packetStats: { presetRecallPackets: 3 }
+	}));
+	const incident = harness.diagnosticLines.map((line) => JSON.parse(line))
+		.find((record) => record.incident === incidentId && record.phase === 'before');
+	assert.ok(incident);
+	assert.equal(incident.matrix.colorHash, 456);
+	assert.equal(incident.router.firmwareStateReadable, 0);
+	assert.equal(harness.diagnosticLines.some((line) => {
+		const event = JSON.parse(line);
+		return event.event === 'display_state_snapshot' && event.incident === incidentId;
+	}), true);
+
+	router.displayRecoveryCompleteTask.running = false;
+	router.displayRecoveryCompleteTask.callback.call(router.displayRecoveryCompleteTask.owner);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'togridmatrixio' && message[1] === 'diagnostic_snapshot' &&
+		message[2] === incidentId + ':after'), true);
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'notice' && message[1] === 'info'), true);
+});
+
+test('bulk palette maps are serial-paced and page activation avoids firmware presets', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	const colors = new Array(48).fill(64);
+	router.resetPageColorQueue();
+	router.queueColorMapFrom(0, 0, colors);
+	router.queueColorMapFrom(4, 0, colors);
+	router.startPageColorQueue();
+	assert.equal(router.pageColorQueueTask.scheduledDelay, 0);
+	router.pageColorQueueTask.callback.call(router.pageColorQueueTask.owner);
+	assert.equal(router.pageColorQueueTask.scheduledDelay, 8);
+
+	router.resetPageColorQueue();
+	router.pageColorPresetReady[0] = 1;
+	router.activatePageColors(1);
+	assert.equal(router.pageColorQueue.length, 16);
+	assert.equal(router.pageColorQueue.every((command) => command[0] === 'colormap'), true);
+	assert.equal(router.pageColorQueue.some((command) =>
+		command[0] === 'colorpresetstore' || command[0] === 'colorpresetrecall'), false);
+});
+
+test('router loadbang normalizes stale persistent layout state to one logical 256', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	router.s.edition = 128;
+	router.s.gridWidth = 16;
+	router.s.gridHeight = 8;
+	router.s.dual128Mode = 1;
+	harness.clearLog();
+
+	router.loadbang();
+
+	assert.equal(router.s.edition, 256);
+	assert.equal(router.s.gridWidth, 16);
+	assert.equal(router.s.gridHeight, 16);
+	assert.equal(router.s.dual128Mode, 0);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'edition' && message[2] === 256), true);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'dual128' && message[2] === 0), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'togridmatrixanim' && message[1] === 'edition' && message[2] === 256), true);
+});
+
+test('group mode key toggles directly with Main and retired mode 4 resolves to Main', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	router.setKmod(1);
+	harness.clearLog();
+
+	router.dispatch(14, 0, 1);
+	assert.equal(router.s.kmod, 3);
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'mode' && message[1] === 3), true);
+
+	router.dispatch(14, 0, 1);
+	assert.equal(router.s.kmod, 1);
+	router.setKmod(4);
+	assert.equal(router.s.kmod, 1);
+	assert.equal(harness.outlets.some((message) => message[2] === 'clear'), false);
+});
+
+test('legacy clear requests rebuild the current page instead of blanking the matrix', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	harness.clearLog();
+
+	router.clear();
+
+	assert.equal(harness.outlets.filter((message) =>
+		message[0] === 1 && message[1] === 'replaceframe').length, 1);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'clear'), false);
 });
 
 test('button 14 opens the chooser only while held without recording or sending audio', () => {
@@ -245,8 +521,8 @@ test('active shell owns the lower half while upper legacy controls still work', 
 	assert.equal(router.s.channels[0].timestretch, 1);
 	assert.equal(router.s.tracks[0].reverse, 1);
 	assert.deepEqual(audioMessages(harness), [
-		['1[ch]timestretch', 1],
-		['2[box]rev', 1]
+		['1[ch]timestretch', 'int', 1],
+		['2[box]rev', 'int', 1]
 	]);
 });
 
@@ -290,7 +566,7 @@ test('bottom-right exits and restores lower-half legacy routing', () => {
 	harness.clearLog();
 	router.dispatch(12, 8, 1);
 	assert.equal(router.s.tracks[7].randomOffset, 1);
-	assert.deepEqual(audioMessages(harness), [['9[box]rndOff', 1]]);
+	assert.deepEqual(audioMessages(harness), [['9[box]rndOff', 'int', 1]]);
 });
 
 test('targets can change while held and pressing the current target cancels selection', () => {
@@ -618,7 +894,7 @@ test('parameter page controls group, volume, octave, switches, stretch, and mute
 	router.dispatch(2, 8, 1);
 	assert.equal(router.s.tracks[0].channel, 3);
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '2chn[box]' && message[1] === 3), true);
+		message[0] === '2chn[box]' && message[1] === 'int' && message[2] === 3), true);
 	router.dispatch(15, 9, 1);
 	assert.equal(router.s.channels[2].volume, 158);
 	assert.equal(harness.namedMessages.some((message) => message[0] === '3vol_add'), true);
@@ -634,10 +910,14 @@ test('parameter page controls group, volume, octave, switches, stretch, and mute
 	assert.equal(router.s.tracks[0].randomOffset, 1);
 	assert.equal(router.s.channels[2].timestretch, 1);
 	assert.equal(router.s.channels[2].muted, 1);
-	assert.equal(harness.namedMessages.some((message) => message[0] === '2[box]rev' && message[1] === 1), true);
-	assert.equal(harness.namedMessages.some((message) => message[0] === '2[box]rndOff' && message[1] === 1), true);
-	assert.equal(harness.namedMessages.some((message) => message[0] === '3[ch]timestretch' && message[1] === 1), true);
-	assert.equal(harness.namedMessages.some((message) => message[0] === '3[box]mute' && message[1] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2[box]rev' && message[1] === 'int' && message[2] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2[box]rndOff' && message[1] === 'int' && message[2] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '3[ch]timestretch' && message[1] === 'int' && message[2] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '3[box]mute' && message[1] === 'int' && message[2] === 1), true);
 });
 
 test('target automation records parameter state and replays it on its clock step', () => {
@@ -665,7 +945,7 @@ test('target automation records parameter state and replays it on its clock step
 	router.clockTick();
 	assert.equal(router.s.tracks[0].reverse, 1);
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '2[box]rev' && message[1] === 1), true);
+		message[0] === '2[box]rev' && message[1] === 'int' && message[2] === 1), true);
 
 	// The switch-category cell deletes only that category at step 1.
 	router.dispatch(0, 13, 1);
@@ -810,7 +1090,8 @@ test('sequence64 lock and Setup controls retain distinct semantic color families
 	assert.deepEqual(colorAt(0, 8), [255, 65, 55]);
 	assert.deepEqual(colorAt(7, 8), [235, 55, 190]);
 	assert.deepEqual(colorAt(8, 9), [50, 225, 100]);
-	assert.deepEqual(colorAt(3, 10), [85, 125, 255]);
+	assert.deepEqual(colorAt(0, 10), [85, 125, 255]);
+	assert.deepEqual(colorAt(3, 10), [125, 95, 255]);
 	assert.deepEqual(colorAt(0, 11), [255, 65, 40]);
 	assert.deepEqual(colorAt(1, 11), [220, 55, 255]);
 	assert.deepEqual(colorAt(2, 11), [20, 190, 220]);
@@ -891,6 +1172,35 @@ test('sequence64 semantic palette is rebuilt after leaving and returning to mode
 	assert.deepEqual(Array.from(queuedStepMaps.at(-1).slice(0, 6)),
 		['colormap', 0, 8, 0, 210, 255]);
 	assert.equal(queuedStepMaps.at(-1).length, 51);
+});
+
+test('leaving the editor restores the complete Mode-2 palette with no active target', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.editorColors(1);
+	router.exitEditorWorkspace();
+	router.setKmod(1);
+	router.setKmod(2);
+
+	assert.equal(router.s.editorWorkspace.active, false);
+	assert.equal(router.s.editorWorkspace.targetType, 'none');
+	const maps = Array.from(router.pageColorQueue).filter((command) =>
+		command[0] === 'colormap');
+	assert.equal(maps.length, 16);
+	assert.deepEqual(Array.from(maps.map((command) => [command[1], command[2]])), [
+		[0, 0], [4, 0], [8, 0], [12, 0],
+		[0, 4], [4, 4], [8, 4], [12, 4],
+		[0, 8], [4, 8], [8, 8], [12, 8],
+		[0, 12], [4, 12], [8, 12], [12, 12]
+	]);
+
+	// With no editor owner, the lower half continues through ordinary Mod input.
+	harness.clearLog();
+	router.dispatch(15, 8, 1);
+	assert.equal(router.s.tracks[7].reverse, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '9[box]rev' && message[1] === 'int' && message[2] === 1), true);
 });
 
 test('a complete 16x16 page palette queues exactly sixteen 4x4 maps', () => {
@@ -1072,6 +1382,7 @@ test('holding a step opens a persistent centered lock editor and clicking it aga
 	router.dispatch(6, 8, 0);
 	assert.notEqual(router.s.editorWorkspace.patterns64['track:0'].steps[6].cut, null);
 	assert.equal(router.sequence64HeldStep, 6);
+	assert.equal(router.sequence64EditParameter, 'gateLength');
 
 	router.dispatch(6, 8, 1);
 	router.dispatch(6, 8, 0);
@@ -1108,6 +1419,24 @@ test('sequence64 shows the selected target track playback position on row 15', (
 	levels = router.buildEditorShellLevels();
 	assert.equal(levels[router.editorShellLevelIndex(9, 14)],
 		router.SEQUENCE64_MIN_VISIBLE_LEVEL);
+});
+
+test('groove playback telemetry replaces a primed sequencer slice and clears sibling rows', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	router.s.tracks[1].channel = 1;
+	selectGroup(harness, 0);
+	router.setKmod(1);
+	router.primeTrackPlaybackPosition(0, 0);
+	router.primeTrackPlaybackPosition(1, 4);
+
+	router.chRowPos(2, 5);
+
+	assert.equal(router.playbackBg[router.bgIndex(0, 1)], 0);
+	assert.equal(router.playbackBg[router.bgIndex(5, 1)], 15);
+	assert.equal(router.playbackBg[router.bgIndex(4, 2)], 0);
+	assert.equal(router.s.channels[0].activeTrack, 0);
 });
 
 test('sequence64 live-position lane plays slices and Record drops the cut at the playhead', () => {
@@ -1197,7 +1526,7 @@ test('sequence64 Run is opt-in and Stop halts the player owned by that target', 
 	router.dispatch(0, 13, 1);
 	assert.equal(router.s.editorWorkspace.patterns64['track:0'].running, 0);
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '1[pl]stop' && message[1] === 1), true);
+		message[0] === '1[pl]stop' && message[1] === 'int' && message[2] === 1), true);
 });
 
 test('sequence64 Run stays latched after editor exit and playback continues', () => {
@@ -1224,18 +1553,56 @@ test('mode-2 row 5 and column 12 independently toggle group and track Sequence64
 	const router = harness.context;
 
 	router.dispatch(3, 4, 1);
+	router.dispatch(3, 4, 0);
 	router.dispatch(11, 2, 1);
+	router.dispatch(11, 2, 0);
 	assert.equal(router.s.editorWorkspace.patterns64['group:3'].running, 1);
 	assert.equal(router.s.editorWorkspace.patterns64['track:1'].running, 1);
 	assert.equal(hasLed(harness, 3, 4, 15), true);
 	assert.equal(hasLed(harness, 11, 2, 15), true);
 
 	router.dispatch(3, 4, 1);
+	router.dispatch(3, 4, 0);
 	router.dispatch(11, 2, 1);
+	router.dispatch(11, 2, 0);
 	assert.equal(router.s.editorWorkspace.patterns64['group:3'].running, 0);
 	assert.equal(router.s.editorWorkspace.patterns64['track:1'].running, 0);
 	assert.equal(hasLed(harness, 3, 4, 3), true);
 	assert.equal(hasLed(harness, 11, 2, 3), true);
+});
+
+test('holding a mode-2 Run shortcut opens its editor without toggling playback', () => {
+	const groupHarness = createSequence64Harness();
+	const groupRouter = groupHarness.context;
+	groupRouter.dispatch(3, 4, 1);
+	assert.equal(groupRouter.s.editorWorkspace.patterns64['group:3'].running, 0);
+	groupRouter.openSequence64RunShortcutAfterHold();
+	groupRouter.dispatch(3, 4, 0);
+	assert.equal(groupRouter.s.editorWorkspace.targetType, 'group');
+	assert.equal(groupRouter.s.editorWorkspace.targetId, 3);
+	assert.equal(groupRouter.s.editorWorkspace.patterns64['group:3'].running, 0);
+	assert.equal(groupRouter.sequence64PendingRunShortcut, null);
+
+	// Opening a lower track editor moves the release into editor-owned rows; it
+	// must still complete the original shortcut gesture without toggling Run.
+	const trackHarness = createSequence64Harness();
+	const trackRouter = trackHarness.context;
+	trackRouter.dispatch(11, 10, 1);
+	trackRouter.openSequence64RunShortcutAfterHold();
+	trackRouter.dispatch(11, 10, 0);
+	assert.equal(trackRouter.s.editorWorkspace.targetType, 'track');
+	assert.equal(trackRouter.s.editorWorkspace.targetId, 9);
+	assert.equal(trackRouter.s.editorWorkspace.patterns64['track:9'].running, 0);
+	assert.equal(trackRouter.sequence64PendingRunShortcut, null);
+});
+
+test('mode-2 group and track Run shortcuts use the red palette family', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	const palette = router.buildPageColorPalette(2);
+
+	assert.deepEqual(Array.from(palette[4 * 16 + 3]), [225, 45, 70]);
+	assert.deepEqual(Array.from(palette[10 * 16 + 11]), [225, 45, 70]);
 });
 
 test('mode-2 group and phrase Run keys pulse on their audio triggers and restore latch levels', () => {
@@ -1434,6 +1801,7 @@ test('sequence64 preserves a saved single-bar pattern as bar 1', () => {
 		probability: 15
 	}));
 	savedSteps[20].cut = { track: 0, slice: 11, gateLength: 1 };
+	savedSteps[4].locks.octave = { value: -1, behavior: 'set' };
 	router.s.editorWorkspace.patterns64['track:0'] = {
 		version: 1,
 		length: 32,
@@ -1444,10 +1812,16 @@ test('sequence64 preserves a saved single-bar pattern as bar 1', () => {
 
 	selectTrack(harness, 0);
 	const pattern = router.s.editorWorkspace.patterns64['track:0'];
-	assert.equal(pattern.version, 5);
+	assert.equal(pattern.version, 9);
 	assert.equal(pattern.bars.length, 1);
 	assert.equal(pattern.bars[0].length, 32);
 	assert.equal(pattern.bars[0].steps[20].cut.slice, 11);
+	assert.equal(pattern.bars[0].steps[4].locks.octave, undefined);
+	assert.equal(pattern.bars[0].steps[4].locks.transpose.value, -12);
+	assert.equal(pattern.bars[0].steps[4].locks.transpose.pitchOctave, -1);
+	assert.equal(pattern.bars[0].steps[4].locks.transpose.pitchSemitone, 0);
+	assert.equal(pattern.bars[0].steps[4].locks.transpose.behavior, 'set');
+	assert.equal(pattern.bars[0].steps[4].condition, 0);
 	assert.equal(pattern.steps, pattern.bars[0].steps);
 	assert.equal(pattern.length, pattern.bars[0].length);
 });
@@ -1608,7 +1982,7 @@ test('Restore Start State is the explicit way to restore playback and persistent
 	pattern.steps[1].locks.volume = { value: 5, behavior: 'set' };
 	router.dispatch(0, 13, 1);
 	router.sequence64SubPulse();
-	assert.equal(router.s.tracks[0].playPos, 9);
+	assert.equal(router.s.tracks[0].playPos, 13);
 	assert.equal(router.s.tracks[0].reverse, 1);
 
 	harness.clearLog();
@@ -1791,18 +2165,23 @@ test('sequence64 Setup retains latched lock recording until Record is tapped aga
 	selectTrack(harness, 0);
 	const baseVolume = router.s.channels[0].volume;
 
-	// Latch Record, switch to Setup, then move volume and octave one-handed.
+	// Latch Record, switch to Setup, then move volume and semitone pitch one-handed.
 	router.dispatch(1, 13, 1);
 	router.dispatch(1, 13, 0);
 	assert.equal(router.sequence64LockRecordHeld, true);
 	router.dispatch(1, 15, 1);
 	router.dispatch(10, 9, 1);
-	router.dispatch(5, 10, 1);
+	router.dispatch(13, 10, 1);
 	const step = router.s.editorWorkspace.patterns64['track:0'].steps[0];
 	assert.equal(router.s.editorWorkspace.view64, 'setup');
 	assert.equal(step.locks.volume.value, 10);
 	assert.equal(step.locks.volume.behavior, 'set');
-	assert.equal(step.locks.octave.value, 2);
+	assert.equal(step.locks.transpose.value, 5);
+	assert.equal(step.locks.transpose.pitchOctave, 0);
+	assert.equal(step.locks.transpose.pitchSemitone, 5);
+	assert.equal(router.s.tracks[0].transpose, 5);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2[box]transpose' && message[1] === 'int' && message[2] === 5), true);
 	assert.equal(router.s.channels[0].volume, baseVolume);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '1[gatefx]level' && message[1] === 10 / 15), true);
@@ -1811,6 +2190,42 @@ test('sequence64 Setup retains latched lock recording until Record is tapped aga
 	router.dispatch(1, 13, 1);
 	router.dispatch(1, 13, 0);
 	assert.equal(router.sequence64LockRecordHeld, false);
+});
+
+test('pitch locks combine step-local octave and semitone components in either order', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	pattern.steps[0].cut = { track: 0, slice: 0, gateLength: 1 };
+	router.sequence64HeldStep = 0;
+	router.sequence64EditParameter = 'transpose';
+
+	router.dispatch(1, 13, 1);
+	assert.equal(router.s.tracks[0].octave, 0);
+	assert.equal(pattern.steps[0].locks.transpose.pitchOctave, 1);
+	assert.equal(pattern.steps[0].locks.transpose.pitchSemitone, 0);
+	assert.equal(pattern.steps[0].locks.transpose.value, 12);
+
+	router.dispatch(14, 13, 1);
+	assert.equal(pattern.steps[0].locks.transpose.pitchOctave, 1);
+	assert.equal(pattern.steps[0].locks.transpose.pitchSemitone, 6);
+	assert.equal(pattern.steps[0].locks.transpose.value, 18);
+	assert.equal(router.sequence64LockValueColumn('transpose', pattern.steps[0]), 14);
+	pattern.running = 1;
+	router.runSequence64StepForTarget('track', 0, pattern, 0, 0);
+	assert.equal(router.s.tracks[0].transpose, 18);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2[box]transpose' && message[1] === 'int' && message[2] === 18), true);
+
+	router.dispatch(0, 13, 1);
+	assert.equal(pattern.steps[0].locks.transpose.pitchOctave, 0);
+	assert.equal(pattern.steps[0].locks.transpose.pitchSemitone, 6);
+	assert.equal(pattern.steps[0].locks.transpose.value, 6);
+
+	router.stopSequence64Target('track', 0, 'test');
+	assert.equal(router.s.tracks[0].transpose, 0);
 });
 
 test('sequence64 pattern clear requires a deliberate second press', () => {
@@ -1888,7 +2303,8 @@ test('group cuts launch a one-shot track phrase whose first step merges with the
 	group.steps[0].cut = { track: 0, slice: 4, gateLength: 1 };
 	group.running = 1;
 	phrase.steps[0].locks.reverse = { value: 1, behavior: 'set' };
-	phrase.steps[1].cut = { track: 0, slice: 9, gateLength: 1 };
+	phrase.steps[1].cut = { track: 0, slice: 6, gateLength: 1 };
+	phrase.steps[1].locks.slice = { value: 9, behavior: 'set' };
 
 	router.runSequence64StepForTarget('group', 0, group, 0, 0);
 	const instance = router.activeSequence64PhraseForTrack(0);
@@ -1909,7 +2325,7 @@ test('group cuts launch a one-shot track phrase whose first step merges with the
 	harness.clearLog();
 	router.advanceSequence64ClockSubstep();
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '2input' && message[1] === 9 && message[2] === 1), true);
+		message[0] === '2input' && message[1] === 13 && message[2] === 1), true);
 
 	for (let pulse = 2; pulse <= 16; pulse++) router.advanceSequence64ClockSubstep();
 	assert.equal(router.activeSequence64PhraseForTrack(0), null);
@@ -1972,10 +2388,10 @@ test('saved rational rates service every crossed group step and scale phrases', 
 	harness.clearLog();
 	router.advanceSequence64ClockSubstep();
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '2input' && message[1] === 11 && message[2] === 1), false);
+		message[0] === '2input' && message[1] === 13 && message[2] === 1), false);
 	router.advanceSequence64ClockSubstep();
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '2input' && message[1] === 11 && message[2] === 1), true);
+		message[0] === '2input' && message[1] === 13 && message[2] === 1), true);
 });
 
 test('Shift selects arbitrary bar endpoints and per-pattern rates without toggling cuts', () => {
@@ -2003,7 +2419,7 @@ test('Shift selects arbitrary bar endpoints and per-pattern rates without toggli
 		router.editorShellLevelIndex(11, 15)] >= 3, true);
 });
 
-test('an explicit first phrase cut overrides the group slice without double-triggering', () => {
+test('an explicit first phrase cut offsets the group slice without double-triggering', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
@@ -2016,7 +2432,7 @@ test('an explicit first phrase cut overrides the group slice without double-trig
 	router.runSequence64StepForTarget('group', 0, group, 0, 0);
 	const presses = harness.namedMessages.filter((message) =>
 		message[0] === '2input' && message[2] === 1);
-	assert.deepEqual(presses, [['2input', 12, 1]]);
+	assert.deepEqual(presses, [['2input', 15, 1]]);
 });
 
 test('same-group retriggers replace child phrases and manual cuts cancel the child', () => {
@@ -2061,7 +2477,7 @@ test('track Run previews its phrase once and returns to stopped', () => {
 	harness.clearLog();
 	router.advanceSequence64ClockSubstep();
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '2input' && message[1] === 10 && message[2] === 1), true);
+		message[0] === '2input' && message[1] === 0 && message[2] === 1), true);
 	for (let pulse = 2; pulse <= 16; pulse++) router.advanceSequence64ClockSubstep();
 	assert.equal(phrase.running, 0);
 	assert.equal(router.activeSequence64PhraseForTrack(0), null);
@@ -2163,11 +2579,157 @@ test('group lock editor exposes assigned tracks and stores or clears a per-step 
 	selectTrack(harness, 2);
 	router.sequence64HeldStep = 0;
 	router.sequence64EditParameter = 'slice';
-	assert.equal(router.sequence64VisibleParameters().length, 8);
+	assert.equal(router.sequence64VisibleParameters().length, 9);
+	assert.equal(Array.from(router.sequence64VisibleParameters()).includes('track'), false);
 	levels = router.buildEditorShellLevels();
-	assert.equal(levels[router.editorShellLevelIndex(12, 12)], 0);
+	assert.equal(levels[router.editorShellLevelIndex(12, 12)] >= 3, true);
 	router.dispatch(12, 12, 1);
-	assert.equal(router.sequence64EditParameter, 'slice');
+	assert.equal(router.sequence64EditParameter, 'condition');
+});
+
+test('conditional trigger editor exposes Every 2–9 and Skip 2–9 without moving Track', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectGroup(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['group:0'];
+	pattern.steps[0].cut = { track: 0, slice: 3, gateLength: 1 };
+	router.sequence64HeldStep = 0;
+
+	let levels = router.buildEditorShellLevels();
+	assert.equal(levels[router.editorShellLevelIndex(12, 12)] >= 3, true);
+	assert.equal(levels[router.editorShellLevelIndex(13, 12)] >= 3, true);
+	router.dispatch(13, 12, 1);
+	assert.equal(router.sequence64EditParameter, 'condition');
+
+	router.dispatch(0, 13, 1);
+	assert.equal(pattern.steps[0].condition, 2);
+	assert.equal(router.sequence64LockValueColumn('condition', pattern.steps[0]), 0);
+	router.dispatch(7, 13, 1);
+	assert.equal(pattern.steps[0].condition, 9);
+	router.dispatch(8, 13, 1);
+	assert.equal(pattern.steps[0].condition, -2);
+	router.dispatch(15, 13, 1);
+	assert.equal(pattern.steps[0].condition, -9);
+	assert.equal(router.sequence64LockValueColumn('condition', pattern.steps[0]), 15);
+	router.dispatch(15, 14, 1);
+	assert.equal(pattern.steps[0].condition, 0);
+
+	selectTrack(harness, 0);
+	router.sequence64HeldStep = 0;
+	levels = router.buildEditorShellLevels();
+	assert.equal(levels[router.editorShellLevelIndex(12, 12)] >= 3, true);
+	assert.equal(levels[router.editorShellLevelIndex(13, 12)], 0);
+});
+
+test('Every and Skip conditions gate group cuts before probability, locks, and audio', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	const pattern = router.ensureSequence64Pattern('group', 0);
+	const step = pattern.steps[0];
+	step.cut = { track: 0, slice: 6, gateLength: 1 };
+	step.locks.reverse = { value: 1, behavior: 'set' };
+	pattern.running = 1;
+
+	for (let every = 2; every <= 9; every++) {
+		step.condition = every;
+		assert.equal(router.sequence64ConditionPass(step, 1), false);
+		assert.equal(router.sequence64ConditionPass(step, every), true);
+		step.condition = -every;
+		assert.equal(router.sequence64ConditionPass(step, 1), true);
+		assert.equal(router.sequence64ConditionPass(step, every), false);
+	}
+
+	step.condition = 2;
+	harness.clearLog();
+	assert.equal(router.runSequence64StepForTarget('group', 0, pattern, 0, 0, 0), 0);
+	assert.equal(harness.namedMessages.some((message) => message[0] === '2input'), false);
+	assert.equal(harness.namedMessages.some((message) => message[0] === '2[box]rev'), false);
+	assert.equal(router.s.tracks[0].reverse, 0);
+
+	harness.clearLog();
+	assert.equal(router.runSequence64StepForTarget('group', 0, pattern, 0, 0, 64), 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 6 && message[2] === 1), true);
+	assert.equal(router.s.tracks[0].reverse, 1);
+
+	step.condition = -2;
+	harness.clearLog();
+	assert.equal(router.runSequence64StepForTarget('group', 0, pattern, 0, 0, 0), 1);
+	harness.clearLog();
+	assert.equal(router.runSequence64StepForTarget('group', 0, pattern, 0, 0, 64), 0);
+	assert.equal(harness.namedMessages.some((message) => message[0] === '2input'), false);
+});
+
+test('group-launched phrases inherit the parent occurrence for their conditional steps', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	const phrase = router.ensureSequence64Pattern('track', 0);
+	phrase.steps[1].cut = { track: 0, slice: 4, gateLength: 1 };
+	phrase.steps[1].condition = 2;
+
+	router.launchSequence64TrackPhrase(0, 3, 'group:0', 'group:0', false, 1);
+	harness.clearLog();
+	assert.equal(router.runSequence64PhraseStep(router.activeSequence64PhraseForTrack(0), 1), 0);
+	assert.equal(harness.namedMessages.some((message) => message[0] === '2input'), false);
+
+	router.launchSequence64TrackPhrase(0, 3, 'group:0', 'group:0', false, 2);
+	harness.clearLog();
+	assert.equal(router.runSequence64PhraseStep(router.activeSequence64PhraseForTrack(0), 1), 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 7 && message[2] === 1), true);
+});
+
+test('conditional and probability decisions flash four distinct semantic playhead colors', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectGroup(harness, 0);
+	const pattern = router.s.editorWorkspace.patterns64['group:0'];
+	const step = pattern.steps[0];
+	step.cut = { track: 0, slice: 6, gateLength: 1 };
+	pattern.running = 1;
+	pattern.phaseOrigin = 0;
+	router.sequence64ClockPosition = 0;
+	const playheadColor = () => Array.from(router.buildEditorShellColors(
+		router.buildEditorShellLevels())[router.editorShellLevelIndex(0, 8)]);
+
+	step.condition = 2;
+	router.runSequence64StepForTarget('group', 0, pattern, 0, 0, 0);
+	assert.deepEqual(playheadColor(), [255, 45, 55]);
+	router.runSequence64StepForTarget('group', 0, pattern, 0, 0, 64);
+	assert.deepEqual(playheadColor(), [255, 135, 25]);
+
+	step.condition = 0;
+	step.probability = 8;
+	router.editorProbabilityPass = () => false;
+	router.runSequence64StepForTarget('group', 0, pattern, 0, 0, 0);
+	assert.deepEqual(playheadColor(), [185, 70, 255]);
+	router.editorProbabilityPass = () => true;
+	router.runSequence64StepForTarget('group', 0, pattern, 0, 0, 0);
+	assert.deepEqual(playheadColor(), [255, 225, 35]);
+
+	const snapshot = router.hudPatternSnapshotObject('group', 0, pattern);
+	assert.equal(snapshot.decisionOutcome, 'probabilityPlay');
+});
+
+test('a conditional first phrase step can skip or play its merged group hit', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	const phrase = router.ensureSequence64Pattern('track', 0);
+	phrase.steps[0].condition = 2;
+
+	harness.clearLog();
+	router.launchSequence64TrackPhrase(0, 3, 'group:0', 'group:0', false, 1);
+	assert.equal(harness.namedMessages.some((message) => message[0] === '2input'), false);
+
+	harness.clearLog();
+	router.launchSequence64TrackPhrase(0, 3, 'group:0', 'group:0', false, 2);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 3 && message[2] === 1), true);
 });
 
 test('an explicit group track waits safely after reassignment while inherited cuts migrate with defaultTrack', () => {
@@ -2411,9 +2973,176 @@ test('sequence64 autowatch reload closes the editor and safely restores its acti
 	assert.equal(reloadedHarness.context.s.editorWorkspace.parameterValues64['track:0'].volume, 5);
 	assert.equal(reloadedHarness.context.s.editorWorkspace.parameterValues64['track:0'].volumeOutput, 15);
 	assert.equal(reloadedHarness.namedMessages.some((message) =>
-		message[0] === '1[pl]stop' && message[1] === 1), true);
+		message[0] === '1[pl]stop' && message[1] === 'int' && message[2] === 1), true);
 	assert.equal(reloadedHarness.namedMessages.some((message) =>
 		message[0] === '1[gatefx]level' && message[1] === 1 && message[2] === 8), true);
 	assert.equal(reloadedHarness.namedMessages.some((message) =>
 		message[0] === '1[filterfx]level' && message[1] === 1 && message[2] === 8), true);
+});
+
+test('HUD snapshot, target navigation, and transport reuse Sequence64 state', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.hudSnapshot();
+	assert.equal(harness.hudMessages.some((message) => message[0] === 'mode'), true);
+	assert.equal(harness.hudMessages.filter((message) => message[0] === 'track').length, 16);
+	assert.equal(harness.hudMessages.filter((message) => message[0] === 'channel').length, 8);
+
+	router.hudTarget('group', 2);
+	assert.equal(router.s.editorWorkspace.targetType, 'group');
+	assert.equal(router.s.editorWorkspace.targetId, 2);
+	router.hudTransport('run');
+	assert.equal(router.currentSequence64Pattern().running, 1);
+	router.hudBar(0);
+	router.hudTransport('stop');
+	assert.equal(router.currentSequence64Pattern().running, 0);
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'pattern_snapshot' && /\"targetId\":2/.test(message[1])), true);
+});
+
+test('HUD color lab edits and resets runtime roles without changing the protocol layer', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	const original = Array.from(router.SEQUENCE64_COLORS.trigger);
+	router.hudSnapshot();
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'color_role' && message[1] === 'rta.trigger'), true);
+	harness.clearLog();
+
+	assert.equal(router.hudColorRole('rta.trigger', 12, 34, 56), true);
+	assert.deepEqual(Array.from(router.SEQUENCE64_COLORS.trigger), [12, 34, 56]);
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'color_role' && message[1] === 'rta.trigger' &&
+		message[3] === 12 && message[5] === 56), true);
+	assert.equal(Array.from(router.pageColorQueue).some((message) =>
+		message[0] === 'colormap'), true);
+
+	assert.equal(router.hudColorReset('rta.trigger'), true);
+	assert.deepEqual(Array.from(router.SEQUENCE64_COLORS.trigger), original);
+});
+
+test('physical sample browser assigns samples to the selected track on the first press', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.sampleBrowserReset(3);
+	router.sampleBrowserColor(0, 240, 50, 30);
+	router.sampleBrowserColor(1, 230, 60, 35);
+	router.sampleBrowserColor(2, 30, 170, 235);
+	router.sampleBrowserAssignment(2, 1);
+	harness.clearLog();
+
+	assert.equal(router.sampleBrowserOpen(2, -1), true);
+	assert.equal(router.sampleBrowserState.active, true);
+	assert.equal(router.sampleBrowserState.selectedSample, -1);
+	const openingFrame = harness.outlets.find((message) =>
+		message[0] === 1 && message[1] === 'replaceframe');
+	assert.ok(openingFrame);
+	assert.equal(openingFrame[4 + 2], 15);
+	assert.equal(openingFrame[4 + 1], 6);
+	assert.equal(openingFrame[4 + 16], 4);
+	assert.equal(openingFrame[4 + 16 + 1], 10);
+	const palette = router.buildSampleBrowserPalette();
+	assert.deepEqual(Array.from(palette[16]), [240, 50, 30]);
+	assert.deepEqual(Array.from(palette[17]), [230, 60, 35]);
+
+	harness.clearLog();
+	router.playbackDispatching = true;
+	router.dispatch(0, 1, 1);
+	router.playbackDispatching = false;
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'assign'), false);
+
+	router.dispatch(0, 1, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'assign' &&
+		message[2] === 2 && message[3] === 0), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'preview'), false);
+	assert.equal(router.sampleBrowserState.selectedSample, 0);
+	assert.equal(router.sampleBrowserState.assignments[2], 0);
+
+	harness.clearLog();
+	router.dispatch(2, 1, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'assign' &&
+		message[2] === 2 && message[3] === 2), true);
+	assert.equal(router.sampleBrowserState.selectedSample, 2);
+	assert.equal(router.sampleBrowserState.assignments[2], 2);
+
+	harness.clearLog();
+	router.dispatch(4, 0, 1);
+	router.dispatch(4, 0, 0);
+	assert.equal(router.sampleBrowserState.selectedTrack, 4);
+	router.dispatch(4, 0, 1);
+	assert.equal(router.sampleBrowserExitHoldTask.running, true);
+	router.sampleBrowserExitHoldTask.callback.call(router.sampleBrowserExitHoldTask.owner);
+	assert.equal(router.sampleBrowserState.active, false);
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'sample_browser' && message[1] === 0), true);
+});
+
+test('sample browser pages 240 entries while preserving lower-half editor drawing and input', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	router.sampleBrowserReset(240);
+	for (let sample = 0; sample < 240; sample++) {
+		router.sampleBrowserColor(sample, sample % 255, 80, 180);
+	}
+	harness.clearLog();
+
+	router.sampleBrowserOpen(0, 110);
+	assert.equal(router.sampleBrowserState.page, 1);
+	const openingFrame = harness.outlets.find((message) =>
+		message[0] === 1 && message[1] === 'replaceframe');
+	assert.ok(openingFrame);
+	// Sample 110 is page-2 slot 14: logical row 2, column 15.
+	assert.equal(openingFrame[4 + 16 + 14], 15);
+	const editorLevels = router.buildEditorShellLevels();
+	assert.equal(openingFrame[4 + 8 * 16],
+		editorLevels[router.editorShellLevelIndex(0, 8)]);
+	assert.equal(editorLevels[router.editorShellLevelIndex(12, 15)], 15);
+
+	// Browser callbacks cannot paint through its top-half ownership.
+	harness.clearLog();
+	router.led(5, 2, 15);
+	router.kfping(5, 2, 15, 8);
+	assert.deepEqual(harness.outlets, []);
+
+	// The same modal overlay deliberately yields rows 9–16 to ṛta.
+	router.dispatch(3, 8, 1);
+	router.dispatch(3, 8, 0);
+	assert.ok(router.s.editorWorkspace.patterns64['track:0'].steps[3].cut);
+
+	// Footer navigation changes the 96-sample page without touching the editor.
+	router.dispatch(0, 7, 1);
+	assert.equal(router.sampleBrowserState.page, 0);
+	router.dispatch(6, 7, 1);
+	assert.equal(router.sampleBrowserState.page, 2);
+
+	// Physical row 16, column 13 is the persistent editor shortcut/toggle.
+	router.dispatch(12, 15, 1);
+	assert.equal(router.sampleBrowserState.active, false);
+	harness.clearLog();
+	router.dispatch(12, 15, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'browserOpen' &&
+		message[2] === 0 && message[3] === -1), true);
+});
+
+test('mode changes close the sample-browser overlay and restore the requested page', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.sampleBrowserReset(1);
+	router.sampleBrowserOpen(0, 0);
+	harness.clearLog();
+
+	router.setKmod(1);
+	assert.equal(router.sampleBrowserState.active, false);
+	assert.equal(router.s.kmod, 1);
+	assert.equal(harness.outlets.filter((message) =>
+		message[0] === 1 && message[1] === 'replaceframe').length, 1);
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'sample_browser' && message[1] === 0), true);
 });

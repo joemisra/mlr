@@ -7011,14 +7011,25 @@
                     "maxclass": "bpatcher",
                     "name": "serialosc_list_devices.maxpat",
                     "numinlets": 1,
-                    "numoutlets": 2,
+                    "numoutlets": 3,
                     "offset": [ 0.0, 0.0 ],
-                    "outlettype": [ "", "" ],
+                    "outlettype": [ "", "", "bang" ],
                     "patching_rect": [ 921.0, 65.0, 202.0, 25.0 ],
                     "presentation": 1,
                     "presentation_rect": [ 435.0, 486.0, 202.0, 25.0 ],
                     "varname": "obj-15751",
                     "viewvisibility": 1
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-grid-hardware-resync",
+                    "maxclass": "message",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 1133.0, 65.0, 102.0, 22.0 ],
+                    "text": "hardwareResync"
                 }
             },
             {
@@ -8920,7 +8931,7 @@
                                     "numinlets": 1,
                                     "numoutlets": 0,
                                     "patching_rect": [ 299.0, 137.0, 39.0, 17.0 ],
-                                    "presentation": 1,
+                                    "presentation": 0,
                                     "presentation_rect": [ 381.0, 460.0, 39.0, 17.0 ],
                                     "text": "preset",
                                     "varname": "obj-10857"
@@ -8942,7 +8953,7 @@
                                     "numoutlets": 0,
                                     "offset": [ -26.0, -39.0 ],
                                     "patching_rect": [ 50.0, 105.0, 250.0, 41.0 ],
-                                    "presentation": 1,
+                                    "presentation": 0,
                                     "presentation_rect": [ 132.0, 428.0, 250.0, 41.0 ],
                                     "varname": "obj-5145",
                                     "viewvisibility": 1
@@ -8959,7 +8970,7 @@
                                     "numinlets": 1,
                                     "numoutlets": 0,
                                     "patching_rect": [ 50.0, 100.0, 290.0, 51.0 ],
-                                    "presentation": 1,
+                                    "presentation": 0,
                                     "presentation_rect": [ 128.0, 422.0, 290.0, 51.0 ],
                                     "rounded": 0,
                                     "varname": "obj-0"
@@ -67993,6 +68004,64 @@
                     "rounded": 0,
                     "varname": "obj-1"
                 }
+            },
+            {
+                "box": {
+                    "id": "obj-hud-button",
+                    "maxclass": "textbutton",
+                    "numinlets": 1,
+                    "numoutlets": 3,
+                    "outlettype": [ "bang", "", "int" ],
+                    "parameter_enable": 0,
+                    "patching_rect": [ 795.0, 142.0, 58.0, 24.0 ],
+                    "presentation": 1,
+                    "presentation_rect": [ 825.0, 15.0, 58.0, 24.0 ],
+                    "text": "HUD",
+                    "texton": "HUD",
+                    "varname": "mlr_hud_open"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-hud-open",
+                    "maxclass": "message",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 863.0, 143.0, 35.0, 22.0 ],
+                    "text": "open"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-hud-pcontrol",
+                    "maxclass": "newobj",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 908.0, 143.0, 52.0, 22.0 ],
+                    "text": "pcontrol"
+                }
+            },
+            {
+                "box": {
+                    "bgmode": 0,
+                    "border": 1,
+                    "clickthrough": 0,
+                    "enablehscroll": 0,
+                    "enablevscroll": 0,
+                    "id": "obj-hud-host",
+                    "lockeddragscroll": 1,
+                    "lockedsize": 0,
+                    "maxclass": "bpatcher",
+                    "name": "hud.maxpat",
+                    "numinlets": 1,
+                    "numoutlets": 0,
+                    "offset": [ 0.0, 0.0 ],
+                    "patching_rect": [ 795.0, 178.0, 360.0, 240.0 ],
+                    "varname": "mlr_hud_host",
+                    "viewvisibility": 1
+                }
             }
         ],
         "lines": [
@@ -68041,7 +68110,7 @@
             },
             {
                 "patchline": {
-                    "destination": [ "obj-74", 0 ],
+                    "destination": [ "obj-gr-io", 0 ],
                     "source": [ "obj-113", 0 ]
                 }
             },
@@ -68791,6 +68860,18 @@
             },
             {
                 "patchline": {
+                    "destination": [ "obj-grid-hardware-resync", 0 ],
+                    "source": [ "obj-30", 2 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-gr-io", 0 ],
+                    "source": [ "obj-grid-hardware-resync", 0 ]
+                }
+            },
+            {
+                "patchline": {
                     "destination": [ "obj-168", 0 ],
                     "midpoints": [ 1616.5, 1366.0, 1636.0, 1366.0, 1636.0, 1291.0, 1418.5, 1291.0 ],
                     "source": [ "obj-31", 1 ]
@@ -68857,12 +68938,6 @@
             },
             {
                 "patchline": {
-                    "destination": [ "obj-172", 0 ],
-                    "source": [ "obj-41", 0 ]
-                }
-            },
-            {
-                "patchline": {
                     "destination": [ "obj-45", 0 ],
                     "hidden": 1,
                     "source": [ "obj-46", 1 ]
@@ -68872,12 +68947,6 @@
                 "patchline": {
                     "destination": [ "obj-32", 0 ],
                     "source": [ "obj-47", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-172", 0 ],
-                    "source": [ "obj-49", 0 ]
                 }
             },
             {
@@ -68896,12 +68965,6 @@
                 "patchline": {
                     "destination": [ "obj-gr-io", 0 ],
                     "source": [ "obj-52", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-172", 0 ],
-                    "source": [ "obj-53", 0 ]
                 }
             },
             {
@@ -69143,6 +69206,27 @@
                     "destination": [ "obj-gr-io", 0 ],
                     "order": 1,
                     "source": [ "obj-gr-rbp", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-hud-open", 0 ],
+                    "hidden": 1,
+                    "source": [ "obj-hud-button", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-hud-pcontrol", 0 ],
+                    "hidden": 1,
+                    "source": [ "obj-hud-open", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-hud-host", 0 ],
+                    "hidden": 1,
+                    "source": [ "obj-hud-pcontrol", 0 ]
                 }
             }
         ],

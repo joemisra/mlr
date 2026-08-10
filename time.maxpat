@@ -35,7 +35,7 @@
                     "numoutlets": 1,
                     "outlettype": [ "signal" ],
                     "patching_rect": [ 390.0, 300.0, 44.0, 19.0 ],
-                    "text": "rate~ 0.125"
+                    "text": "rate~ 0.125 @sync lock"
                 }
             },
             {
@@ -479,7 +479,7 @@
                     "numoutlets": 1,
                     "outlettype": [ "signal" ],
                     "patching_rect": [ 332.0, 300.0, 44.0, 19.0 ],
-                    "text": "rate~ 2"
+                    "text": "rate~ 2 @sync lock"
                 }
             },
             {

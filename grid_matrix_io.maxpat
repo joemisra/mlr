@@ -13,28 +13,6 @@
         "boxes": [
             {
                 "box": {
-                    "id": "obj-6",
-                    "maxclass": "message",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [ "" ],
-                    "patching_rect": [ 112.0, 287.0, 35.0, 22.0 ],
-                    "text": "clear"
-                }
-            },
-            {
-                "box": {
-                    "id": "obj-5",
-                    "maxclass": "message",
-                    "numinlets": 2,
-                    "numoutlets": 1,
-                    "outlettype": [ "" ],
-                    "patching_rect": [ 602.0, 346.0, 35.0, 22.0 ],
-                    "text": "clear"
-                }
-            },
-            {
-                "box": {
                     "id": "obj-7",
                     "maxclass": "message",
                     "numinlets": 2,
@@ -88,7 +66,7 @@
                     "numinlets": 1,
                     "numoutlets": 0,
                     "patching_rect": [ 1.0, 0.0, 476.0, 87.0 ],
-                    "text": "grid_matrix_io — varibright state in jit.matrix, bridge to /grid/led/level/map.\nMessages: edition 64|128|256, prefix /box, dual128 0|1, clear, flush, setcell x y v, fill v, fade_step.\nOut 0 = OSC to primary grid; out 1 = lower half when dual128 1 (stacked 2×128 as 256).\ngrid_anim_engine: kf x y t f …, line y x0 x1 …, tick (qmetro→flush when dirty). jit.matrix: grid_matrix_io_state."
+                    "text": "grid_matrix_io — V8 byte-array state bridge to /grid/led/level/map.\nMessages: replaceframe, edition 64|128|256, prefix /box, dual128 0|1, flush, setcell x y v.\nOut 0 = OSC to primary grid; out 1 = lower half when dual128 1 (stacked 2×128 as 256).\ngrid_anim_engine: kf x y t f …, line y x0 x1 …, tick; sends transient animcell/animclear updates directly to bridge."
                 }
             },
             {
@@ -127,17 +105,6 @@
             },
             {
                 "box": {
-                    "id": "obj-jm",
-                    "maxclass": "newobj",
-                    "numinlets": 1,
-                    "numoutlets": 2,
-                    "outlettype": [ "jit_matrix", "" ],
-                    "patching_rect": [ 514.0, 65.0, 382.0, 22.0 ],
-                    "text": "jit.matrix grid_matrix_io_state @planecount 1 @type char @dim 16 16"
-                }
-            },
-            {
-                "box": {
                     "filename": "grid_matrix_bridge.js",
                     "id": "obj-bridge",
                     "maxclass": "newobj",
@@ -148,7 +115,7 @@
                     "saved_object_attributes": {
                         "parameter_enable": 0
                     },
-                    "text": "v8 grid_matrix_bridge.js @args grid_matrix_io_state @autowatch 1",
+                    "text": "v8 grid_matrix_bridge.js @autowatch 1",
                     "textfile": {
                         "filename": "grid_matrix_bridge.js",
                         "flags": 0,
@@ -224,7 +191,7 @@
                     "saved_object_attributes": {
                         "parameter_enable": 0
                     },
-                    "text": "v8 grid_anim_engine.js @args grid_matrix_io_state @autowatch 1",
+                    "text": "v8 grid_anim_engine.js @autowatch 1",
                     "textfile": {
                         "filename": "grid_anim_engine.js",
                         "flags": 0,
@@ -310,25 +277,13 @@
             },
             {
                 "patchline": {
-                    "destination": [ "obj-anim", 0 ],
-                    "source": [ "obj-5", 0 ]
-                }
-            },
-            {
-                "patchline": {
-                    "destination": [ "obj-bridge", 0 ],
-                    "source": [ "obj-6", 0 ]
-                }
-            },
-            {
-                "patchline": {
                     "destination": [ "obj-bridge", 0 ],
                     "source": [ "obj-7", 0 ]
                 }
             },
             {
                 "patchline": {
-                    "destination": [ "obj-7", 0 ],
+                    "destination": [ "obj-bridge", 0 ],
                     "source": [ "obj-anim", 0 ]
                 }
             },

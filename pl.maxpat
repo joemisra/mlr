@@ -582,6 +582,44 @@
       },
       {
         "box": {
+          "id": "obj-channel-strip",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 2,
+          "outlettype": [
+            "signal",
+            "signal"
+          ],
+          "patching_rect": [
+            272.0,
+            464.0,
+            104.0,
+            22.0
+          ],
+          "text": "channel_strip #1"
+        }
+      },
+      {
+        "box": {
+          "id": "obj-plugin-rack",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 2,
+          "outlettype": [
+            "signal",
+            "signal"
+          ],
+          "patching_rect": [
+            272.0,
+            498.0,
+            118.0,
+            22.0
+          ],
+          "text": "mlr_plugin_rack #1"
+        }
+      },
+      {
+        "box": {
           "comment": "",
           "id": "obj-2",
           "index": 3,
@@ -4602,11 +4640,59 @@
       {
         "patchline": {
           "destination": [
-            "obj-40",
+            "obj-channel-strip",
+            1
+          ],
+          "source": [
+            "obj-1",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
+            "obj-channel-strip",
             0
           ],
           "source": [
             "obj-1",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
+            "obj-plugin-rack",
+            1
+          ],
+          "source": [
+            "obj-channel-strip",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
+            "obj-plugin-rack",
+            0
+          ],
+          "source": [
+            "obj-channel-strip",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
+            "obj-40",
+            0
+          ],
+          "source": [
+            "obj-plugin-rack",
             1
           ]
         }
@@ -4618,7 +4704,7 @@
             0
           ],
           "source": [
-            "obj-1",
+            "obj-plugin-rack",
             0
           ]
         }

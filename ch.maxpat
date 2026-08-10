@@ -111,6 +111,17 @@
             },
             {
                 "box": {
+                    "id": "obj-gridrouter-pos-speedlim",
+                    "maxclass": "newobj",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 147.0, 430.0, 74.0, 22.0 ],
+                    "text": "speedlim 33"
+                }
+            },
+            {
+                "box": {
                     "id": "obj-64",
                     "maxclass": "newobj",
                     "numinlets": 1,
@@ -1195,6 +1206,71 @@
                     "outlettype": [ "" ],
                     "patching_rect": [ 596.0, 7.5, 80.0, 19.0 ],
                     "text": "r #1[box]upOct"
+                }
+            },
+            {
+                "box": {
+                    "fontname": "Arial",
+                    "fontsize": 9.0,
+                    "id": "obj-transpose-recv",
+                    "maxclass": "newobj",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 500.0, 7.5, 91.0, 19.0 ],
+                    "text": "r #1[box]transpose"
+                }
+            },
+            {
+                "box": {
+                    "fontname": "Arial",
+                    "fontsize": 9.0,
+                    "id": "obj-transpose-ratio",
+                    "maxclass": "newobj",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [ "float" ],
+                    "patching_rect": [ 500.0, 40.0, 123.0, 19.0 ],
+                    "text": "expr pow(2\\, $f1 / 12.)"
+                }
+            },
+            {
+                "box": {
+                    "fontname": "Arial",
+                    "fontsize": 9.0,
+                    "id": "obj-transpose-ratio-trigger",
+                    "maxclass": "newobj",
+                    "numinlets": 1,
+                    "numoutlets": 2,
+                    "outlettype": [ "bang", "float" ],
+                    "patching_rect": [ 500.0, 65.0, 29.0, 19.0 ],
+                    "text": "t b f"
+                }
+            },
+            {
+                "box": {
+                    "fontname": "Arial",
+                    "fontsize": 9.0,
+                    "id": "obj-transpose-base-speed",
+                    "maxclass": "newobj",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "float" ],
+                    "patching_rect": [ 455.0, 292.0, 27.0, 19.0 ],
+                    "text": "f"
+                }
+            },
+            {
+                "box": {
+                    "fontname": "Arial",
+                    "fontsize": 9.0,
+                    "id": "obj-transpose-speed-multiply",
+                    "maxclass": "newobj",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "float" ],
+                    "patching_rect": [ 455.0, 328.0, 31.0, 19.0 ],
+                    "text": "* 1."
                 }
             },
             {
@@ -7756,7 +7832,7 @@
             },
             {
                 "patchline": {
-                    "destination": [ "obj-46", 4 ],
+                    "destination": [ "obj-transpose-base-speed", 0 ],
                     "source": [ "obj-28", 0 ]
                 }
             },
@@ -7775,9 +7851,15 @@
             },
             {
                 "patchline": {
-                    "destination": [ "obj-72", 0 ],
+                    "destination": [ "obj-gridrouter-pos-speedlim", 0 ],
                     "order": 1,
                     "source": [ "obj-31", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-72", 0 ],
+                    "source": [ "obj-gridrouter-pos-speedlim", 0 ]
                 }
             },
             {
@@ -8232,6 +8314,42 @@
                 "patchline": {
                     "destination": [ "obj-7", 0 ],
                     "source": [ "obj-8", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-transpose-ratio", 0 ],
+                    "source": [ "obj-transpose-recv", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-transpose-ratio-trigger", 0 ],
+                    "source": [ "obj-transpose-ratio", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-transpose-base-speed", 0 ],
+                    "source": [ "obj-transpose-ratio-trigger", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-transpose-speed-multiply", 1 ],
+                    "source": [ "obj-transpose-ratio-trigger", 1 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-transpose-speed-multiply", 0 ],
+                    "source": [ "obj-transpose-base-speed", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-46", 4 ],
+                    "source": [ "obj-transpose-speed-multiply", 0 ]
                 }
             },
             {

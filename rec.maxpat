@@ -1141,9 +1141,54 @@
                     "patching_rect": [ 283.0, 127.0, 40.0, 19.0 ],
                     "text": "t b b 1"
                 }
+            },
+            {
+                "box": {
+                    "id": "obj-session-record-state",
+                    "maxclass": "newobj",
+                    "numinlets": 1,
+                    "numoutlets": 0,
+                    "patching_rect": [ 430.0, 493.0, 190.0, 19.0 ],
+                    "text": "s mlr_session_recording_state"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-session-record-done",
+                    "maxclass": "message",
+                    "numinlets": 2,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 430.0, 454.0, 30.0, 19.0 ],
+                    "text": "0"
+                }
             }
         ],
         "lines": [
+            {
+                "patchline": {
+                    "destination": [ "obj-session-record-state", 0 ],
+                    "source": [ "obj-60", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-session-record-state", 0 ],
+                    "source": [ "obj-49", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-session-record-done", 0 ],
+                    "source": [ "obj-4", 0 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-session-record-state", 0 ],
+                    "source": [ "obj-session-record-done", 0 ]
+                }
+            },
             {
                 "patchline": {
                     "destination": [ "obj-3", 0 ],

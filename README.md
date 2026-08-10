@@ -17,7 +17,9 @@ Licensed under GPL v2 (see `license_mlr.txt`).
 5. Press keys on the grid to cut and remix
 
 For full operation details, see `mlr_info.txt` (opens from within the patch via the info button).
-The new lower-half sequencer is documented in `sequence64_editor_reference.md`.
+The new lower-half sequencer is named **ṛta (ऋत)** and is documented in
+`sequence64_editor_reference.md`. `Sequence64` remains its internal identifier
+for saved state, messages, filenames, and compatibility with existing sessions.
 A printable visual cheat sheet is available as
 [`docs/mlr-grid-reference.svg`](docs/mlr-grid-reference.svg), with a PNG copy
 for quick viewing.
@@ -54,18 +56,25 @@ autoPageColors 0|1
 ```
 
 `colorMap` assigns a row-major 4×4 block while leaving all legacy LED levels
-unchanged. Enabling MechaTrellis mode uploads automatic starter palettes for
-kmod pages 1–4, using 16 maps per 16×16 palette, and stores them in firmware
-slots 0–3. Later page changes send a single preset-recall packet. Their RGB
-values live in `PAGE_COLORS` and `GROUP_COLORS` near the top of
-`grid_router.js`.
+unchanged. Enabling MechaTrellis mode uploads the currently visible page as 16
+paced maps. Page changes directly upload the new page palette; automatic color
+handling does not depend on volatile firmware preset slots. Their RGB values
+live in `PAGE_COLORS` and `GROUP_COLORS` near the top of `grid_router.js`.
 
 Send `autoPageColors 0` to keep manual colors across page changes, or
-`applyPageColors 1` through `applyPageColors 4` to rebuild and store one page.
-Because firmware slots live in RAM, send `initializePageColorPresets` after a
-MechaTrellis reset that occurs while mlr remains open. Maps are lightly paced
-so they do not crowd legacy LED frames out of serialosc's nonblocking serial
-connection.
+`applyPageColors 1` through `applyPageColors 3` to upload one page.
+`initializePageColorPresets` remains as a compatibility message, but now simply
+invalidates remembered preset status and resends the visible page or sample
+browser. Maps are paced at 8 ms so they do not crowd standard LED frames out of
+serialosc's nonblocking serial connection. `storeColorPreset` and
+`recallColorPreset` remain available only for deliberate manual use.
+
+The current private color extension is write-only: firmware returns no reply
+for maps, colors, or preset recalls. MLR can therefore record the complete
+Max-side requested state and packet counters, but it cannot truthfully read the
+LED/palette state back from the device. Actual firmware verification would
+require a coordinated firmware, libmonome, and serialosc protocol extension;
+ordinary monome/old-serialosc operation remains untouched here.
 
 The remaining private commands are also available when direct 8-bit control is
 needed:
@@ -118,11 +127,13 @@ selects **Setup**, and column 16 exits.
 | Row 14, column 16 | Clear the viewed bar; press twice within 1.2 seconds |
 | Row 15 | Playable 16-slice lane for the selected/current track; the bright cell follows live position |
 | Row 16, column 12 | Hold Shift: steps set an exact 1–64 length; row 14 columns 1–9 select pattern rate |
+| Row 16, column 13 | Open/close the split sample browser while leaving ṛta available below |
 | Row 16, column 14 | Jump group → current/last track, or track → its assigned group |
 
-The row-15 lane uses the ordinary MLR track input plus the same immediate player
-trigger used by Sequence64 cuts, so it auditions reliably before Run is engaged
-and in a freshly opened editor. Its predicted marker replaces any stale
+The row-15 lane uses the ordinary MLR track input plus the immediate player
+trigger, so it auditions reliably before Run is engaged and in a freshly opened
+editor. Running Sequence64 cuts instead arm the native audio bridge and are
+released on the following raw clock boundary. Its predicted marker replaces any stale
 playback position immediately, then the normal DSP callback takes over. Tap row
 14 column 2 to latch Record, then play the lane to write each cut into the
 Sequence64 step currently under the playhead. Tap Record again to stop. For a
@@ -137,9 +148,13 @@ default; cuts with an explicit Track play only while that track is still
 assigned to the group.
 
 The Sequence clock receives one phase-locked `sequence64_pulse` per step from
-`time.maxpat`. It uses `rate~ 0.125` and both ramp edges to produce 16 steps per
-quarter note (64 per 4/4 bar). This is 16 times the quarter-note `tr_pulse`;
-JavaScript no longer schedules or catches up intermediate steps. Its four
+`time.maxpat`. It uses `rate~ 0.125 @sync lock` and both ramp edges to produce
+16 steps per quarter note (64 per 4/4 bar). This is 16 times the quarter-note
+`tr_pulse`; JavaScript no longer schedules or catches up intermediate steps.
+Because Max V8 always runs at low priority, `grid_router.js` only arms a cut.
+`sequence64_audio_bridge.maxpat` stores one pending cut per group and the next
+raw audio-derived pulse performs track press → player trigger → release with
+native Max objects. Manual and live-lane cuts remain immediate. Its four
 16-step parts are already visible together on rows 9–12; those rows are four
 quarters of one bar, not four independent pattern passes.
 
@@ -172,20 +187,28 @@ the viewed bar to 1–64 steps. Existing single-bar patterns remain bar 1.
 MIDI- or CV-addressable pattern trigger targets are a future extension only;
 this release does not add routing or change existing MIDI/CV behavior.
 
+On mode 2, the group Run row and track Run column are red. Tap one of these
+shortcuts to toggle that pattern; hold it for about 350 ms to open that exact
+group or track in Sequence64 without changing its Run state.
+
 Tap and release a step to add or remove its cut trigger. Hold a step for about
 350 ms to open its lock editor; the editor stays open after release. Click the
 selected step again to close it, or click another active step to edit that one.
 Clicking an empty step while the editor is open enables its default cut and
-moves the editor there.
+moves the editor there. The selected parameter remains latched while moving
+between steps, making repeated edits to the same parameter immediate.
 The live track-position lane yields to these popup controls while the editor is
 open. A slice choice is stored as a lock over the recorded/default cut slice;
-clearing that lock reveals the original slice again.
+clearing that lock reveals the original slice again. Group-pattern Slice values
+are absolute. Track-phrase Slice values are offsets added modulo 16 to the group
+cut that launched the phrase; during standalone Preview they are offsets from
+the track's current slice. Offset 0 preserves the root slice.
 The controls are centered on rows 13–15:
 
 | Lock row | Columns |
 |----------|---------|
-| Row 13 | 5 slice, 6 probability, 7 volume, 8 future filter, 9 reverse, 10 octave, 11 loop division, 12 gate length; group patterns also show 13 Track |
-| Row 14 | Value; slice/probability/volume/filter use columns 1–16, octave uses 1–7, division uses 1–8, gate length uses 1–16, and Track uses positions 1–16 |
+| Row 13 | 5 slice, 6 probability, 7 volume, 8 future filter, 9 reverse, 10 Transpose, 11 loop division, 12 gate length; group patterns show 13 Track and 14 Condition, while track phrases show 13 Condition |
+| Row 14 | Value; slice/probability/volume/filter use columns 1–16; for Transpose, columns 1/2 subtract/add a 12-semitone octave inside the selected step lock and columns 3–16 select its −6 through +7 semitone component; division uses 1–8, gate length and Track use positions 1–16; Condition uses Every 2–9 on columns 1–8 and Skip 2–9 on columns 9–16 |
 | Row 15 | For volume/filter: 6 Set, 7 Glide, 8 Pluck, 9 Swell, 10 Gate, 11 Pulse; column 16 clears the selected lock |
 
 On the group-only Track row, only tracks currently assigned to the selected
@@ -195,15 +218,26 @@ step does not already have one. Clearing Track preserves the cut and returns it
 to inherited-default behavior. Track patterns remain fixed to their selected
 track and do not show this parameter.
 
+Condition is an occurrence lock shared by group patterns and track phrases.
+**Every N** plays the step only on visits N, 2N, 3N, and so on; **Skip N** plays
+all visits except those multiples. Restart begins again at visit 1. A phrase
+launched by a group inherits the parent's visit number, and a failed condition
+skips probability, parameter locks, and the cut together. Clearing Condition
+returns the step to unconditional playback without changing its other data.
+The playhead flashes orange/red for Condition play/skip and yellow/violet for
+Probability play/skip. These transient colors also appear in the HUD and are
+editable as `rta.conditionPlay`, `rta.conditionSkip`, `rta.probabilityPlay`, and
+`rta.probabilitySkip` on the Colors page.
+
 Turning off a cyan/green trigger preserves its parameter locks. A resulting
 amber cell is a valid triggerless lock, not a stale LED; a step with neither a
 trigger nor locks returns to the neutral color.
 
 Trigger cuts and Set locks are latched. Exiting the editor leaves group Run
 latched. A group cut starts that track's phrase at phrase step 1; locks on that
-first phrase step modify the same hit, while an explicit phrase cut overrides
+first phrase step modify the same hit, while its Slice offset moves relative to
 the group's slice without producing a second hit. Later phrase cuts can
-retrigger other slices. A group retrigger restarts the phrase, and selecting
+retrigger relative slices. A group retrigger restarts the phrase, and selecting
 another track in the same group replaces the previous child phrase because both
 share the group player. Track Run controls audition the phrase once and return
 to stopped.
@@ -224,8 +258,9 @@ editor layout stops all Sequence64 targets as a safety boundary.
 
 Volume locks use the existing per-channel `[gatefx]level` multiplier, leaving
 the normal channel-volume control intact. Filter locks already emit the parallel
-`N[filterfx]level value ramp-ms` bus and preserve their data, but are silent until
-the planned filter DSP stage is added.
+`N[filterfx]level value ramp-ms` bus. They now close the group channel-strip
+low-pass filter while its HUD cutoff remains a manual ceiling. Stopping a target
+restores the prior automation owner or manual setting without erasing the lock.
 
 #### Live recording and Setup
 
@@ -251,7 +286,7 @@ The Setup view consolidates direct controls:
 |-----|----------|
 | 9 | Group assignment/indicator |
 | 10 | Channel volume |
-| 11 | Track octave −3 through +3 |
+| 11 | Pitch: with Record latched, columns 1/2 subtract/add a step-lock octave and columns 3–16 select its −6 through +7 semitone component; without Record, these edit the track-wide octave and Transpose baseline |
 | 12 | Columns 1/2 reverse/random offset; columns 3–10 loop division 1/4 through 1/48 |
 | 13 | Loop start |
 | 14 | Loop end |
@@ -292,7 +327,7 @@ remains an alias. Brightness still communicates state through the standard
 | Blue / amber | Sequence and bar navigation / Setup |
 
 Lock parameters and predefined shapes each have stable colors. Setup uses group
-colors plus dedicated families for volume, octave, reverse, randomization,
+colors plus dedicated families for volume, octave/transpose, reverse, randomization,
 division, loop bounds, latch, timestretch, and mute. Full editor palettes use
 4×4 maps; subsequent state and color-only changes use single-cell diffs. This
 keeps one-cell playheads and navigation feedback responsive without repainting
@@ -311,6 +346,12 @@ without sending private RGB commands on somebody else's grid.
 Mode-2 row 5, columns 1–8 toggle Run/Stop for group patterns 1–8. These
 buttons replace the older channel short-loop latch row. A running group key
 briefly dips on each audio trigger, then returns to its bright latched state.
+
+Mode-2 physical column 9 retains the old Max randomizer while also opening the
+sample browser: tap a track row to browse for that track, or hold it for about
+450 ms to send the original `N[box]rnd` message. The top-row Randomize All key
+remains immediate. Automation records only the resolved long-press Randomize
+action; a short browser tap is never captured as musical automation.
 
 | Column | Rows | Function |
 |--------|------|----------|
@@ -342,11 +383,119 @@ only among active bank entries. Send `reload` to `s sample_bank` after editing
 the manifest, or `read path/to/another-bank.json` to load another manifest. The
 old drag/drop and saved `_flist` paths remain available.
 
+The HUD's **Open Bank/List…** control accepts either the portable JSON format
+or an existing Max `.list`/text bank. Legacy imports skip recorder entries,
+deduplicate WAVE/AIFF paths, preserve absolute volume paths, and remain
+runtime-only—the source list is never rewritten. This provides a direct bridge
+from the old front-page workflow while a portable JSON bank is being assembled.
+
+**Scan Folder…** builds a runtime bank directly from a sample directory. The
+scan is recursive but bounded to 240 audio files—three compact physical-grid
+pages—and visits the folder tree in small scheduled
+batches so playback is not held up. It recognizes WAV/AIFF files, sorts them
+into filename/path-derived instrument families, and gives each normalized
+series a stable semantic color. This first organizer is local and deterministic;
+it does not upload audio or perform content analysis. Reload rescans the folder,
+and the source directory is never modified.
+
+### Max 9 HUD
+
+In Max 9, press **HUD** near the upper-right of MLR to open the responsive
+720×480 standalone-style display. Its seven tabs are:
+
+- **Live Grid** — a read-only 16×16 mirror of the composed varibright levels
+  and semantic colors, plus the active track, sample, slice, and editor state.
+  **Capture + Reinit Grid** records the current display layers and color queue,
+  rebuilds device-local levels and palettes, then records the settled state.
+- **ṛta** — synchronized group/track and bar selection, a four-row
+  pattern/phrase view, a read-only step inspector, and ownership-aware Run, Stop,
+  and Restart buttons.
+- **Strip** — one channel strip per group, with the working low-pass filter,
+  resonance, compressor engine A/B, threshold, ratio, timing, knee, parallel
+  mix, makeup, saturation drive, trim, and selected-group meters. **Clean** is a
+  custom stereo-linked Gen compressor; **OMX** is Max's `omx.comp~` character;
+  **Bypass** plus fully open filter, zero drive, and zero trim is the exact-dry
+  compatibility default. The **Rack** sub-tab adds four serial VST3/Audio Unit
+  effect slots after the built-in strip and before the group fader. Each slot
+  has click-safe load, bypass, editor, clear, and reorder controls; reported
+  per-slot/group latency is displayed without automatic compensation. The
+  chooser's **Refresh** button rereads Max's existing plug-in cache without a
+  potentially long third-party rescan. The list request deliberately does not
+  use `vstscan`'s optional `effect` filter: older valid Max cache records often
+  lack its newer category field and would otherwise disappear. Instruments and
+  zero-input entries are still rejected dry when selected. Large inventories reach the HUD in
+  paced atomic chunks, so the last complete list remains usable while it
+  refreshes. Use Max's Plug-in Browser **Full Scan** only when a newly installed
+  effect is absent from that cache.
+- **Samples** — sixteen runtime track assignments, a paged bank browser,
+  metadata, and cached mono/stereo waveforms read from existing named buffers.
+  A click selects and auditions through a private preview player; **Assign** or
+  a double-click commits the selection. **Stop Preview** silences auditioning.
+- **Colors** — a runtime color lab for Main/Mod page roles, all eight groups,
+  and ṛta's semantic roles. RGB can be changed in 16 coarse steps with ±1 fine
+  adjustment, with per-role and global reset. It never writes configuration.
+- **Session** — New, Open, Save, Save As, and Relink for versioned
+  `.mlr-session` bundles, including dirty prompts, progress, and missing-file
+  notices. The obsolete preset interface is hidden and disconnected.
+- **Help** — mode-following grid diagrams and hover descriptions for Main,
+  Mod, Groups, ṛta, lock editing, and the sample-grid page.
+
+The Live virtual keys and Pattern steps never trigger audio. Pattern target and
+bar controls do synchronize the physical Sequence64 editor, and its transport
+buttons call the same centralized ownership/lock-restoration routines as the
+grid. Sample assignments affect only the current session and never rewrite
+`sample-bank.json`. **Grid Browse** opens a split physical-grid browser without
+covering ṛta. Row 1 selects one of 16 tracks, rows 2–7 show 96 samples at a
+time, and row 8 is the browser footer: columns 1/2 move pages, columns 5–7 jump
+directly among the three pages, and column 16 closes. Rows 9–16 retain normal
+ṛta drawing and input ownership. Row 16 column 13 is another persistent
+open/close shortcut in both Sequence and Setup. Tap a sample once to audition
+it, then tap the same sample again to assign it to the selected track. Holding
+the selected track key also closes the browser. Track keys use their group
+colors; sample keys use stable colors derived from their normalized filename
+family. This internal overlay introduces no new serialosc or MechaTrellis
+protocol messages.
+
+`hud_model.js` is the Max-independent reducer and protocol model. `hud.js`
+contains only V8UI/mgraphics drawing and pointer behavior, while
+`hud_bridge.js` adapts MLR, Sequence64, and named audio buffers. Opening or
+recompiling the HUD requests a complete snapshot, then consumes incremental
+`mlr_hud_state` updates. Version one of the HUD requires Max 9/V8UI; its state
+model and zero-based event protocol are kept independent of Max APIs.
+
+### Modern sessions and plugin racks
+
+A session is a folder named `Name.mlr-session`. `session.json` stores transport,
+bank/catalog ordering, all 16 tracks, eight groups and strips, four rack slots
+per group, ṛta programming, router automation, and Color Lab roles. Plugin
+states live in `plugins/g01-s01.maxsnap`-style sidecars. Ordinary samples remain
+referenced in place; only live recording buffers actually assigned to tracks
+are copied into `recordings/` as float32 WAV files. Saving is refused while the
+live recorder is active.
+
+Save uses a temporary staging bundle and installs it only after the JSON and
+sidecars validate. Open preflights the complete schema, stops all playback and
+runtime ownership, restores durable state, and remains stopped. Missing plugins
+and samples retain their descriptors/assignments and pass dry or stay silent.
+Relink first tries the original bank-relative suffix, then a unique exact
+filename. Hardware layout, serialosc/MechaTrellis settings, display caches,
+diagnostics, and transient playheads are deliberately not session data.
+
+The plugin racks accept effects only: VST2, instruments, and zero-input plugins
+are rejected dry. MLR BPM and global Start/Stop are mirrored to Max Global
+Transport in 4/4 for tempo-aware plugins; stopping an individual ṛta target does
+not stop that shared transport. Rack loads use `vst~`'s format-specific
+`plug_vst3` and `plug_au` messages rather than the generic resolver. Since
+`vst~` hosts third-party code in the Max process, a plugin whose constructor
+itself never returns can still stall Max before an in-patch timeout can fire;
+after restarting, try the other cached format or remove that plugin from the
+rack/session descriptor.
+
 ### Crash diagnostics
 
 Playback diagnostics are enabled by default and written as newline-delimited JSON
-to `/tmp/mlr-diagnostic.log`. The log records sample triggers, playback-position
-callbacks, buffer-load requests (including path, channel count, duration, and
+to `/tmp/mlr-diagnostic.log`. The log records sample triggers, rate-limited
+playback-position and phrase-clock callbacks, buffer-load requests (including path, channel count, duration, and
 sample rate), track state changes, loop messages, Run state, and the latched
 Record state. It is capped at 8 MB and resets itself when the cap is reached.
 Because each event occupies one complete line, all earlier events remain readable
@@ -360,6 +509,27 @@ Send these messages to `gridrouter` when needed:
 
 After a crash, copy `/tmp/mlr-diagnostic.log` before reopening and testing again
 if you want to preserve that exact session separately.
+
+Display recovery incidents are stored separately as before/after JSON records
+in `/tmp/mlr-display-incidents.jsonl` and cross-referenced from the main log.
+They include stable foreground/background, transient animation level/mask,
+composite and semantic-color hashes, palette hashes, pending color commands,
+page/editor state, and outgoing packet counters. These are Max-side
+observations, not firmware acknowledgements.
+
+MLR is configured as one logical 16×16/edition-256 surface. A pair of physical
+128 panels is combined downstream by `grid_composite_2x128`; the matrix bridge
+itself remains in single-256 mode. Router startup and **Capture + Reinit Grid**
+both reassert this layout, preventing a stale 16×8 Global value from making the
+HUD publish only the top half.
+
+Grid flashes and fades use transient level and transparency-mask byte arrays
+owned by the display bridge. The animation engine sends explicit overlay
+updates and never binds or writes a named Jitter matrix. It may temporarily
+render brighter or darker than a key's base level; when a flash ends, its mask
+disappears and the current underlying page state is revealed. This
+prevents the legacy row and metronome fades from gradually clearing the HUD and
+physical grid during an unattended performance.
 
 Short-loop range, division, and channel latch remain together in the Sequence64
 Setup view. Triggering a track on a latched channel still reapplies its selected
@@ -432,7 +602,15 @@ Optional docs support:
 
 | File | Purpose |
 |------|---------|
-| `pl.maxpat` | Playback engine — `groove~` with tempo sync, fade, position control. One instance per channel row. |
+| `pl.maxpat` | Playback engine — `groove~`, fade, built-in strip, four-slot serial plugin rack, then the legacy group fader/routing. |
+| `channel_strip.maxpat` | Per-group filter, clean/OMX compressor A/B, parallel mix, saturation, trim, HUD state, and selected-group metering. |
+| `mlr_plugin_rack.maxpat` | Four serial dry-safe stereo effect slots per group. |
+| `mlr_plugin_slot.maxpat` | One click-safe `vst~` host with validation, bypass CPU disable, snapshots, and latency query. |
+| `mlr_plugin_service.maxpat` | VST3/AU inventory, rack state, commands, and HUD publication. |
+| `mlr_plugin_transport.maxpat` | Mirrors MLR BPM and global Start/Stop to Max Global Transport. |
+| `mlr_filter.maxpat` | Stereo Gen state-variable low-pass; combines manual cutoff and ṛta modulation with an exact-open bypass. |
+| `mlr_compressor.maxpat` | Custom zero-lookahead, stereo-linked Gen peak compressor used by the Clean engine. |
+| `mlr_saturator.maxpat` | Stereo Gen soft saturation stage with exact bypass at zero drive. |
 | `output.maxpat` | Per-channel output routing — volume, mute, metering. Routes to main out (dac 1-2) and monitor (dac 3-4). |
 | `mon.maxpat` | Monitor output bus — receives `mon1`/`mon2` signals, applies gain, outputs to dac 3-4. |
 | `chmon.maxpat` | Channel monitor routing — gates individual channels between main and monitor buses. |
@@ -443,6 +621,7 @@ Optional docs support:
 | File | Purpose |
 |------|---------|
 | `time.maxpat` | Master clock — generates tempo pulses, BPM, phase signals. Sends `tr_pulse`, the phase-locked `sequence64_pulse`, `tr_tempo`, and `box/led`. |
+| `sequence64_audio_bridge.maxpat` | Native one-shot cut registers released by `sequence64_pulse`, keeping sequenced player onsets out of V8's low-priority thread. |
 | `clock.maxpat` | Clock source selection (internal/external/beat clock), swing, MIDI device routing. |
 | `clock2.maxpat` | Secondary clock — beat clock distribution, MIDI tempo sync. Sends `gome_pulse`, `gome_tempo`. |
 
@@ -552,14 +731,14 @@ _mlr.maxpat (main orchestrator)
   |
   +---> time.maxpat / clock.maxpat -----> tr_pulse, tr_tempo, [time]phase
   |                                           |
-  +---> pl.maxpat (per-channel)  <-----------+  (tempo sync)
-  |       |   groove~ playback
-  |       v
+  +---> pl.maxpat (per-group)  <-------------+  (tempo sync)
+  |       |   groove~ -> fade -> filter -> compressor -> color/trim -> 4-slot rack
+  |       v   -> existing volume/lock stage
   +---> djfxxx-0.2.maxpat (effects) -----> output.maxpat (per-channel)
   |                                             |
   +---> pattern.maxpat (records key sequences)  +---> dac~ 1 2 (main)
   |                                             +---> mon.maxpat ---> dac~ 3 4 (monitor)
-  +---> preset.maxpat (save/recall)
+  +---> mlr_session_service.maxpat (modern staged save/load)
   +---> file_list.maxpat (sample browser)
 ```
 
@@ -599,7 +778,7 @@ when the patch is instantiated.
 - `_box/led` — secondary LED bus (used by djio)
 
 **Global control:**
-- `kmod` — modifier key state (0=normal, 1=stop mode, 2=mod page)
+- `kmod` — grid page state (1=Main, 2=Mod/Sequence64, 3=Groups)
 - `[mlr]start` / `[mlr]stop` / `[mlr]reset` — transport control
 - `[mlr]q` — quantize setting
 - `randoggu` — random pattern trigger

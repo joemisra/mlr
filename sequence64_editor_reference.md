@@ -1,6 +1,9 @@
-# 64-Step Editor Reference
+# ṛta (ऋत) Editor Reference
 
 Updated 2026-07-30. Grid coordinates in this document are one-based.
+
+**ṛta** is the user-facing name of this pattern-and-phrase instrument.
+`Sequence64` remains the internal implementation and compatibility identifier.
 
 ## Safety and compatibility
 
@@ -28,12 +31,20 @@ white for the playhead, and orange for the held step. Run/Add are green,
 recording is pink, destructive controls are red, Sequence navigation is cyan,
 and Setup navigation is amber.
 
+Conditional and probability decisions temporarily replace the white playhead:
+orange means Condition played, red means Condition skipped, yellow means
+Probability played, and violet means Probability skipped. The flash lasts one
+audio-derived subpulse, then reveals the normal playhead or saved step color.
+When both settings are present, a failed Condition is red; after Condition
+passes, the later Probability result supplies the visible yellow/violet result.
+All four colors are editable from the HUD Colors page.
+
 Turning off a trigger deliberately preserves its locks, so an amber cell after
 that action is a triggerless lock rather than a stuck color. With no remaining
 locks, the renderer explicitly restores the neutral step color.
 
 Each lock parameter and predefined shape also has a stable color. Setup reuses
-the eight group colors and gives volume, octave, reverse, randomization, loop
+the eight group colors and gives volume, octave/transpose, reverse, randomization, loop
 division, loop bounds, latch, timestretch, and mute separate families. Color
 changes can be sent even when a cell's level does not change. The standard
 0–15 level remains the complete state representation and is always sent through
@@ -47,8 +58,8 @@ one-shot phrase pattern:
 
 ```text
 pattern = {
-  version: 5,
-  defaultTrack: -1..14,
+  version: 9,
+  defaultTrack: -1..15,
   rateNumerator: 1..16,
   rateDenominator: 1..16,
   running: 0 | 1,
@@ -63,14 +74,20 @@ bar = {
 }
 
 step = {
-  cut: null | { track: -1..14, slice: 0..15, gateLength: 1..16 },
+  cut: null | { track: -1..15, slice: 0..15, gateLength: 1..64 },
   probability: 0..15,
+  condition: 0 | 2..9 | -2..-9,
   locks: {
     slice?:        { value: 0..15, behavior: "set" },
     volume?:       { value: 0..15, behavior: shape },
     filter?:       { value: 0..15, behavior: shape },
     reverse?:      { value: 0|1, behavior: "set" },
-    octave?:       { value: -3..3, behavior: "set" },
+    transpose?:    {
+      value: -96..96 total semitones,
+      pitchOctave: -8..8,
+      pitchSemitone: -6..7,
+      behavior: "set"
+    },
     loopDivision?: { value: 4|6|8|12|16|24|32|48, behavior: "set" }
   }
 }
@@ -78,9 +95,14 @@ step = {
 
 New group targets start with one 64-step bar. New track phrases start empty with
 one 16-step bar, matching the tracker-style instrument-phrase role. Either can
-be resized or extended to eight bars. Version-1/2/3/4 and legacy single-bar data
+be resized or extended to eight bars. Version-1/2/3/4/5/6/7/8 and legacy single-bar data
 becomes bar 1 without being deleted. Internally, `pattern.length` and
 `pattern.steps` remain compatibility aliases for bar 1.
+
+Version-6 octave locks migrate to Transpose at twelve semitones per old octave
+unit. Version 8 records the octave and semitone UI components while retaining
+their combined total for playback and compatibility. Version 9 adds the
+per-step conditional trigger; older steps migrate to unconditional (`0`).
 
 For a group pattern, `track: -1` inherits `defaultTrack`. A fresh or migrated
 group pattern resolves that default from the current active track, then the last
@@ -162,17 +184,38 @@ editor, which remains open after release. Clicking the selected step closes the
 editor without changing the cut; clicking another active step moves the editor
 to it. Clicking an empty step while the editor is open creates its default cut
 and moves the editor there, allowing several steps to be programmed without
-closing the popup. Parameter buttons occupy columns 5–12, with group patterns
-adding Track at column 13, and the six shape buttons remain on columns 6–11.
-Slice edits are locks over the cut's recorded/default slice, and the value row
-shows the effective locked slice. Clearing the slice lock returns to the
-underlying cut slice.
+closing the popup. The selected parameter stays latched when moving to another
+step; opening the editor fresh still starts on Slice. The original eight
+parameter buttons occupy columns 5–12. Group patterns retain Track at column 13
+and add Condition at column 14; track phrases omit Track and put Condition at
+column 13. The six shape buttons remain on columns 6–11. Slice edits are locks over the cut's
+recorded/default slice, and the value row shows the effective locked slice.
+Clearing the slice lock returns to the underlying cut slice. In a group pattern
+that value is absolute. In a track phrase it is an offset: the phrase adds it
+modulo 16 to the launching group cut, or to the track's current slice during
+standalone Preview. Offset 0 preserves the root slice.
+
+When Transpose is selected, row 14 columns 1 and 2 subtract or add twelve
+semitones inside that step's pitch lock. Columns 3–16 select its fine component
+from −6 through +7 semitones. Both components are saved together, may be edited
+in either order, and produce one combined Transpose value. Setup uses the same
+mapping on row 11 while Record is latched; with Record off, its octave buttons
+and semitone row edit the track-wide playback baseline instead.
 
 When Track is selected, row 14 shows all 16 positions but lights only tracks
 assigned to the group. Its bright cell is the step's explicit Track or inherited
 default. Selecting a track stores it on the step and creates a default cut when
 needed. Clearing Track returns the cut to `track: -1`. Direct-track patterns do
 not show or accept the Track parameter.
+
+When Condition is selected, row 14 exposes all sixteen occurrence conditions.
+Columns 1–8 are **Every 2** through **Every 9**: the step plays only on each Nth
+visit. Columns 9–16 are **Skip 2** through **Skip 9**: the step plays on every
+visit except each Nth one. Visit 1 begins after Restart, and a group-launched
+track phrase inherits that group-pattern visit number, keeping nested rhythmic
+shapes phase-aligned. Clear restores unconditional playback. The condition is
+tested before probability, locks, or audio, and it does not erase any saved step
+data when it skips.
 
 With the popup closed, row 15 also carries a bright 16-position playback marker
 for the direct target track or the currently active track in a group target.
@@ -204,14 +247,23 @@ group's current track, then last track, then resolved default. From a track it
 returns to that track's assigned group. It works from Sequence or Setup and
 does not alter playback.
 
+Row 16 column 13 toggles the sample browser without closing the editor. The
+browser owns only rows 1–8: row 1 selects tracks, rows 2–7 show one 96-sample
+page, and row 8 provides previous/next, direct page selection, and Close.
+Rows 9–16 continue to draw and accept Sequence or Setup input. Sample-browser
+ownership rejects legacy playhead, clock, and animation writes in its top half,
+so asynchronous Max callbacks cannot paint through it.
+
 MIDI and CV pattern trigger targets are intentionally deferred. No MIDI/CV
 routing or target behavior is added by this revision.
 
 When a running group cut selects a track, that track's non-empty phrase launches
 as a child of the group event. Phrase step 1 merges with the group hit: its locks
-apply to that hit, an explicit phrase cut overrides the group slice, and there
-is never a double trigger. Later phrase cuts retrigger their programmed slices.
-An empty phrase leaves the group cut unchanged.
+apply to that hit, its effective Slice is added modulo 16 to the group slice,
+and there is never a double trigger. Its Condition and Probability can suppress
+that merged hit, so their playhead result matches the audible outcome. Later
+phrase cuts retrigger relative to the same group-slice root. An empty phrase
+leaves the group cut unchanged.
 
 Retriggering a track restarts its phrase. Triggering another track assigned to
 the same group cancels the earlier child phrase because the tracks share one
@@ -234,13 +286,18 @@ over an older slice edit. Events retain global clock phase. An empty gesture
 does nothing, a pending quantized cut may finish just after release, and
 recording does not implicitly enable Run.
 
-1. Test the step probability.
-2. Apply persistent track locks and start or replace parameter shapes.
-3. Send the cut press/release pair to the resolved track.
+1. Test the step's Every/Skip condition for the current pattern visit.
+2. Test the step probability.
+3. Apply persistent track locks and start or replace parameter shapes.
+4. Send the cut press/release pair to the resolved track.
 
 An ordinary cut is a trigger: it moves MLR and stays there. A gate length does
 not undo that cut. Instead, it supplies the lifetime of a Gate parameter shape
 and the visible tail in the Sequence view.
+
+The red group Run row and track Run column on mode 2 are also editor shortcuts:
+tap to toggle Run, or hold for about 350 ms to open that target without changing
+its Run state.
 
 The parameter shapes are deliberately fixed presets:
 
@@ -261,7 +318,7 @@ Start State also restores the track/channel snapshot and playback position taken
 when Run was pressed.
 
 Sequence writers are stacked per controlled property: channel volume/filter and
-track reverse/octave/loop division. Stopping a target removes its frames and
+track reverse/transpose/loop division. Stopping a target removes its frames and
 restores the preceding writer or the original/manual baseline. Manual edits
 replace that baseline. Saved cuts, locks, probability, shapes, and Track choices
 are never erased by Stop.
@@ -317,7 +374,7 @@ send `N[filterfx]level <normalized-value> <ramp-ms>` as a future DSP hook.
    one in another group; only the first two should record. Briefly hold/release
    without playing and confirm the saved take is unchanged.
 9. In Sequence, tap row 14 column 2 to latch Record, then press Setup on row 16.
-   Change volume, octave, and loop division, then tap Record again. Confirm Set locks
+   Change volume, transpose, and loop division, then tap Record again. Confirm Set locks
    appear at the current sequence step. For a group, select Track at row 13
    column 13 and verify row 14 filters to assigned tracks, saves an explicit
    track, and returns to the inherited default when cleared. During the gesture the volume row

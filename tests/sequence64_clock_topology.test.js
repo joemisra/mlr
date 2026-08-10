@@ -26,8 +26,8 @@ function hasConnection(patcher, sourceId, sourceOutlet, destinationId, destinati
 test('sequence64 clock is phase-locked at 16 steps per quarter note', () => {
 	const time = readPatcher('time.maxpat');
 
-	assert.equal(boxById(time, 'obj-34').text, 'rate~ 2');
-	assert.equal(boxById(time, 'obj-seq-rate').text, 'rate~ 0.125');
+	assert.equal(boxById(time, 'obj-34').text, 'rate~ 2 @sync lock');
+	assert.equal(boxById(time, 'obj-seq-rate').text, 'rate~ 0.125 @sync lock');
 	assert.equal(boxById(time, 'obj-seq-threshold').text, '>=~ 0.5');
 	assert.equal(boxById(time, 'obj-seq-edge').text, 'edge~');
 	assert.equal(boxById(time, 'obj-seq-send').text, 's sequence64_pulse');
@@ -48,6 +48,30 @@ test('grid router receives the dedicated sequence64 pulse on inlet 4', () => {
 	assert.equal(hasConnection(io, 'obj-rseqpulse', 0, 'obj-router', 3), true);
 });
 
+test('sequence64 audio cuts are armed in V8 and released by the native pulse bridge', () => {
+	const io = readPatcher('grid_router_io.maxpat');
+	const bridge = readPatcher('sequence64_audio_bridge.maxpat');
+	const router = fs.readFileSync(path.join(root, 'grid_router.js'), 'utf8');
+
+	assert.equal(boxById(io, 'obj-sequence64-audio-bridge').text,
+		'sequence64_audio_bridge');
+	assert.equal(boxById(io, 'obj-timing-settings').text,
+		';\rmax overdrive 1;\rdsp takeover 1');
+	assert.equal(boxById(bridge, 'obj-rarm').text, 'r sequence64_audio_arm');
+	assert.equal(boxById(bridge, 'obj-rcancel').text, 'r sequence64_audio_cancel');
+	assert.equal(boxById(bridge, 'obj-rpulse').text, 'r sequence64_pulse');
+	assert.equal(boxById(bridge, 'obj-forwardtrack').text, 'forward');
+	assert.equal(boxById(bridge, 'obj-forwardtrigger').text, 'forward');
+	assert.equal(hasConnection(bridge, 'obj-routearm', 0, 'obj-reg1', 1), true);
+	assert.equal(hasConnection(bridge, 'obj-pulsetrigger', 1, 'obj-reg1', 0), true);
+	assert.equal(hasConnection(bridge, 'obj-pulsetrigger', 0, 'obj-clearall', 0), true);
+	assert.equal(hasConnection(bridge, 'obj-fireorder', 2, 'obj-press', 0), true);
+	assert.equal(hasConnection(bridge, 'obj-fireorder', 1, 'obj-forwardtrigger', 0), true);
+	assert.equal(hasConnection(bridge, 'obj-fireorder', 0, 'obj-release', 0), true);
+	assert.match(router, /messnamed\("sequence64_audio_arm"/);
+	assert.match(router, /cancelSequence64AudioForChannel/);
+});
+
 test('sequence64 has a group-local immediate player trigger that bypasses only the legacy quantize gate', () => {
 	const player = readPatcher('pl.maxpat');
 
@@ -60,6 +84,40 @@ test('sequence64 has a group-local immediate player trigger that bypasses only t
 	assert.equal(boxById(player, 'obj-104').text, 'r [mlr]trig');
 	assert.equal(hasConnection(player, 'obj-104', 0, 'obj-70', 1), true);
 	assert.equal(hasConnection(player, 'obj-70', 0, 'obj-68', 0), true);
+});
+
+test('track pitch combines the existing octave multiplier with semitone transposition', () => {
+	const channel = readPatcher('ch.maxpat');
+	const speedcalc = boxById(channel, 'obj-28').patcher;
+
+	assert.equal(boxById(channel, 'obj-transpose-recv').text,
+		'r #1[box]transpose');
+	assert.equal(boxById(channel, 'obj-28').numinlets, 4);
+	assert.equal(hasConnection(channel,
+		'obj-transpose-recv', 0, 'obj-transpose-ratio', 0), true);
+	assert.equal(boxById(channel, 'obj-transpose-ratio').text,
+		'expr pow(2\\, $f1 / 12.)');
+	assert.equal(boxById(speedcalc, 'obj-27').text, 'expr pow(2\\, $f1)');
+	assert.equal(hasConnection(speedcalc,
+		'obj-32', 0, 'obj-25', 0), true);
+	assert.equal(hasConnection(channel,
+		'obj-28', 0, 'obj-transpose-base-speed', 0), true);
+	assert.equal(hasConnection(channel,
+		'obj-transpose-ratio-trigger', 1, 'obj-transpose-speed-multiply', 1), true);
+	assert.equal(hasConnection(channel,
+		'obj-transpose-ratio-trigger', 0, 'obj-transpose-base-speed', 0), true);
+	assert.equal(hasConnection(channel,
+		'obj-transpose-speed-multiply', 0, 'obj-46', 4), true);
+});
+
+test('playback telemetry is rate-limited before it enters the shared V8 router', () => {
+	const channel = readPatcher('ch.maxpat');
+
+	assert.equal(boxById(channel, 'obj-gridrouter-pos-speedlim').text, 'speedlim 33');
+	assert.equal(hasConnection(channel,
+		'obj-31', 0, 'obj-gridrouter-pos-speedlim', 0), true);
+	assert.equal(hasConnection(channel,
+		'obj-gridrouter-pos-speedlim', 0, 'obj-72', 0), true);
 });
 
 test('sample replacement reports file metadata before sending replace to buffer~', () => {

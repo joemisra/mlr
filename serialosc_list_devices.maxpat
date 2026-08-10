@@ -37,6 +37,17 @@
             },
             {
                 "box": {
+                    "comment": "device ports settled; request a complete hardware redraw",
+                    "id": "obj-resync",
+                    "index": 0,
+                    "maxclass": "outlet",
+                    "numinlets": 1,
+                    "numoutlets": 0,
+                    "patching_rect": [ 348.0, 471.0, 30.0, 30.0 ]
+                }
+            },
+            {
+                "box": {
                     "comment": "",
                     "id": "obj-1",
                     "index": 0,
@@ -270,6 +281,12 @@
                 "patchline": {
                     "destination": [ "obj-nb-p2", 0 ],
                     "source": [ "obj-js", 2 ]
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-resync", 0 ],
+                    "source": [ "obj-js", 3 ]
                 }
             },
             {

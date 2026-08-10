@@ -5,23 +5,16 @@ outlets = 2;
 /**
  * Keyframe queue per cell: pairs (target, frames). frames==0 = instant.
  * tick advances one animation step per cell (one lerp step per segment per tick).
- * outlet 0: flush — only when matrix changed (dirty).
- * Same matrix name as grid_matrix_bridge.js (@args).
+ * outlet 0: flush — only when the transient overlay changed (dirty).
+ *
+ * Animation cells are sent as explicit overlay messages to
+ * grid_matrix_bridge.js, which composites them over stable foreground and
+ * background arrays. This
+ * prevents a fade-to-zero from permanently erasing the page underneath it.
  */
 
-var matrixName = "grid_matrix_io_state";
 var edition = 256;
 var cells = {};
-
-if (jsarguments.length > 1) {
-	matrixName = jsarguments[1];
-}
-
-function bind_matrix() {
-	var jm = new JitterMatrix(1, "char", 16, 16);
-	jm.name = matrixName;
-	return jm;
-}
 
 function dims_for_edition(e) {
 	if (e === 64) return [8, 8];
@@ -38,13 +31,23 @@ function clampLevel(v) {
 }
 
 function loadbang() {
-	post("[grid_anim_engine] matrix=" + matrixName + " edition=" + edition + "\n");
+	resetAnimationState();
+	post("[grid_anim_engine] message overlay edition=" + edition + "\n");
+	// If autowatch recompiles during a flash, immediately reveal the preserved
+	// base instead of leaving the last animated hardware frame latched.
+	messnamed("togridmatrixio", "flush");
+}
+
+function resetAnimationState() {
+	cells = {};
+	outlet(0, "animclear");
 }
 
 function edition_msg(n) {
 	var v = parseInt(n, 10);
 	if (v === 64 || v === 128 || v === 256) {
 		edition = v;
+		resetAnimationState();
 		post("[grid_anim_engine] edition=" + edition + "\n");
 	}
 }
@@ -55,7 +58,9 @@ function edition(e) {
 
 function clear_anim() {
 	cells = {};
-	post("[grid_anim_engine] queues cleared (matrix unchanged)\n");
+	outlet(0, "animclear");
+	outlet(0, "flush");
+	post("[grid_anim_engine] queues and transient overlay cleared\n");
 }
 
 function tick() {
@@ -67,29 +72,24 @@ function tick() {
 	}
 	if (!hasCells) return;
 
-	var jm = bind_matrix();
 	var dirty = false;
 	for (k in cells) {
 		var cell = cells[k];
-		if (advanceCell(k, cell, jm)) {
+		if (!cell.seg && cell.q.length === 0 && cell.retirePending) {
+			if (hideCell(k, cell)) dirty = true;
+			delete cells[k];
+			continue;
+		}
+		if (advanceCell(k, cell)) {
 			dirty = true;
 		}
-		// Completed cells must be removed so a future animation rereads the
-		// current shared matrix level, and so the high-rate tick stays cheap.
-		if (!cell.seg && cell.q.length === 0) delete cells[k];
+		// Keep a completed override visible through this flush. The next tick
+		// clears its mask, revealing whatever base value the router owns now.
+		if (!cell.seg && cell.q.length === 0) cell.retirePending = true;
 	}
 	if (dirty) {
 		outlet(0, "flush");
 	}
-}
-
-function readLevel(x, y) {
-	var jm = bind_matrix();
-	var w = jm.dim[0];
-	var h = jm.dim[1];
-	var u8 = new Uint8Array(w * h);
-	jm.copymatrixtoarray(u8);
-	return u8[y * w + x] | 0;
 }
 
 function ensureCell(key) {
@@ -97,7 +97,13 @@ function ensureCell(key) {
 		var xy = key.split(",");
 		var x = parseInt(xy[0], 10);
 		var y = parseInt(xy[1], 10);
-		cells[key] = { level: readLevel(x, y), q: [], seg: null };
+		cells[key] = {
+			level: 0,
+			q: [],
+			seg: null,
+			visible: false,
+			retirePending: false
+		};
 	}
 	return cells[key];
 }
@@ -139,6 +145,7 @@ function applyKf(x, y, numList) {
 	var c = ensureCell(key);
 	c.q = parsePairs(numList);
 	c.seg = null;
+	c.retirePending = false;
 	//post("[grid_anim_engine] kf replace " + key + " segments=" + c.q.length + "\n");
 }
 
@@ -162,7 +169,15 @@ function line() {
 	}
 }
 
-function advanceCell(key, c, jm) {
+function hideCell(key, c) {
+	if (!c.visible) return false;
+	var xy = key.split(",");
+	outlet(0, "animcell", parseInt(xy[0], 10), parseInt(xy[1], 10), 0, 0);
+	c.visible = false;
+	return true;
+}
+
+function advanceCell(key, c) {
 	var xy = key.split(",");
 	var x = parseInt(xy[0], 10);
 	var y = parseInt(xy[1], 10);
@@ -170,9 +185,10 @@ function advanceCell(key, c, jm) {
 
 	function writeLevel(val) {
 		var v = clampLevel(val);
-		if (c.level !== v) {
+		if (!c.visible || c.level !== v) {
 			c.level = v;
-			jm.setcell2d(x, y, v);
+			outlet(0, "animcell", x, y, v, 1);
+			c.visible = true;
 			dirty = true;
 		}
 	}
@@ -236,13 +252,12 @@ function setcell(x, y, v) {
 	x = x | 0;
 	y = y | 0;
 	v = clamp(Math.floor(v), 0, 15);
-	var jm = bind_matrix();
-	var wh = jm.dim;
+	var wh = dims_for_edition(edition);
 	if (x < 0 || y < 0 || x >= wh[0] || y >= wh[1]) {
 		post("[grid_anim_engine] setcell out of range\n");
 		return;
 	}
-	jm.setcell2d(x, y, v);
+	outlet(0, "animcell", x, y, v, 1);
 }
 
 function anything() {
