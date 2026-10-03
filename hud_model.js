@@ -59,7 +59,8 @@ function blankTrack(index) {
 		loopStart: 0,
 		loopEnd: 16,
 		loopDivision: 8,
-		loopActive: 0
+		loopActive: 0,
+		playbackLoop: 1
 	};
 }
 
@@ -187,20 +188,42 @@ function createState() {
 			targetType: "none",
 			targetId: -1,
 			view: "sequence",
+			collapsed: 0,
 			heldStep: -1,
 			parameter: "slice",
 			record: 0
 		},
+		parameterFocus: { active: false },
 		pattern: blankPattern(),
 		patternSummaries: {},
+		modulation: { sources: {}, routes: [] },
+		scenes: {
+			activeScene: 0,
+			selectedScene: 0,
+			diverged: 0,
+			pending: null,
+			performanceGroupPatternRefs: [],
+			runningGroups: [],
+			items: []
+		},
 		bank: {
 			status: "empty",
 			source: "json",
 			path: "",
 			root: "",
 			count: 0,
+			activeFolder: 0,
+			activeFolderId: "folder:0",
+			folders: [],
 			samples: [],
 			assignments: new Array(TRACK_COUNT).fill(-1)
+		},
+		capture: {
+			source: "input",
+			tracks: Array.from({ length: TRACK_COUNT }, function (_, index) {
+				return { track: index, state: "idle", bufferIndex: 0,
+					durationMs: 0, recordingId: "" };
+			})
 		},
 		waveforms: {},
 		selectedTrack: 0,
@@ -421,6 +444,7 @@ function applyEvent(state, topic, incomingArgs) {
 				trackState.loopDivision = Math.max(1, integer(args[10], trackState.loopDivision));
 				trackState.loopActive = args[11] ? 1 : 0;
 				if (args.length > 12) trackState.sampleIndex = integer(args[12], -1);
+				if (args.length > 13) trackState.playbackLoop = args[13] ? 1 : 0;
 			}
 			break;
 		}
@@ -574,6 +598,12 @@ function applyEvent(state, topic, incomingArgs) {
 			};
 			break;
 		}
+		case "parameter_focus": {
+			try { var focus = JSON.parse(String(args[0] || "{}"));
+				state.parameterFocus = focus && typeof focus === "object" ? focus : {active:false};
+			} catch (error) { state.parameterFocus = {active:false}; }
+			break;
+		}
 		case "editor":
 			state.editor.active = args[0] ? 1 : 0;
 			state.editor.choosing = args[1] ? 1 : 0;
@@ -583,6 +613,7 @@ function applyEvent(state, topic, incomingArgs) {
 			state.editor.heldStep = integer(args[5], -1);
 			state.editor.parameter = String(args[6] || "slice");
 			state.editor.record = args[7] ? 1 : 0;
+			state.editor.collapsed = args[8] ? 1 : 0;
 			break;
 		case "pattern_summary": {
 			var summaryKey = String(args[0]) + ":" + integer(args[1], 0);
@@ -610,6 +641,31 @@ function applyEvent(state, topic, incomingArgs) {
 				state.pattern.decisionOutcome = normalizeDecisionOutcome(args[4]);
 			}
 			break;
+		case "modulation_state": {
+			var modulation = parseJson(args[0], null);
+			if (modulation) {
+				state.modulation.sources = modulation.sources &&
+					typeof modulation.sources === "object" ? modulation.sources : {};
+				state.modulation.routes = Array.isArray(modulation.routes) ? modulation.routes : [];
+			}
+			break;
+		}
+		case "scene_state": {
+			var scenePayload = parseJson(args[0], null);
+			if (!scenePayload) break;
+			state.scenes.activeScene = clamp(integer(scenePayload.activeScene, 0), 0, 15);
+			state.scenes.selectedScene = clamp(integer(scenePayload.selectedScene, 0), 0, 15);
+			state.scenes.diverged = scenePayload.diverged ? 1 : 0;
+			state.scenes.pending = scenePayload.pending || null;
+			state.scenes.performanceGroupPatternRefs =
+				Array.isArray(scenePayload.performanceGroupPatternRefs) ?
+					scenePayload.performanceGroupPatternRefs.slice(0, 8) : [];
+			state.scenes.runningGroups = Array.isArray(scenePayload.runningGroups) ?
+				scenePayload.runningGroups.slice(0, 8) : [];
+			state.scenes.items = Array.isArray(scenePayload.scenes) ?
+				scenePayload.scenes.slice(0, 16) : [];
+			break;
+		}
 		case "bank":
 			state.bank.status = String(args[0] || "empty");
 			state.bank.path = String(args[1] || "");
@@ -618,6 +674,19 @@ function applyEvent(state, topic, incomingArgs) {
 			state.bank.source = String(args[4] || state.bank.source || "json");
 			if (state.bank.status === "loading") state.bank.samples = [];
 			break;
+		case "sample_folders": {
+			var folderPayload = parseJson(args[0], null);
+			if (!folderPayload) break;
+			state.bank.folders = Array.isArray(folderPayload.folders) ?
+				folderPayload.folders.slice(0, 8) : [];
+			state.bank.activeFolder = clamp(integer(folderPayload.activeFolder, 0), 0,
+				Math.max(0, state.bank.folders.length - 1));
+			state.bank.activeFolderId = String(folderPayload.activeFolderId ||
+				(state.bank.folders[state.bank.activeFolder] ?
+					state.bank.folders[state.bank.activeFolder].id : "folder:0"));
+			state.samplePage = 0;
+			break;
+		}
 		case "sample": {
 			var sampleId = integer(args[0], -1);
 			if (sampleId >= 0) {
@@ -636,7 +705,8 @@ function applyEvent(state, topic, incomingArgs) {
 						clamp(integer(args[10], COLORS.cyan[0]), 0, 255),
 						clamp(integer(args[11], COLORS.cyan[1]), 0, 255),
 						clamp(integer(args[12], COLORS.cyan[2]), 0, 255)
-					]
+					],
+					folderId: String(args[13] || "folder:0")
 				};
 				state.bank.count = Math.max(state.bank.count, sampleId + 1);
 			}
@@ -659,6 +729,23 @@ function applyEvent(state, topic, incomingArgs) {
 				state.bank.assignments[assignmentTrack] = assignmentSample;
 				state.tracks[assignmentTrack].sampleIndex = assignmentSample;
 				if (args.length > 2) state.tracks[assignmentTrack].buffer = integer(args[2], -1);
+			}
+			break;
+		}
+		case "capture_source":
+			state.capture.source = String(args[0] || "").toLowerCase() === "mix" ?
+				"mix" : "input";
+			break;
+		case "track_capture": {
+			var captureTrack = integer(args[0], -1);
+			if (captureTrack >= 0 && captureTrack < TRACK_COUNT) {
+				state.capture.tracks[captureTrack] = {
+					track: captureTrack,
+					state: String(args[1] || "idle"),
+					bufferIndex: Math.max(0, integer(args[2], 0)),
+					durationMs: Math.max(0, Number(args[3]) || 0),
+					recordingId: String(args[4] || "")
+				};
 			}
 			break;
 		}
@@ -686,7 +773,19 @@ function selectTrack(state, trackIndex) {
 	var assigned = state.bank.assignments[state.selectedTrack];
 	if (assigned >= 0) {
 		state.selectedSample = assigned;
-		state.samplePage = Math.floor(assigned / SAMPLE_PAGE_SIZE);
+		var sample = state.bank.samples[assigned];
+		if (sample && sample.folderId) {
+			for (var folder = 0; folder < state.bank.folders.length; folder++) {
+				if (state.bank.folders[folder].id === sample.folderId) {
+					state.bank.activeFolder = folder;
+					state.bank.activeFolderId = sample.folderId;
+					break;
+				}
+			}
+		}
+		var indices = activeFolderSampleIndices(state);
+		var localIndex = indices.indexOf(assigned);
+		state.samplePage = localIndex >= 0 ? Math.floor(localIndex / SAMPLE_PAGE_SIZE) : 0;
 	}
 	return state.selectedTrack;
 }
@@ -704,17 +803,39 @@ function setStripView(state, view) {
 function selectSample(state, sampleIndex) {
 	var last = Math.max(0, state.bank.count - 1);
 	state.selectedSample = state.bank.count ? clamp(integer(sampleIndex, 0), 0, last) : -1;
-	if (state.selectedSample >= 0) state.samplePage = Math.floor(state.selectedSample / SAMPLE_PAGE_SIZE);
+	if (state.selectedSample >= 0) {
+		var indices = activeFolderSampleIndices(state);
+		var localIndex = indices.indexOf(state.selectedSample);
+		state.samplePage = localIndex >= 0 ? Math.floor(localIndex / SAMPLE_PAGE_SIZE) : 0;
+	}
 	return state.selectedSample;
 }
 
+function activeFolderSampleIndices(state) {
+	var folderId = state.bank.activeFolderId;
+	var indices = [];
+	for (var index = 0; index < state.bank.samples.length; index++) {
+		var sample = state.bank.samples[index];
+		if (sample && (!state.bank.folders.length || sample.folderId === folderId)) {
+			indices.push(index);
+		}
+	}
+	return indices;
+}
+
 function pageSamples(state) {
+	var indices = activeFolderSampleIndices(state);
 	var start = state.samplePage * SAMPLE_PAGE_SIZE;
-	return state.bank.samples.slice(start, start + SAMPLE_PAGE_SIZE);
+	var samples = [];
+	for (var offset = start; offset < indices.length && offset < start + SAMPLE_PAGE_SIZE; offset++) {
+		samples.push(state.bank.samples[indices[offset]]);
+	}
+	return samples;
 }
 
 function modeName(mode, editor) {
 	if (mode === 1) return "MAIN";
+	if (mode === 2 && editor && editor.active && editor.view === "scene") return "SCENES";
 	if (mode === 2 && editor && editor.active) return "ṛta";
 	if (mode === 2) return "MOD";
 	if (mode === 3) return "GROUPS";
@@ -807,6 +928,23 @@ function describeCell(mode, x, y, editor, helpTopic) {
 		else if (y === 14) detail = "Live lane, shapes, and tools";
 		else if (y === 15 && x === 12) detail = "Open or close the split sample browser";
 		else if (y === 15) detail = "Sequence navigation and target controls";
+	} else if (topic === "scenes") {
+		if (y === 0) {
+			detail = "Scene " + (x + 1);
+			gesture = "Tap empty to capture · tap stored to launch/cancel · Shift+tap select";
+			stateMeaning = "15 active · 10 selected · 4 stored · 2 empty · flashing queued";
+		} else if (x < 8 && y >= 1 && y <= 12) {
+			detail = "Group " + (x + 1) + " pattern slot " + y;
+			gesture = "Tap to queue/fork · tap live to cancel · Shift+tap empty for blank";
+		} else if (x < 8 && y === 13) detail = "Run or stop group " + (x + 1);
+		else if (y === 14) {
+			detail = "Track Slot " + (x + 1);
+			gesture = "Tap to switch · empty Slots clone the current Slot";
+		}
+		else if (y === 15) detail = "Scene navigation, Shift, and Exit";
+		if (y !== 0) stateMeaning =
+			"Bright is active; medium is selected or queued; dim is available";
+		colorMeaning = "Brightness alone contains the complete scene state";
 	} else if (topic === "locks") {
 		if (y >= 8 && y <= 11) detail = "Select or enable step " + ((y - 8) * 16 + x + 1);
 		else if (y === 12) {
@@ -827,7 +965,7 @@ function describeCell(mode, x, y, editor, helpTopic) {
 	} else if (topic === "samples") {
 		if (y === 0) detail = "Sample browser: select track " + (x + 1);
 		else if (y <= 6) detail = "Paged sample slot " + ((y - 1) * 16 + x + 1);
-		else if (y === 7) detail = "Sample page navigation and close";
+		else if (y === 7) detail = "Sample page and folder navigation, or close";
 		else detail = "Lower-half ṛta editor remains active";
 		gesture = y === 0 ? "Tap track · hold selected track to close" :
 			(y <= 6 ? "Tap to audition · tap again to assign" : "Contextual editor control");
@@ -864,6 +1002,7 @@ module.exports = {
 	setStripView: setStripView,
 	selectSample: selectSample,
 	pageSamples: pageSamples,
+	activeFolderSampleIndices: activeFolderSampleIndices,
 	gridIndex: gridIndex,
 	hitRegion: hitRegion,
 	regionAt: regionAt,

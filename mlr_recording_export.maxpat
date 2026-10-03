@@ -15,7 +15,7 @@
     "lines": [
       { "patchline": { "source": [ "obj-in", 0 ], "destination": [ "obj-js", 0 ] } },
       { "patchline": { "source": [ "obj-js", 0 ], "destination": [ "obj-buffer", 0 ] } },
-      { "patchline": { "source": [ "obj-buffer", 0 ], "destination": [ "obj-js", 1 ] } },
+      { "patchline": { "source": [ "obj-buffer", 1 ], "destination": [ "obj-js", 1 ] } },
       { "patchline": { "source": [ "obj-js", 1 ], "destination": [ "obj-status", 0 ] } }
     ]
   }

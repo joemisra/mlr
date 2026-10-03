@@ -67,6 +67,21 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 		File,
 		Global,
 		Task,
+		require(name) {
+			if (name === 'sequence64_native_compile.js') return require('../sequence64_native_compile.js');
+			if (name === 'modulation_model.js') return require('../modulation_model.js');
+			if (name === 'scene_model.js') return require('../scene_model.js');
+			if (name === 'instrument_model.js') return require('../instrument_model.js');
+			if (name === 'knob_controller_model.js') return require('../knob_controller_model.js');
+			if (name === 'clap_instrument_model.js') return require('../clap_instrument_model.js');
+			if (name === 'tom_instrument_model.js') return require('../tom_instrument_model.js');
+			if (name === 'rim_instrument_model.js') return require('../rim_instrument_model.js');
+			if (name === 'bell_instrument_model.js') return require('../bell_instrument_model.js');
+			if (name === 'bass_instrument_model.js') return require('../bass_instrument_model.js');
+			if (name === 'hat_instrument_model.js') return require('../hat_instrument_model.js');
+			if (name === 'snare_instrument_model.js') return require('../snare_instrument_model.js');
+			throw new Error(`Unexpected router dependency ${name}`);
+		},
 		arrayfromargs(args) {
 			return Array.prototype.slice.call(args);
 		},
@@ -108,6 +123,13 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 	});
 
 	vm.runInContext(ROUTER_SOURCE, context, { filename: ROUTER_PATH });
+	const startupMessages = namedMessages.slice();
+	// Keep FX/runtime restoration visible to reload tests; separate only the
+	// unconditional native safety controls from later gesture assertions.
+	for (let index=namedMessages.length-1;index>=0;index--)
+		if (namedMessages[index][0]==='sequence64_native_control') namedMessages.splice(index,1);
+	for (let index=timeline.length-1;index>=0;index--)
+		if (timeline[index][0]==='messnamed'&&timeline[index][1]==='sequence64_native_control') timeline.splice(index,1);
 	context.s.kmod = 2;
 	context.s.edition = 256;
 	context.s.gridWidth = 16;
@@ -117,6 +139,7 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 
 	return {
 		context,
+		startupMessages,
 		globalStores,
 		namedMessages,
 		hudMessages,
@@ -139,9 +162,173 @@ function createSequence64Harness(sharedGlobalStores) {
 	return createHarness(sharedGlobalStores, 'sequence64');
 }
 
+test('knobs use all eight Drum Lab page orders, write-through baselines, and no accidental step locks', () => {
+ const h=createSequence64Harness(),r=h.context;
+ for(const e of r.INSTRUMENT_ENGINES){
+  selectTrack(h,e.track);r.sequence64InstrumentPage=true;
+  const ids=Array.from(e.pages).flatMap(p=>Array.from(p.parameters));
+  for(let i=0;i<ids.length;i++){
+   const id=ids[i], initial=r.instrumentSanitize(e.track,r.s.tracks[e.track].instrumentParameters)[id];
+   const at=Math.round(r.instrumentToNormalized(id,initial,r.instrumentParameterRange(id))*127);
+   r.knobCC(i+1,at);assert.equal(r.knobCC(i+1,127),at!==127);
+   assert.equal(r.s.tracks[e.track].instrumentParameters[id],r.instrumentParameterRange(id).max);
+   const w=r.s.editorWorkspace;
+   assert.equal(w.sceneState.trackSlots[w.performanceTrackSlotRef].tracks[e.track].instrumentParameters[id],r.instrumentParameterRange(id).max);
+   assert.equal(r.currentSequence64EditStep().locks[id],undefined);
+  }
+  assert.equal(r.knobCC(13,64),false);assert.equal(r.knobCC(16,64),false);
+ }
+ const snapshot=JSON.stringify(r.sessionRouterSnapshotObject());
+ assert.equal(/knobPickup|knobRanges|knobFocusSource/.test(snapshot),false);
+});
+test('holding a step writes a lock without touching the baseline; release returns to sound editing', () => {
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);r.sequence64InstrumentPage=true;
+ const baseline=r.instrumentSanitize(14,r.s.tracks[14].instrumentParameters).kickPitch;
+ r.dispatch(3,8,1);
+ const pickup=Math.round(r.instrumentToNormalized('kickPitch',baseline,r.kickParameterRange('kickPitch'))*127);
+ r.knobCC(1,pickup);r.knobCC(1,127);
+ assert.equal(r.currentSequence64Pattern().steps[3].locks.kickPitch.value,120);
+ assert.equal(r.s.tracks[14].instrumentParameters.kickPitch,baseline);
+ r.dispatch(3,8,0);
+ assert.equal(r.currentSequence64Pattern().steps[3].cut.track,14);
+ assert.equal(r.knobCC(1,126),false); // pickup rearms at the unchanged baseline
+ r.knobCC(1,pickup);r.knobCC(1,0);
+ assert.equal(r.s.tracks[14].instrumentParameters.kickPitch,20);
+ assert.equal(r.currentSequence64Pattern().steps[3].locks.kickPitch.value,120);
+});
+test('focus changes, presets, external edits and out-of-grid-range sounds rearm knob pickup', () => {
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);r.sequence64InstrumentPage=true;
+ r.knobCC(1,0);r.knobCC(1,127);
+ assert.equal(r.knobCC(1,126),true);
+ selectTrack(h,13);selectTrack(h,14);r.sequence64InstrumentPage=true;assert.equal(r.knobCC(1,80),false);
+ r.instrumentManual(15,'kickPitch',1500);r.knobCC(1,0);assert.equal(r.knobCC(1,127),true);
+ assert.equal(r.s.tracks[14].instrumentParameters.kickPitch,1500);
+ assert.equal(r.knobCC(1,100),true); // widened span stays stable after pickup
+ r.instrumentPresetAction(14,0,true);r.instrumentPresetAction(14,0,false);
+ assert.equal(r.knobCC(1,1),false);
+ r.knobSource('lab');r.knobLabFocus(0);r.knobCC(1,0);r.knobCC(1,127);
+ const snare=r.instrumentSanitize(13,r.s.tracks[13].instrumentParameters).snareBodyHz;
+ r.knobLabFocus(1);assert.equal(r.knobCC(1,126),false);
+ assert.equal(r.s.tracks[13].instrumentParameters.snareBodyHz,snare);
+});
+test('Live Write records current-step locks but does not rearm at every playback step', () => {
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);r.sequence64InstrumentPage=true;
+ const p=r.currentSequence64Pattern();p.running=1;r.setSequence64InspectorLiveWrite(true);
+ r.knobCC(1,0);r.knobCC(1,127);
+ const first=r.currentSequence64StepIndex();assert.equal(p.steps[first].locks.kickPitch.value,120);
+ r.runSequence64StepForTarget('track',14,p,0,(first+1)%64);
+ assert.equal(r.knobCC(1,100),true);
+ assert.equal(p.steps[r.currentSequence64StepIndex()].locks.kickPitch.value,r.s.tracks[14].instrumentParameters.kickPitch);
+ r.knobSource('lab');r.knobLabFocus(0);const step=p.steps[r.currentSequence64StepIndex()];
+ const lock=step.locks.kickPitch.value;r.knobCC(1,0);r.knobCC(1,127);
+ assert.equal(step.locks.kickPitch.value,lock); // lab focus is sound-only even with a grid live-write latch
+});
+
+test('a knob batch preserves pickup crossings with one synth message per changed parameter and one redraw', () => {
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);r.sequence64InstrumentPage=true;
+ let redraws=0;const draw=r.redrawEditorShellDiff;
+ r.redrawEditorShellDiff=function(...args){redraws++;return draw(...args);};
+ r.syncInstrument=()=>{throw Error('knob must not resend the entire sound');};
+ h.clearLog();
+ const entries=Array.from({length:4},(_,i)=>({knob:i+1,first:0,last:127,bar:-1,step:-1}));
+ assert.equal(r.knobBatch(r.knobRuntime.epoch,JSON.stringify(entries)),true);
+ assert.equal(redraws,1);
+ const params=h.namedMessages.filter(m=>m[0]==='rnbo_kick_owned_param');
+ assert.equal(params.length,4);
+ for(const id of r.Instruments.KICK_PAGES[0].parameters)assert.equal(r.s.tracks[14].instrumentParameters[id],r.instrumentParameterRange(id).max);
+ assert.equal(h.namedMessages.filter(m=>m[0]==='mlr_knob_status').length,1);
+ assert.equal(r.knobBatch(r.knobRuntime.epoch,'not JSON'),false);
+ assert.equal(r.knobBatch(r.knobRuntime.epoch,JSON.stringify(Array(17).fill(entries[0]))),false);
+});
+
+test('queued knob batches cannot write after focus, held-step release or sound recall', () => {
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);r.sequence64InstrumentPage=true;
+ const frame=JSON.stringify([{knob:1,first:0,last:127,bar:-1,step:-1}]);
+ let epoch=r.knobRuntime.epoch;selectTrack(h,13);assert.equal(r.knobBatch(epoch,frame),false);
+ selectTrack(h,14);r.sequence64InstrumentPage=true;r.dispatch(2,8,1);epoch=r.knobRuntime.epoch;r.dispatch(2,8,0);
+ assert.equal(r.knobBatch(epoch,frame),false);assert.equal(r.currentSequence64Pattern().steps[2].locks.kickPitch,undefined);
+ r.instrumentPresetAction(14,0,true);epoch=r.knobRuntime.epoch;r.instrumentPresetAction(14,0,false);
+ assert.equal(r.knobBatch(epoch,frame),false);
+});
+
+test('batched Live Write uses the incoming MIDI step, not the later flush step', () => {
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);r.sequence64InstrumentPage=true;
+ const p=r.currentSequence64Pattern();p.running=1;p.phaseOrigin=0;
+ r.setSequence64InspectorLiveWrite(true);
+ r.sequence64ClockPosition=2;r.runSequence64StepForTarget('track',14,p,0,2);
+ const epoch=r.knobRuntime.epoch;
+ const frame=JSON.stringify([{knob:1,first:0,last:127,bar:0,step:2}]);
+ r.sequence64ClockPosition=3;r.runSequence64StepForTarget('track',14,p,0,3);
+ assert.equal(r.knobBatch(epoch,frame),true);
+ assert.equal(p.steps[2].locks.kickPitch.value,120);
+ assert.equal(p.steps[3].locks.kickPitch,undefined);
+ r.dispatch(5,8,1);
+ assert.equal(r.knobRuntime.live,false); // holding takes precedence over Live Write
+});
+
+test('MLR knobs follow sample controls, hold locks without changing runtime, and rearm across pages', () => {
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,0);
+ const p=r.currentSequence64Pattern();
+ r.knobCC(3,127);r.knobCC(3,0);
+ assert.equal(r.sequence64CurrentPropertyValue('volume',r.trackChannelIndex(0),0),0);
+ assert.equal(p.steps[0].locks.volume,undefined);
+ r.dispatch(3,8,1);
+ r.knobCC(3,0);r.knobCC(3,127);
+ assert.equal(p.steps[3].locks.volume.value,15);
+ assert.equal(r.sequence64CurrentPropertyValue('volume',r.trackChannelIndex(0),0),0);
+ r.knobCC(5,0);r.knobCC(5,127);
+ assert.equal(p.steps[3].locks.reverse.value,1);
+ assert.equal(r.s.tracks[0].reverse,0);
+ r.knobCC(6,0);r.knobCC(6,127);
+ assert.equal(p.steps[3].locks.transpose.value,96);
+ r.knobCC(7,0);r.knobCC(7,127);
+ assert.equal(p.steps[3].locks.loopDivision.value,r.TRACK_SUB_LOOP_OPTIONS.at(-1));
+ r.dispatch(3,8,0);
+ assert.equal(r.knobCC(3,126),false);
+ selectTrack(h,14);r.sequence64InstrumentPage=false;r.sequence64InspectorContext='parameter';
+ r.knobRefreshContext();const epoch=r.knobRuntime.epoch;
+ r.sequence64InstrumentPage=true;
+ assert.equal(r.knobBatch(epoch,JSON.stringify([{knob:3,first:0,last:127,bar:-1,step:-1}])),false);
+});
+
+test('MLR step controls use valid discrete values and group assignment stays in its group', () => {
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,0);
+ r.knobCC(1,0);r.knobCC(1,127);
+ const step=r.currentSequence64EditStep();assert.equal(step.locks.slice.value,15);
+ r.knobCC(2,127);r.knobCC(2,0);assert.equal(step.probability,0);
+ r.knobCC(8,0);r.knobCC(8,127);assert.equal(step.cut.gateLength,16);
+ r.knobCC(9,0);r.knobCC(9,127);assert.equal(step.condition,-9);
+ assert.equal(r.knobCC(10,127),false);
+ r.s.tracks[0].channel=1;r.s.tracks[1].channel=1;
+ selectGroup(h,0);r.sequence64InstrumentPage=false;
+ r.knobCC(9,0);r.knobCC(9,127);
+ const groupStep=r.currentSequence64EditStep();
+ assert.equal(r.sequence64TrackBelongsToGroup(groupStep.cut.track,0),true);
+ r.knobCC(10,0);r.knobCC(10,127);assert.equal(groupStep.condition,-9);
+});
+
+test('MLR live knob batches record the incoming step and hold takes precedence', () => {
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,0);
+ const p=r.currentSequence64Pattern();p.running=1;p.phaseOrigin=0;
+ r.setSequence64InspectorLiveWrite(true);
+ r.sequence64ClockPosition=2;r.runSequence64StepForTarget('track',0,p,0,2);
+ r.knobRefreshContext();const epoch=r.knobRuntime.epoch;
+ r.sequence64ClockPosition=3;r.runSequence64StepForTarget('track',0,p,0,3);
+ assert.equal(r.knobBatch(epoch,JSON.stringify([{knob:4,first:127,last:0,bar:0,step:2}])),true);
+ assert.equal(p.steps[2].locks.filter.value,0);
+ assert.equal(p.steps[3].locks.filter,undefined);
+ assert.equal(r.knobCC(4,40),true);
+ r.dispatch(5,8,1);assert.equal(r.knobRuntime.live,false);
+ r.knobCC(4,0);r.knobCC(4,127);
+ assert.equal(p.steps[5].locks.filter.value,15);
+ r.dispatch(5,8,0);r.resetEditorWorkspaceState();
+ assert.equal(r.knobBatch(epoch,JSON.stringify([{knob:4,first:0,last:127,bar:0,step:2}])),false);
+});
+
 function audioMessages(harness) {
 	return harness.namedMessages.filter((message) =>
-		message[0] !== 'togridmatrixanim' && message[0] !== 'togridmatrixio');
+		message[0] !== 'togridmatrixanim' && message[0] !== 'togridmatrixio' &&
+		message[0] !== 'mlr_session_dirty');
 }
 
 function hasLed(harness, x, y, level) {
@@ -166,6 +353,11 @@ function selectGroup(harness, groupIdx) {
 	router.dispatch(13, 0, 0);
 }
 
+function selectPatternContext(harness) {
+	harness.context.dispatch(14, 12, 1);
+	harness.context.dispatch(14, 12, 0);
+}
+
 test('inactive workspace preserves legacy mode-2 routing', () => {
 	const harness = createHarness();
 	const router = harness.context;
@@ -182,6 +374,64 @@ test('inactive workspace preserves legacy mode-2 routing', () => {
 	assert.equal(router.s.channels[0].timestretch, 1);
 	assert.equal(router.s.tracks[0].reverse, 1);
 	assert.equal(router.s.tracks[7].randomOffset, 1);
+});
+
+test('mode-2 column 10 arms and releases audio capture for the addressed track', () => {
+	const harness = createHarness();
+	const router = harness.context;
+	harness.clearLog();
+	router.dispatch(9, 0, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'toggleCaptureSource'), true);
+	harness.clearLog();
+
+	router.dispatch(9, 3, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'capturePress' &&
+		message[2] === 2), true);
+	assert.equal(hasLed(harness, 9, 3, 8), true);
+
+	router.dispatch(9, 3, 0);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'captureRelease' &&
+		message[2] === 2), true);
+
+	router.trackCaptureState(2, 'recording', 19, 0, 'capture-test');
+	assert.equal(hasLed(harness, 9, 3, 15), true);
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'track_capture' && message[1] === 2 &&
+		message[2] === 'recording'), true);
+});
+
+test('capture registration repairs a pre-capture persistent Global after V8 reload', () => {
+	const globalStores = Object.create(null);
+	createHarness(globalStores);
+	delete globalStores.mlr.sessionRecordings;
+	const reloaded = createHarness(globalStores);
+
+	assert.equal(Array.isArray(reloaded.context.s.sessionRecordings), true);
+	assert.doesNotThrow(() => reloaded.context.recordingRegistered(
+		'capture-after-reload', 19, 'input', '/tmp/capture-after-reload.wav'));
+	assert.equal(reloaded.context.s.sessionRecordings.length, 1);
+	assert.equal(reloaded.context.s.sessionRecordings[0].bufferName, '19file');
+});
+
+test('a replayed recording sample reference repairs a missed capture registration', () => {
+	const harness = createHarness();
+	harness.context.s.sessionRecordings = [];
+	harness.context.sampleBrowserReference(2, 10, 'recording',
+		'capture-recovered', 1);
+
+	assert.equal(harness.context.s.sessionRecordings.length, 1);
+	assert.deepEqual(JSON.parse(JSON.stringify(
+		harness.context.s.sessionRecordings[0])), {
+		id: 'capture-recovered',
+		source: 'capture',
+		bufferIndex: 19,
+		bufferName: '19file',
+		temporaryPath: '/tmp/mlr-capture-recovered.wav',
+		catalogSample: 1
+	});
 });
 
 test('per-track Randomize column taps open samples and holds retain the legacy Max bus', () => {
@@ -372,6 +622,27 @@ test('bulk palette maps are serial-paced and page activation avoids firmware pre
 	assert.equal(router.pageColorQueue.every((command) => command[0] === 'colormap'), true);
 	assert.equal(router.pageColorQueue.some((command) =>
 		command[0] === 'colorpresetstore' || command[0] === 'colorpresetrecall'), false);
+});
+
+test('v2 page renders deliver colors and levels inside one bridge transaction', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.mechaTrellisExtensions = 2;
+	router.s.autoPageColors = 1;
+	harness.clearLog();
+
+	router.renderCompletePage(1, false);
+
+	const bridgeMessages = harness.outlets.filter((message) => message[0] === 1);
+	const begin = bridgeMessages.findIndex((message) => message[1] === 'beginupdate');
+	const firstColor = bridgeMessages.findIndex((message) => message[1] === 'colormap');
+	const replacement = bridgeMessages.findIndex((message) => message[1] === 'replaceframe');
+	const end = bridgeMessages.findIndex((message) => message[1] === 'endupdate');
+	assert.equal(begin >= 0, true);
+	assert.equal(begin < firstColor && firstColor < replacement && replacement < end, true);
+	assert.equal(bridgeMessages.filter((message) => message[1] === 'colormap').length, 16);
+	assert.equal(router.pageColorQueue.length, 0);
+	assert.equal(router.pageColorQueueTask.running, false);
 });
 
 test('router loadbang normalizes stale persistent layout state to one logical 256', () => {
@@ -764,6 +1035,7 @@ test('step sequencer requires Run and triggers the selected track at full probab
 test('playback diagnostics capture trigger state before the player round trip', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
+	router.diagnosticLogging(1);
 	router.s.tracks[0].channel = 1;
 	router.s.tracks[0].buffer = 23;
 	router.s.tracks[0].length = 16;
@@ -802,6 +1074,167 @@ test('playback diagnostics capture trigger state before the player round trip', 
 	router.diagnosticLogging(0);
 	router.triggerEditorTrack(0, 4);
 	assert.equal(harness.diagnosticLines.length, beforeDisable);
+});
+
+test('playback diagnostics default to silent without suppressing native arms or explicit marks', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	let snapshots = 0;
+	const snapshot = router.diagnosticTrackSnapshot;
+	router.diagnosticTrackSnapshot = (...args) => { snapshots++; return snapshot(...args); };
+	const before = harness.diagnosticLines.length;
+	router.triggerEditorTrack(0, 3, 'group:0');
+	router.chRowPos(2, 3);
+	assert.equal(snapshots, 0);
+	assert.equal(harness.diagnosticLines.length, before);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sequence64_audio_arm' && message[3] === 3), true);
+	router.diagnosticMark('timing-stage-one');
+	assert.equal(JSON.parse(harness.diagnosticLines.at(-1)).label, 'timing-stage-one');
+});
+
+test('disabled and rate-limited diagnostics skip detail factories and file writes', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.diagnosticLogging(1);
+	let snapshots = 0;
+	const snapshot = router.diagnosticTrackSnapshot;
+	router.diagnosticTrackSnapshot = (...args) => { snapshots++; return snapshot(...args); };
+	router.chRowPos(2, 3);
+	assert.equal(snapshots, 1);
+	router.diagnosticHighRateLast['playback_position:0'] = Infinity;
+	const beforeSuppressed = harness.diagnosticLines.length;
+	router.chRowPos(2, 4);
+	assert.equal(snapshots, 1);
+	assert.equal(harness.diagnosticLines.length, beforeSuppressed);
+	assert.equal(router.s.tracks[0].playPos, 4);
+	router.diagnosticLogging(0);
+	const beforeDisabled = harness.diagnosticLines.length;
+	router.triggerEditorTrack(0, 5);
+	router.chRowPos(2, 5);
+	let factories = 0;
+	router.diagnosticEvent('test', () => { factories++; return {}; });
+	router.diagnosticEventRateLimited('test', 'disabled', () => { factories++; return {}; });
+	assert.equal(factories, 0);
+	assert.equal(snapshots, 1);
+	assert.equal(harness.diagnosticLines.length, beforeDisabled);
+});
+
+test('playback telemetry coalesces globally while keeping runtime playheads immediate', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.s.tracks[0].channel = 1;
+	router.s.tracks[1].channel = 1;
+	router.setKmod(1);
+	router.resetPlaybackDisplay();
+	harness.clearLog();
+	let schedules = 0;
+	const schedule = router.playbackDisplayTask.schedule;
+	router.playbackDisplayTask.schedule = function (delay) {
+		schedules++; schedule.call(this, delay);
+	};
+	for (let position = 0; position < 16; position++) router.chRowPos(2, position);
+	router.chRowPos(3, 6);
+	assert.equal(schedules, 1);
+	assert.equal(router.playbackDisplayTask.scheduledDelay, 33);
+	assert.equal(Object.keys(router.playbackDisplayTracks).length, 2);
+	assert.equal(router.s.tracks[0].playPos, 15);
+	assert.equal(router.s.tracks[1].playPos, 6);
+	assert.equal(router.s.channels[0].activeTrack, 1);
+	assert.equal(harness.hudMessages.length, 0);
+	assert.equal(harness.outlets.length, 0);
+	router.flushPlaybackDisplay();
+	assert.equal(harness.hudMessages.filter((message) => message[0] === 'track').length, 2);
+	assert.equal(harness.hudMessages.filter((message) => message[0] === 'channel').length, 1);
+	const pings = harness.outlets.filter((message) => message[0] === 3 && message[1] === 'kf');
+	assert.equal(pings.length, 1);
+	assert.deepEqual(pings[0].slice(2, 4), [6, 2]);
+	assert.equal(router.playbackDisplayPending, false);
+	assert.equal(Object.keys(router.playbackDisplayTracks).length, 0);
+	router.chRowPos(3, 7);
+	assert.equal(schedules, 2);
+});
+
+test('clock pulses prepare phrase hits without normalizing validated or stopped patterns', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.s.tracks[0].channel = 1;
+	const group = router.ensureSequence64Pattern('group', 0);
+	const phrase = router.ensureSequence64Pattern('track', 0);
+	group.steps[1].cut = { track: 0, slice: 4, gateLength: 1 };
+	group.running = 1; group.phaseOrigin = 0; group.lastSequencedAbsolute = 0;
+	phrase.steps[1].cut = { track: 0, slice: 3, gateLength: 1 };
+	// Stopped data must not be visited by the playback clock.
+	router.s.editorWorkspace.patterns64['track:15'] = { running: 0, bars: null };
+	router.sequence64ClockPosition = 0;
+	router.globalTransport(1);
+	router.ensureSequence64Pattern = () => { throw Error('clock must not normalize validated patterns'); };
+	harness.clearLog();
+	router.advanceSequence64ClockSubstep();
+	router.advanceSequence64ClockSubstep();
+	const arms = harness.namedMessages.filter((message) => message[0] === 'sequence64_audio_arm');
+	assert.deepEqual(arms.map((message) => message[3]), [4, 7]);
+	assert.equal(harness.hudMessages.some((message) => message[0] === 'pattern_playhead'), false);
+	assert.equal(router.playbackDisplayPending, true);
+	router.flushPlaybackDisplay();
+	const playheads = harness.hudMessages.filter((message) => message[0] === 'pattern_playhead');
+	assert.equal(playheads.length, 1);
+	assert.deepEqual(playheads[0].slice(1, 5), ['group', 0, 0, 2]);
+	assert.equal(router.sequence64PlaybackDisplayReading, false);
+});
+
+test('replacement playback patterns normalize once and in-place edits stay visible', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.s.tracks[0].channel = 1;
+	const old = router.ensureSequence64Pattern('group', 0);
+	const replacement = JSON.parse(JSON.stringify(old));
+	replacement.running = 1; replacement.phaseOrigin = 0; replacement.lastSequencedAbsolute = 0;
+	replacement.bars[0].steps[1].cut = { track: 0, slice: 99, gateLength: 0 };
+	replacement.bars[0].steps[1].probability = 99;
+	router.s.editorWorkspace.patterns64['group:0'] = replacement;
+	// Empty sample phrase is validated at the editing boundary.
+	router.ensureSequence64Pattern('track', 0);
+	router.globalTransport(1); router.sequence64ClockPosition = 0;
+	let normalizations = 0;
+	const ensure = router.ensureSequence64Pattern;
+	router.ensureSequence64Pattern = (...args) => { normalizations++; return ensure(...args); };
+	harness.clearLog();
+	router.advanceSequence64ClockSubstep();
+	assert.equal(normalizations, 1);
+	assert.equal(replacement.bars[0].steps[1].cut.slice, 15);
+	assert.equal(replacement.bars[0].steps[1].cut.gateLength, 1);
+	replacement.bars[0].steps[2].cut = { track: 0, slice: 5, gateLength: 1 };
+	router.advanceSequence64ClockSubstep();
+	assert.equal(normalizations, 1);
+	assert.deepEqual(harness.namedMessages.filter((message) =>
+		message[0] === 'sequence64_audio_arm').map((message) => message[3]), [15, 5]);
+});
+
+test('playback display flush observes current focus and reset discards old telemetry', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.queuePlaybackDisplay(true);
+	selectTrack(harness, 1);
+	harness.clearLog();
+	router.flushPlaybackDisplay();
+	const playheads = harness.hudMessages.filter((message) => message[0] === 'pattern_playhead');
+	assert.equal(playheads.length, 1);
+	assert.deepEqual(playheads[0].slice(1, 3), ['track', 1]);
+	router.chRowPos(2, 7);
+	router.sessionStopAndReset();
+	assert.equal(router.playbackDisplayPending, false);
+	assert.equal(router.playbackDisplayTask.running, false);
+	harness.clearLog();
+	router.flushPlaybackDisplay();
+	assert.equal(harness.hudMessages.length, 0);
+	assert.equal(harness.outlets.length, 0);
 });
 
 test('probability page can suppress an enabled step without changing its gate', () => {
@@ -1045,21 +1478,22 @@ test('sequence64 semantic colors distinguish triggers, locks, gates, and transpo
 	pattern.steps[3].cut = { track: 0, slice: 3, gateLength: 1 };
 	pattern.steps[3].locks.reverse = { value: 1, behavior: 'set' };
 	pattern.steps[4].cut = { track: 0, slice: 4, gateLength: 3 };
+	selectPatternContext(harness);
 	const levels = router.buildEditorShellLevels();
 	const colors = router.buildEditorShellColors(levels);
 	const colorAt = (x, y) => Array.from(colors[router.editorShellLevelIndex(x, y)]);
 
-	assert.deepEqual(colorAt(0, 8), [18, 46, 70]);
+	assert.deepEqual(colorAt(0, 8), [0, 0, 0]);
 	assert.deepEqual(colorAt(1, 8), [0, 210, 255]);
 	assert.deepEqual(colorAt(2, 8), [255, 180, 20]);
 	assert.deepEqual(colorAt(3, 8), [210, 65, 255]);
 	assert.deepEqual(colorAt(4, 8), [45, 230, 105]);
 	assert.deepEqual(colorAt(5, 8), [70, 90, 225]);
-	assert.deepEqual(colorAt(14, 12), [45, 230, 95]);
-	assert.deepEqual(colorAt(15, 12), [255, 55, 45]);
-	assert.deepEqual(colorAt(0, 13), [35, 235, 90]);
-	assert.deepEqual(colorAt(1, 13), [255, 45, 110]);
-	assert.deepEqual(colorAt(2, 13), [235, 235, 255]);
+	assert.deepEqual(colorAt(14, 13), [45, 230, 95]);
+	assert.deepEqual(colorAt(15, 13), [255, 55, 45]);
+	assert.deepEqual(colorAt(0, 14), [35, 235, 90]);
+	assert.deepEqual(colorAt(1, 14), [255, 45, 110]);
+	assert.deepEqual(colorAt(2, 14), [235, 235, 255]);
 	assert.deepEqual(colorAt(0, 15), [0, 210, 255]);
 	assert.deepEqual(colorAt(1, 15), [255, 175, 25]);
 	assert.deepEqual(colorAt(15, 15), [255, 55, 45]);
@@ -1100,6 +1534,65 @@ test('sequence64 lock and Setup controls retain distinct semantic color families
 	assert.deepEqual(colorAt(3, 14), [255, 45, 45]);
 });
 
+test('Setup stores true playback loop per Track Slot and restores it before every cut', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectTrack(harness, 0);
+	router.dispatch(1, 15, 1); // Setup.
+	router.dispatch(6, 14, 1); // Playback Loop -> one-shot.
+
+	assert.equal(router.s.tracks[0].playbackLoop, 0);
+	assert.equal(router.s.editorWorkspace.sceneState.trackSlots[
+		'trackslot:0'].tracks[0].playbackLoop, 0);
+
+	harness.clearLog();
+	router.triggerEditorTrack(0, 5);
+	const loopIndex = harness.timeline.findIndex((message) =>
+		message[0] === 'messnamed' && message[1] === '1[mlr]pl-playback-loop' &&
+		message[2] === 'loop' && message[3] === 0);
+	const pressIndex = harness.timeline.findIndex((message) =>
+		message[0] === 'messnamed' && message[1] === '2input' &&
+		message[2] === 5 && message[3] === 1);
+	assert.equal(loopIndex >= 0, true);
+	assert.equal(pressIndex > loopIndex, true);
+
+	// A different track can share that group player without inheriting one-shot.
+	router.s.tracks[1].channel = 1;
+	router.s.tracks[1].playbackLoop = 1;
+	harness.clearLog();
+	router.triggerEditorTrack(1, 2);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '1[mlr]pl-playback-loop' && message[1] === 'loop' &&
+		message[2] === 1), true);
+});
+
+test('mode-2 view keys collapse the editor and expose lower track controls', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.renderCompletePage(2, true);
+	assert.equal(hasLed(harness, 0, 15, 2), true);
+	assert.equal(hasLed(harness, 1, 15, 2), true);
+	assert.equal(hasLed(harness, 2, 15, 2), true);
+
+	selectTrack(harness, 0);
+	router.dispatch(0, 15, 1); // Tap the current Sequence view to collapse.
+	assert.equal(router.s.editorWorkspace.collapsed, true);
+	assert.equal(router.editorOwnsLedCell(13, 14), false);
+	router.dispatch(13, 14, 1); // Lower-track octave-down control.
+	assert.equal(router.s.tracks[13].octave, -1);
+	assert.equal(router.s.editorWorkspace.active, true);
+
+	router.dispatch(1, 15, 1); // Setup both switches view and reopens.
+	assert.equal(router.s.editorWorkspace.view64, 'setup');
+	assert.equal(router.s.editorWorkspace.collapsed, false);
+	assert.equal(router.editorOwnsLedCell(13, 14), true);
+
+	harness.clearLog();
+	router.outputMeter(1, 15);
+	assert.deepEqual(harness.outlets, []);
+});
+
 test('sequence64 emits semantic color-only diffs while levels remain authoritative', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
@@ -1116,7 +1609,7 @@ test('sequence64 emits semantic color-only diffs while levels remain authoritati
 	assert.equal(harness.outlets.some((message) =>
 		message[0] === 1 && message[1] === 'colorcell' &&
 		message[2] === 0 && message[3] === 8 &&
-		message[4] === 0 && message[5] === 210 && message[6] === 255), true);
+		message[4] === 153 && message[5] === 177 && message[6] === 219), true);
 
 	router.dispatch(0, 8, 1);
 	router.openSequence64StepEditorAfterHold();
@@ -1141,19 +1634,18 @@ test('sequence64 clears trigger color while preserving amber for a real trigless
 	router.dispatch(2, 8, 1);
 	router.dispatch(2, 8, 0);
 	harness.clearLog();
-	router.dispatch(2, 8, 1);
-	router.dispatch(2, 8, 0);
+	router.dispatch(0, 14, 1);
 	assert.equal(harness.outlets.some((message) =>
 		message[0] === 1 && message[1] === 'colorcell' &&
 		message[2] === 2 && message[3] === 8 &&
-		message[4] === 18 && message[5] === 46 && message[6] === 70), true);
+		message[4] === 0 && message[5] === 0 && message[6] === 0), true);
 
 	const step = router.s.editorWorkspace.patterns64['track:0'].steps[2];
 	step.locks.volume = { value: 7, behavior: 'set' };
 	const colors = router.buildEditorShellColors(router.buildEditorShellLevels());
 	assert.deepEqual(
 		Array.from(colors[router.editorShellLevelIndex(2, 8)]),
-		[255, 180, 20]
+		Array.from(router.sequence64SelectionColor(router.SEQUENCE64_COLORS.lock))
 	);
 });
 
@@ -1170,8 +1662,88 @@ test('sequence64 semantic palette is rebuilt after leaving and returning to mode
 	const queuedStepMaps = Array.from(router.pageColorQueue).filter((command) =>
 		command[0] === 'colormap' && command[1] === 0 && command[2] === 8);
 	assert.deepEqual(Array.from(queuedStepMaps.at(-1).slice(0, 6)),
-		['colormap', 0, 8, 0, 210, 255]);
+		['colormap', 0, 8, ...Array.from(router.sequence64SelectionColor(router.SEQUENCE64_COLORS.trigger))]);
 	assert.equal(queuedStepMaps.at(-1).length, 51);
+});
+
+test('Scene separates stable Roles from State and Motion modifiers', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.editorColors(1);
+	router.dispatch(2, 15, 1);
+	const palette = router.buildSceneColorPalette();
+	const layers = router.buildSceneColorLayers();
+	const colorAt = (x, y) => Array.from(palette[y * 16 + x]);
+
+	assert.deepEqual(colorAt(0, 0), [0, 210, 255]);
+	assert.deepEqual(colorAt(0, 1), [255, 65, 55]);
+	assert.deepEqual(colorAt(12, 8), [235, 55, 190]);
+	assert.deepEqual(colorAt(13, 1), [8, 12, 18]);
+	assert.deepEqual(colorAt(0, 10), [35, 235, 90]);
+	assert.deepEqual(colorAt(1, 10), [255, 75, 35]);
+	assert.deepEqual(colorAt(2, 10), [235, 235, 255]);
+	assert.deepEqual(colorAt(9, 9), [45, 140, 255]);
+	assert.deepEqual(colorAt(9, 11), [0, 0, 0]);
+	assert.deepEqual(colorAt(11, 15), [190, 85, 255]);
+	assert.deepEqual(colorAt(12, 15), [8, 12, 18]);
+	assert.equal(layers.states[0].op, 'half_add');
+	assert.equal(layers.states[1 * 16].op, 'half_add');
+	assert.equal(layers.states[9 * 16].op, 'half_add');
+
+	const maps = Array.from(router.pageColorQueue).filter((command) =>
+		command[0] === 'colormap');
+	assert.equal(maps.length, 16);
+	assert.equal(maps.every((command) => command.length === 51), true);
+
+	harness.clearLog();
+	router.dispatch(12, 1, 1);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'setcell' &&
+		message[2] === 12 && message[3] === 1), true);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'colorcell'), false);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'colorstatecell' &&
+		message[2] === 12 && message[3] === 1), true);
+});
+
+test('active Scene and running pattern buttons pulse on the shared musical beat', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.editorColors(1);
+	router.dispatch(2, 15, 1);
+	router.dispatch(0, 1, 1); // Run Group 1's selected pattern.
+	router.globalTransport(1);
+
+	router.sequence64ClockPosition = 0;
+	let levels = router.buildSceneLevels();
+	let layers = router.buildSceneColorLayers();
+	assert.equal(levels[0], 8);
+	assert.equal(levels[1 * 16], 8);
+	assert.equal(levels[1 * 16 + 12], 15);
+	assert.equal(layers.motions[0].op, 'mul');
+	assert.equal(layers.motions[1 * 16].op, 'mul');
+
+	router.sequence64ClockPosition = 4;
+	levels = router.buildSceneLevels();
+	layers = router.buildSceneColorLayers();
+	assert.equal(levels[0], 15);
+	assert.equal(levels[1 * 16], 15);
+	assert.equal(layers.motions[0], null);
+	assert.equal(layers.motions[1 * 16], null);
+
+	// Stopping the master transport leaves the patterns armed but removes the
+	// playing pulse instead of freezing them in the dim phase.
+	router.sequence64ClockPosition = 0;
+	router.globalTransport(0);
+	levels = router.buildSceneLevels();
+	layers = router.buildSceneColorLayers();
+	assert.equal(levels[0], 15);
+	assert.equal(levels[1 * 16], 15);
+	assert.equal(layers.motions[0], null);
+	assert.equal(layers.motions[1 * 16], null);
 });
 
 test('leaving the editor restores the complete Mode-2 palette with no active target', () => {
@@ -1303,7 +1875,7 @@ test('sequence64 stays completely dormant until a target is selected', () => {
 		message[0] === '2input' && message[1] === 4 && message[2] === 1), true);
 });
 
-test('sequence64 uses four rows of steps and tap release toggles a cut', () => {
+test('sequence64 uses four rows of steps and taps select without deleting existing cuts', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[2].channel = 3;
@@ -1317,17 +1889,20 @@ test('sequence64 uses four rows of steps and tap release toggles a cut', () => {
 	const cut = router.s.editorWorkspace.patterns64['group:2'].steps[36].cut;
 	assert.equal(cut.track, -1);
 	assert.equal(router.sequence64TargetTrackIndex('group', 2, cut), 2);
-	assert.equal(cut.slice, 4);
+	assert.equal(cut.slice, 0);
 	assert.equal(cut.gateLength, 1);
-	assert.equal(hasLed(harness, 4, 10, 7), true);
+	assert.equal(hasLed(harness, 4, 10, 15), true);
+	assert.equal(router.sequence64SelectedStep, 36);
+	router.dispatch(4, 10, 1);
+	router.dispatch(4, 10, 0);
+	assert.notEqual(router.s.editorWorkspace.patterns64['group:2'].steps[36].cut, null);
 });
 
-test('sequence64 length buttons require a hold and cells outside the length are unavailable', () => {
+test('persistent sequence64 length buttons require a hold and do not replace parameter values', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	selectTrack(harness, 0);
 	const pattern = router.s.editorWorkspace.patterns64['track:0'];
-
 	router.dispatch(1, 12, 1);
 	assert.equal(pattern.bars[0].length, 16);
 	assert.equal(router.sequence64PendingLengthIndex, 1);
@@ -1340,28 +1915,29 @@ test('sequence64 length buttons require a hold and cells outside the length are 
 	assert.equal(pattern.bars[0].length, 32);
 
 	const levels = router.buildEditorShellLevels();
-	assert.equal(levels[router.editorShellLevelIndex(15, 9)], router.SEQUENCE64_EMPTY_STEP_LEVEL);
+	assert.equal(levels[router.editorShellLevelIndex(15, 9)], 0);
 	assert.equal(levels[router.editorShellLevelIndex(0, 10)], 0);
+	router.editorBrightnessColors(1);
+	const colorLevels = router.buildEditorShellLevels();
+	assert.equal(colorLevels[router.editorShellLevelIndex(15, 9)], 0);
 	router.dispatch(0, 10, 1);
 	router.dispatch(0, 10, 0);
 	assert.equal(pattern.bars[0].steps[32].cut, null);
 });
 
-test('holding a step opens a persistent centered lock editor and clicking it again closes', () => {
+test('persistent inspector edits the selected step while Trigger and Delete stay explicit', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	selectTrack(harness, 0);
 
-	// Create step 6, hold it to open, then release before editing.
+	// Create and select step 6. Slice is the default parameter.
 	router.dispatch(5, 8, 1);
 	router.dispatch(5, 8, 0);
-	router.dispatch(5, 8, 1);
-	router.openSequence64StepEditorAfterHold();
-	router.dispatch(5, 8, 0);
-	assert.equal(router.sequence64HeldStep, 5);
+	assert.equal(router.sequence64SelectedStep, 5);
+	assert.equal(router.sequence64EditParameter, 'slice');
 
-	// Parameters occupy centered columns 5–12; shapes occupy columns 6–11.
 	router.dispatch(11, 13, 1);
+	router.dispatch(11, 13, 0);
 	router.dispatch(6, 12, 1);
 	router.dispatch(8, 13, 1);
 	router.dispatch(7, 14, 1);
@@ -1369,28 +1945,143 @@ test('holding a step opens a persistent centered lock editor and clicking it aga
 	router.dispatch(3, 13, 1);
 
 	const step = router.s.editorWorkspace.patterns64['track:0'].steps[5];
-	assert.equal(step.cut.slice, 5);
+	assert.equal(step.cut.slice, 0);
 	assert.equal(step.locks.slice.value, 11);
 	assert.equal(router.sequence64LockValueColumn('slice', step), 11);
 	assert.equal(step.cut.gateLength, 4);
 	assert.equal(step.locks.volume.value, 8);
 	assert.equal(step.locks.volume.behavior, 'pluck');
-	assert.equal(router.sequence64HeldStep, 5);
+	assert.equal(router.sequence64SelectedStep, 5);
 
-	// With the popup open, an empty step is enabled and becomes the editor target.
+	// Selecting another step does not make a second tap destructive.
 	router.dispatch(6, 8, 1);
 	router.dispatch(6, 8, 0);
 	assert.notEqual(router.s.editorWorkspace.patterns64['track:0'].steps[6].cut, null);
-	assert.equal(router.sequence64HeldStep, 6);
+	assert.equal(router.sequence64SelectedStep, 6);
 	assert.equal(router.sequence64EditParameter, 'gateLength');
-
 	router.dispatch(6, 8, 1);
 	router.dispatch(6, 8, 0);
-	assert.equal(router.sequence64HeldStep, -1);
+	assert.notEqual(router.s.editorWorkspace.patterns64['track:0'].steps[6].cut, null);
+
+	// Trigger removes only the cut. Delete + step clears the complete step.
+	router.dispatch(6, 12, 1);
+	router.dispatch(9, 13, 1);
+	router.dispatch(0, 14, 1);
+	assert.equal(router.s.editorWorkspace.patterns64['track:0'].steps[6].cut, null);
+	assert.equal(router.s.editorWorkspace.patterns64['track:0'].steps[6].locks.volume.value, 9);
+	router.dispatch(14, 15, 1);
+	harness.clearLog();
+	router.dispatch(6, 8, 1);
+	router.dispatch(14, 15, 0);
+	assert.equal(Object.keys(router.s.editorWorkspace.patterns64['track:0'].steps[6].locks).length, 0);
+	assert.equal(router.buildEditorShellLevels()[router.editorShellLevelIndex(6, 8)], 0);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'setcell' &&
+		message[2] === 6 && message[3] === 8 && message[4] === 0), true);
 	assert.notEqual(step.cut, null);
 });
 
-test('sequence64 shows the selected target track playback position on row 15', () => {
+test('Delete plus a step turns an otherwise empty cell fully off without losing its cursor', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.editorColors(1);
+	router.dispatch(10, 8, 1);
+	router.dispatch(10, 8, 0);
+
+	router.dispatch(14, 15, 1);
+	harness.clearLog();
+	router.dispatch(10, 8, 1);
+	router.dispatch(14, 15, 0);
+
+	const step = router.s.editorWorkspace.patterns64['track:0'].steps[10];
+	assert.equal(step.cut, null);
+	assert.equal(Object.keys(step.locks).length, 0);
+	assert.equal(router.sequence64SelectedStep, 10);
+	assert.equal(router.buildEditorShellLevels()[router.editorShellLevelIndex(10, 8)], 0);
+	assert.deepEqual(Array.from(router.buildEditorShellColors(
+		router.buildEditorShellLevels())[router.editorShellLevelIndex(10, 8)]), [0, 0, 0]);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'setcell' &&
+		message[2] === 10 && message[3] === 8 && message[4] === 0), true);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 'colorcell' &&
+		message[2] === 10 && message[3] === 8 &&
+		message[4] === 0 && message[5] === 0 && message[6] === 0), true);
+});
+
+test('edit cursors follow targets and Delete clears pointed values and confirmed bars', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.dispatch(5, 8, 1);
+	router.dispatch(5, 8, 0);
+	selectTrack(harness, 1);
+	assert.equal(router.sequence64SelectedStep, 0);
+	selectTrack(harness, 0);
+	assert.equal(router.sequence64SelectedStep, 5);
+
+	// Delete + value clears the selected parameter without touching the cut.
+	router.dispatch(6, 12, 1);
+	router.dispatch(9, 13, 1);
+	const step = router.s.editorWorkspace.patterns64['track:0'].steps[5];
+	assert.equal(step.locks.volume.value, 9);
+	router.dispatch(14, 15, 1);
+	router.dispatch(9, 13, 1);
+	router.dispatch(14, 15, 0);
+	assert.equal(step.locks.volume, undefined);
+	assert.notEqual(step.cut, null);
+
+	// Delete + bar retains the two-press safety confirmation.
+	router.addSequence64Bar();
+	selectPatternContext(harness);
+	router.dispatch(14, 15, 1);
+	router.dispatch(4, 15, 1);
+	assert.equal(router.s.editorWorkspace.patterns64['track:0'].bars.length, 2);
+	router.dispatch(4, 15, 1);
+	router.dispatch(14, 15, 0);
+	assert.equal(router.s.editorWorkspace.patterns64['track:0'].bars.length, 1);
+});
+
+test('Filter exposes inline modulation source and signed amount controls', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+
+	// Select Filter, LFO 2, then +50% on the contextual value row.
+	router.dispatch(7, 12, 1);
+	router.dispatch(7, 12, 0);
+	assert.equal(router.sequence64EditParameter, 'filter');
+	router.dispatch(12, 14, 1);
+	router.dispatch(11, 13, 1);
+	const modulation = router.s.editorWorkspace.modulation;
+	assert.equal(modulation.routes.length, 1);
+	assert.deepEqual(JSON.parse(JSON.stringify(modulation.routes[0])), {
+		scope: 'track', targetId: 0, parameterId: 'filter', sourceId: 'lfo2',
+		amount: 0.5, enabled: true
+	});
+	assert.equal(harness.hudMessages.some((message) => message[0] === 'modulation_state'), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		/^\d\[mod\]lfo2-amount$/.test(message[0]) && message[1] === 0.5), true);
+	const levels = router.buildEditorShellLevels();
+	assert.equal(levels[router.editorShellLevelIndex(12, 14)], 15);
+	assert.equal(levels[router.editorShellLevelIndex(11, 13)], 15);
+
+	// Pressing the currently lit amount clears the route without touching the step lock.
+	router.dispatch(11, 13, 1);
+	assert.equal(modulation.routes.length, 1, 'old immutable snapshot remains unchanged');
+	assert.equal(router.s.editorWorkspace.modulation.routes.length, 0);
+	// Delete + source is the other explicit route-clear gesture.
+	router.dispatch(11, 13, 1);
+	assert.equal(router.s.editorWorkspace.modulation.routes.length, 1);
+	router.dispatch(14, 15, 1);
+	router.dispatch(12, 14, 1);
+	router.dispatch(14, 15, 0);
+	assert.equal(router.s.editorWorkspace.modulation.routes.length, 0);
+	assert.equal(router.sequence64ModEditActive, false);
+});
+
+test('sequence64 shows the selected target track playback position in the Slice value lane', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
@@ -1399,25 +2090,20 @@ test('sequence64 shows the selected target track playback position on row 15', (
 
 	router.boxled(6, 1, 15);
 	let levels = router.buildEditorShellLevels();
-	assert.equal(levels[router.editorShellLevelIndex(6, 14)],
+	assert.equal(levels[router.editorShellLevelIndex(6, 13)],
 		router.SEQUENCE64_TRACK_POSITION_LEVEL);
 
 	router.boxled(6, 1, 0);
 	router.boxled(9, 1, 15);
 	levels = router.buildEditorShellLevels();
-	assert.equal(levels[router.editorShellLevelIndex(6, 14)],
+	assert.equal(levels[router.editorShellLevelIndex(6, 13)],
 		router.SEQUENCE64_MIN_VISIBLE_LEVEL);
-	assert.equal(levels[router.editorShellLevelIndex(9, 14)],
+	assert.equal(levels[router.editorShellLevelIndex(9, 13)],
 		router.SEQUENCE64_TRACK_POSITION_LEVEL);
 
-	router.sequence64HeldStep = 0;
-	levels = router.buildEditorShellLevels();
-	assert.equal(levels[router.editorShellLevelIndex(9, 14)], 0);
-
-	router.sequence64HeldStep = -1;
 	router.s.channels[0].activeTrack = -1;
 	levels = router.buildEditorShellLevels();
-	assert.equal(levels[router.editorShellLevelIndex(9, 14)],
+	assert.equal(levels[router.editorShellLevelIndex(9, 13)],
 		router.SEQUENCE64_MIN_VISIBLE_LEVEL);
 });
 
@@ -1439,7 +2125,7 @@ test('groove playback telemetry replaces a primed sequencer slice and clears sib
 	assert.equal(router.s.channels[0].activeTrack, 0);
 });
 
-test('sequence64 live-position lane plays slices and Record drops the cut at the playhead', () => {
+test('Slice audition is held, and Live Write drops the value at the playhead', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
@@ -1447,43 +2133,42 @@ test('sequence64 live-position lane plays slices and Record drops the cut at the
 	router.setPlaybackBgCell(2, 1, 15);
 	harness.clearLog();
 
-	router.dispatch(6, 14, 1);
-	router.dispatch(6, 14, 0);
+	router.dispatch(6, 13, 1);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 6 && message[2] === 1), true);
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '2input' && message[1] === 6 && message[2] === 0), true);
+		message[0] === '2input' && message[1] === 6 && message[2] === 0), false);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '1[mlr]pl-trig-now' && message[1] === 'bang'), true);
 	assert.equal(router.playbackBg[router.bgIndex(2, 1)], 0);
 	assert.equal(router.playbackBg[router.bgIndex(6, 1)], 15);
+	router.dispatch(6, 13, 0);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 6 && message[2] === 0), true);
 	const liveLevels = router.buildEditorShellLevels();
-	assert.equal(liveLevels[router.editorShellLevelIndex(6, 14)],
-		router.SEQUENCE64_TRACK_POSITION_LEVEL);
+	assert.equal(liveLevels[router.editorShellLevelIndex(6, 13)], 15);
 
 	router.sequence64ClockPosition = 9;
-	router.dispatch(1, 13, 1);
-	router.dispatch(11, 14, 1);
-	router.dispatch(11, 14, 0);
-	router.dispatch(1, 13, 0);
+	router.dispatch(1, 14, 1);
+	router.dispatch(11, 13, 1);
+	router.dispatch(11, 13, 0);
 	assert.equal(router.sequence64LockRecordHeld, true);
 	const cut = router.s.editorWorkspace.patterns64['track:0'].steps[9].cut;
 	assert.equal(cut.track, 0);
 	assert.equal(cut.slice, 11);
 	assert.equal(cut.gateLength, 1);
-	router.dispatch(1, 13, 1);
-	router.dispatch(1, 13, 0);
+	router.dispatch(1, 14, 1);
 	assert.equal(router.sequence64LockRecordHeld, false);
 });
 
-test('sequence64 gives every actionable dim control a firmware-visible level', () => {
+test('sequence64 leaves empty monochrome steps dark while shell controls stay visible', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	selectTrack(harness, 0);
 	let levels = router.buildEditorShellLevels();
 
-	assert.equal(levels[router.editorShellLevelIndex(0, 8)] >= 3, true);
-	assert.equal(levels[router.editorShellLevelIndex(15, 8)] >= 3, true);
+	assert.equal(levels[router.editorShellLevelIndex(1, 8)], 0);
+	assert.equal(levels[router.editorShellLevelIndex(15, 8)], 0);
 	assert.equal(levels[router.editorShellLevelIndex(0, 9)], 0);
 
 	router.sequence64HeldStep = 0;
@@ -1515,15 +2200,16 @@ test('sequence64 Run is opt-in and Stop halts the player owned by that target', 
 	router.s.automation.tick = 0;
 	router.sequence64ClockPosition = 0;
 	router.s.editorWorkspace.lastSequencedStep = 0;
-	router.dispatch(0, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(0, 14, 1);
 	harness.clearLog();
 	router.sequence64SubPulse();
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '2input' && message[1] === 1 && message[2] === 1), true);
+		message[0] === '2input' && message[1] === 0 && message[2] === 1), true);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '1[mlr]pl-trig-now' && message[1] === 'bang'), true);
 
-	router.dispatch(0, 13, 1);
+	router.dispatch(0, 14, 1);
 	assert.equal(router.s.editorWorkspace.patterns64['track:0'].running, 0);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '1[pl]stop' && message[1] === 'int' && message[2] === 1), true);
@@ -1537,7 +2223,8 @@ test('sequence64 Run stays latched after editor exit and playback continues', ()
 	const pattern = router.s.editorWorkspace.patterns64['track:0'];
 	pattern.steps[1].cut = { track: 0, slice: 8, gateLength: 1 };
 	router.sequence64ClockPosition = 0;
-	router.dispatch(0, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(0, 14, 1);
 	router.dispatch(15, 15, 1);
 
 	assert.equal(router.s.editorWorkspace.active, false);
@@ -1707,7 +2394,8 @@ test('sequence64 advances exactly one step per audio-derived subpulse', () => {
 	pattern.steps[3].cut = { track: 0, slice: 11, gateLength: 1 };
 	pattern.steps[4].cut = { track: 0, slice: 15, gateLength: 1 };
 	router.timeMsUpdate(600);
-	router.dispatch(0, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(0, 14, 1);
 	harness.clearLog();
 
 	// The legacy tr_pulse still advances automation, but no longer subdivides
@@ -1751,7 +2439,8 @@ test('legacy tr_pulse cannot cluster or catch up sequence64 steps', () => {
 	for (let step = 1; step <= 5; step++) {
 		pattern.steps[step].cut = { track: 0, slice: step, gateLength: 1 };
 	}
-	router.dispatch(0, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(0, 14, 1);
 	harness.clearLog();
 
 	router.sequence64SubPulse();
@@ -1779,6 +2468,9 @@ test('sequence64 maps one complete bar across the four 16-cell rows', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	selectTrack(harness, 0);
+	const clockOwner = router.ensureSequence64Pattern('group', 0);
+	clockOwner.running = 1;
+	router.globalTransport(1);
 
 	for (let step = 0; step < 64; step++) {
 		router.sequence64SubPulse();
@@ -1812,6 +2504,7 @@ test('sequence64 preserves a saved single-bar pattern as bar 1', () => {
 
 	selectTrack(harness, 0);
 	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	selectPatternContext(harness);
 	assert.equal(pattern.version, 9);
 	assert.equal(pattern.bars.length, 1);
 	assert.equal(pattern.bars[0].length, 32);
@@ -1831,6 +2524,7 @@ test('sequence64 bar navigation keeps each 64-step bar independent', () => {
 	const router = harness.context;
 	selectTrack(harness, 0);
 	const pattern = router.s.editorWorkspace.patterns64['track:0'];
+	selectPatternContext(harness);
 
 	// Bar 1, step 3.
 	router.dispatch(2, 8, 1);
@@ -1838,8 +2532,8 @@ test('sequence64 bar navigation keeps each 64-step bar independent', () => {
 	assert.equal(pattern.bars.length, 1);
 	assert.notEqual(pattern.bars[0].steps[2].cut, null);
 
-	// Row 13 column 15 adds and selects bar 2.
-	router.dispatch(14, 12, 1);
+	// Pattern-context row 14 column 15 adds and selects bar 2.
+	router.dispatch(14, 13, 1);
 	assert.equal(pattern.bars.length, 2);
 	assert.equal(pattern.currentBar, 1);
 	assert.equal(pattern.running, 0);
@@ -1850,18 +2544,19 @@ test('sequence64 bar navigation keeps each 64-step bar independent', () => {
 	assert.notEqual(pattern.bars[1].steps[6].cut, null);
 	assert.equal(pattern.bars[0].steps[6].cut, null);
 
-	// Direct bar buttons begin at row 13 column 5.
-	router.dispatch(4, 12, 1);
-	router.dispatch(4, 12, 0);
+	// Persistent bar buttons begin at row 16 column 4.
+	router.dispatch(3, 15, 1);
+	router.dispatch(3, 15, 0);
 	assert.equal(pattern.currentBar, 0);
-	assert.equal(hasLed(harness, 4, 12, 15), true);
-	router.dispatch(13, 12, 1);
+	assert.equal(hasLed(harness, 3, 15, 15), true);
+	router.dispatch(4, 15, 1);
+	router.dispatch(4, 15, 0);
 	assert.equal(pattern.currentBar, 1);
 
-	// Removing a bar is deliberately a double press on row 13 column 16.
-	router.dispatch(15, 12, 1);
+	// Removing a bar is deliberately a double press on row 14 column 16.
+	router.dispatch(15, 13, 1);
 	assert.equal(pattern.bars.length, 2);
-	router.dispatch(15, 12, 1);
+	router.dispatch(15, 13, 1);
 	assert.equal(pattern.bars.length, 1);
 	assert.equal(pattern.currentBar, 0);
 	assert.notEqual(pattern.steps[2].cut, null);
@@ -1872,35 +2567,34 @@ test('holding bar buttons sets 1–8 active bars without erasing parked bar data
 	const router = harness.context;
 	selectTrack(harness, 0);
 	const pattern = router.s.editorWorkspace.patterns64['track:0'];
-
 	// Hold bar 4 to set a four-bar pattern and view its last bar.
-	router.dispatch(7, 12, 1);
+	router.dispatch(6, 15, 1);
 	assert.equal(pattern.bars.length, 1);
 	router.commitSequence64BarHold();
-	router.dispatch(7, 12, 0);
+	router.dispatch(6, 15, 0);
 	assert.equal(pattern.bars.length, 4);
 	assert.equal(pattern.currentBar, 3);
 	pattern.bars[3].steps[9].cut = { track: 0, slice: 12, gateLength: 1 };
 
 	// Hold bar 2 to shorten. Trailing material is parked rather than deleted.
-	router.dispatch(5, 12, 1);
+	router.dispatch(4, 15, 1);
 	router.commitSequence64BarHold();
-	router.dispatch(5, 12, 0);
+	router.dispatch(4, 15, 0);
 	assert.equal(pattern.bars.length, 2);
 	assert.equal(pattern.parkedBars.length, 2);
 	assert.equal(pattern.currentBar, 1);
 
 	// Holding bar 4 again restores the original trailing bars and their data.
-	router.dispatch(7, 12, 1);
+	router.dispatch(6, 15, 1);
 	router.commitSequence64BarHold();
-	router.dispatch(7, 12, 0);
+	router.dispatch(6, 15, 0);
 	assert.equal(pattern.bars.length, 4);
 	assert.equal(pattern.parkedBars.length, 0);
 	assert.equal(pattern.bars[3].steps[9].cut.slice, 12);
 
 	// A short tap still navigates without changing the bar count.
-	router.dispatch(4, 12, 1);
-	router.dispatch(4, 12, 0);
+	router.dispatch(3, 15, 1);
+	router.dispatch(3, 15, 0);
 	assert.equal(pattern.currentBar, 0);
 	assert.equal(pattern.bars.length, 4);
 });
@@ -1934,14 +2628,15 @@ test('sequence64 playback crosses bar boundaries without resetting step phase', 
 		message[0] === '2input' && message[1] === 9 && message[2] === 1), true);
 });
 
-test('sequence64 Stop restores Set locks and cancels active Gate shapes without erasing programming', () => {
+test('sequence64 Stop restores an active Set step and cancels Gate shapes without erasing programming', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
 	selectGroup(harness, 0);
 	const pattern = router.s.editorWorkspace.patterns64['group:0'];
 	pattern.steps[1].locks.volume = { value: 6, behavior: 'set' };
-	router.dispatch(0, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(0, 14, 1);
 	harness.clearLog();
 	router.sequence64SubPulse();
 
@@ -1949,7 +2644,7 @@ test('sequence64 Stop restores Set locks and cancels active Gate shapes without 
 		message[0] === '1[gatefx]level' && message[1] === 0.4 && message[2] === 0), true);
 	assert.equal(router.s.editorWorkspace.parameterValues64['group:0'].volume, 6);
 	harness.clearLog();
-	router.dispatch(0, 13, 1);
+	router.dispatch(0, 14, 1);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '1[gatefx]level' && message[1] === 1), true);
 	assert.equal(pattern.steps[1].locks.volume.value, 6);
@@ -1959,18 +2654,44 @@ test('sequence64 Stop restores Set locks and cancels active Gate shapes without 
 	pattern.steps[2].cut = { track: 0, slice: 2, gateLength: 4 };
 	router.sequence64ClockPosition = 1;
 	router.s.editorWorkspace.lastSequencedStep = 1;
-	router.dispatch(0, 13, 1);
+	router.dispatch(0, 14, 1);
 	harness.clearLog();
 	router.sequence64SubPulse();
 	assert.equal(router.sequence64ActiveShapes.some((shape) => shape.behavior === 'gate'), true);
 	harness.clearLog();
-	router.dispatch(0, 13, 1);
+	router.dispatch(0, 14, 1);
 	assert.equal(router.sequence64ActiveShapes.some((shape) => shape.behavior === 'gate'), false);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '1[gatefx]level' && message[1] === 1), true);
 });
 
-test('Restore Start State is the explicit way to restore playback and persistent locks', () => {
+test('ordinary Set locks return to the prior value on the following sequencer step',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ r.s.tracks[0].channel=1;
+ const loopBaseline=r.sequence64CurrentPropertyValue('loopDivision',0,0);
+ const loopLock=loopBaseline===4?6:4;
+ const p=r.ensureSequence64Pattern('track',0);
+ p.steps[0].cut={track:0,slice:0,gateLength:1};
+ p.steps[0].locks.transpose={value:7,behavior:'set'};
+ p.steps[0].locks.volume={value:6,behavior:'set'};
+ p.steps[0].locks.reverse={value:1,behavior:'set'};
+ p.steps[0].locks.loopDivision={value:loopLock,behavior:'set'};
+ p.running=1;h.clearLog();
+ r.runSequence64StepForTarget('track',0,p,0,0);
+ assert.equal(r.sequence64CurrentPropertyValue('transpose',0,0),7);
+ assert.equal(r.sequence64CurrentPropertyValue('volume',0,0),6);
+ assert.equal(r.sequence64CurrentPropertyValue('reverse',0,0),1);
+ assert.equal(r.sequence64CurrentPropertyValue('loopDivision',0,0),loopLock);
+ h.clearLog();
+ r.runSequence64StepForTarget('track',0,p,0,1);
+ assert.equal(r.sequence64CurrentPropertyValue('transpose',0,0),0);
+ assert.equal(r.sequence64CurrentPropertyValue('volume',0,0),15);
+ assert.equal(r.sequence64CurrentPropertyValue('reverse',0,0),0);
+ assert.equal(r.sequence64CurrentPropertyValue('loopDivision',0,0),loopBaseline);
+ assert.ok(h.namedMessages.some(m=>m[0]==='1[gatefx]level'&&m[1]===1));
+});
+
+test('Restore Start State restores playback and any currently active lock frames', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
@@ -1980,7 +2701,8 @@ test('Restore Start State is the explicit way to restore playback and persistent
 	pattern.steps[1].cut = { track: 0, slice: 9, gateLength: 1 };
 	pattern.steps[1].locks.reverse = { value: 1, behavior: 'set' };
 	pattern.steps[1].locks.volume = { value: 5, behavior: 'set' };
-	router.dispatch(0, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(0, 14, 1);
 	router.sequence64SubPulse();
 	assert.equal(router.s.tracks[0].playPos, 13);
 	assert.equal(router.s.tracks[0].reverse, 1);
@@ -2006,18 +2728,20 @@ test('sequence64 Stop cancels one-shot tails and a newer event replaces the same
 	const pattern = router.s.editorWorkspace.patterns64['group:0'];
 	pattern.steps[1].locks.volume = { value: 3, behavior: 'swell' };
 	pattern.steps[2].locks.volume = { value: 11, behavior: 'pluck' };
-	router.dispatch(0, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(0, 14, 1);
 	router.sequence64SubPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 1);
-	router.dispatch(0, 13, 1);
+	router.dispatch(0, 14, 1);
 	router.sequence64SubPulse();
 	assert.equal(router.sequence64ActiveShapes.length, 0);
 
 	// Restart on step 1, then fire step 2 while running: its pluck replaces swell.
-	router.dispatch(0, 13, 1);
 	router.sequence64ClockPosition = 0;
 	router.s.editorWorkspace.lastSequencedStep = 0;
 	pattern.lastSequencedFlat = 0;
+	pattern.lastSequencedAbsolute = 0;
+	router.dispatch(0, 14, 1);
 	router.sequence64SubPulse();
 	assert.equal(router.sequence64ActiveShapes[0].behavior, 'swell');
 	router.sequence64ClockPosition = 1;
@@ -2166,8 +2890,7 @@ test('sequence64 Setup retains latched lock recording until Record is tapped aga
 	const baseVolume = router.s.channels[0].volume;
 
 	// Latch Record, switch to Setup, then move volume and semitone pitch one-handed.
-	router.dispatch(1, 13, 1);
-	router.dispatch(1, 13, 0);
+	router.dispatch(1, 14, 1);
 	assert.equal(router.sequence64LockRecordHeld, true);
 	router.dispatch(1, 15, 1);
 	router.dispatch(10, 9, 1);
@@ -2187,8 +2910,7 @@ test('sequence64 Setup retains latched lock recording until Record is tapped aga
 		message[0] === '1[gatefx]level' && message[1] === 10 / 15), true);
 	assert.equal(router.sequence64LockRecordHeld, true);
 	router.dispatch(0, 15, 1);
-	router.dispatch(1, 13, 1);
-	router.dispatch(1, 13, 0);
+	router.dispatch(1, 14, 1);
 	assert.equal(router.sequence64LockRecordHeld, false);
 });
 
@@ -2234,9 +2956,10 @@ test('sequence64 pattern clear requires a deliberate second press', () => {
 	selectTrack(harness, 0);
 	router.dispatch(0, 8, 1);
 	router.dispatch(0, 8, 0);
-	router.dispatch(15, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(15, 14, 1);
 	assert.notEqual(router.s.editorWorkspace.patterns64['track:0'].steps[0].cut, null);
-	router.dispatch(15, 13, 1);
+	router.dispatch(15, 14, 1);
 	assert.equal(router.s.editorWorkspace.patterns64['track:0'].steps[0].cut, null);
 });
 
@@ -2285,11 +3008,11 @@ test('a fresh group pattern and its live lane immediately use the resolved defau
 	harness.clearLog();
 	router.runSequence64StepForTarget('group', 0, pattern, 0, 5);
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '5input' && message[1] === 5 && message[2] === 1), true);
+		message[0] === '5input' && message[1] === 0 && message[2] === 1), true);
 
 	harness.clearLog();
-	router.dispatch(9, 14, 1);
-	router.dispatch(9, 14, 0);
+	router.dispatch(9, 13, 1);
+	router.dispatch(9, 13, 0);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '5input' && message[1] === 9 && message[2] === 1), true);
 });
@@ -2322,6 +3045,7 @@ test('group cuts launch a one-shot track phrase whose first step merges with the
 	assert.equal(router.s.channels[0].sequence64Owner, 'group:0');
 
 	group.lastSequencedAbsolute = 0;
+	router.globalTransport(1);
 	harness.clearLog();
 	router.advanceSequence64ClockSubstep();
 	assert.equal(harness.namedMessages.some((message) =>
@@ -2351,6 +3075,7 @@ test('opening the phrase editor cannot substitute its playhead for the group clo
 	group.lastSequencedAbsolute = 10;
 
 	selectTrack(harness, 0);
+	router.globalTransport(1);
 	harness.clearLog();
 	router.advanceSequence64ClockSubstep();
 	assert.equal(router.sequence64ClockPosition, 11);
@@ -2371,6 +3096,7 @@ test('saved rational rates service every crossed group step and scale phrases', 
 	group.lastSequencedAbsolute = 0;
 	router.sequence64ClockPosition = 0;
 	router.setSequence64PatternRate('group', 0, 2, 1);
+	router.globalTransport(1);
 	harness.clearLog();
 	router.advanceSequence64ClockSubstep();
 	const groupPresses = harness.namedMessages.filter((message) =>
@@ -2474,6 +3200,15 @@ test('track Run previews its phrase once and returns to stopped', () => {
 	assert.equal(phrase.running, 1);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 6 && message[2] === 1), true);
+	const firstPreview = router.activeSequence64PhraseForTrack(0);
+	harness.clearLog();
+	router.setCurrentSequence64Running(1);
+	assert.notEqual(router.activeSequence64PhraseForTrack(0), firstPreview,
+		'retrigger replaces the preview without an idle transport transition');
+	assert.equal(phrase.running, 1);
+	assert.equal(router.s.globalTransportRunning, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '[mlr]stop'), false);
 	harness.clearLog();
 	router.advanceSequence64ClockSubstep();
 	assert.equal(harness.namedMessages.some((message) =>
@@ -2481,6 +3216,7 @@ test('track Run previews its phrase once and returns to stopped', () => {
 	for (let pulse = 2; pulse <= 16; pulse++) router.advanceSequence64ClockSubstep();
 	assert.equal(phrase.running, 0);
 	assert.equal(router.activeSequence64PhraseForTrack(0), null);
+	assert.equal(router.s.globalTransportRunning, 0);
 });
 
 test('clearing a track phrase cancels its group-launched runtime without stopping group audio', () => {
@@ -2518,12 +3254,13 @@ test('row 14 column 4 is a deliberate Pattern Stop control', () => {
 	assert.equal(router.s.channels[0].sequence64Owner, 'group:0');
 
 	harness.clearLog();
-	router.dispatch(3, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(3, 14, 1);
 	assert.equal(pattern.running, 0);
 	assert.equal(router.s.channels[0].sequence64Owner, null);
 	assert.equal(harness.namedMessages.some((message) => message[0] === '1[pl]stop'), true);
 	assert.equal(router.buildEditorShellLevels()[
-		router.editorShellLevelIndex(3, 13)] >= 3, true);
+		router.editorShellLevelIndex(3, 14)] >= 3, true);
 });
 
 test('bottom-row jump switches group to current or last track and track back to its group', () => {
@@ -2536,12 +3273,14 @@ test('bottom-row jump switches group to current or last track and track back to 
 	selectGroup(harness, 0);
 
 	router.dispatch(13, 15, 1);
+	router.dispatch(13, 15, 0);
 	assert.equal(router.s.editorWorkspace.targetType, 'track');
 	assert.equal(router.s.editorWorkspace.targetId, 4);
 
 	// The jump is available from Setup too and leaves playback state untouched.
 	router.dispatch(1, 15, 1);
 	router.dispatch(13, 15, 1);
+	router.dispatch(13, 15, 0);
 	assert.equal(router.s.editorWorkspace.targetType, 'group');
 	assert.equal(router.s.editorWorkspace.targetId, 0);
 	assert.equal(router.buildEditorShellLevels()[
@@ -2855,7 +3594,7 @@ test('structural edits preserve Run, audio ownership, programmed data, and a val
 	assert.equal(harness.namedMessages.some((message) => message[0] === '1[pl]stop'), false);
 });
 
-test('shortening past the playhead and Restart return a running pattern to step 1 immediately', () => {
+test('shortening wraps the playhead while explicit Restart returns to step 1 immediately', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
 	router.s.tracks[0].channel = 1;
@@ -2870,14 +3609,15 @@ test('shortening past the playhead and Restart return a running pattern to step 
 	router.setCurrentSequence64BarLength(16);
 	assert.equal(pattern.running, 1);
 	assert.equal(router.currentSequence64BarIndex(), 0);
-	assert.equal(router.currentSequence64StepIndex(), 0);
+	assert.equal(router.currentSequence64StepIndex(), 8);
 	assert.equal(harness.namedMessages.some((message) =>
-		message[0] === '2input' && message[1] === 3 && message[2] === 1), true);
+		message[0] === '2input' && message[1] === 3 && message[2] === 1), false);
 	assert.equal(harness.namedMessages.some((message) => message[0] === '1[pl]stop'), false);
 
 	router.sequence64ClockPosition = 49;
 	harness.clearLog();
-	router.dispatch(2, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(2, 14, 1);
 	assert.equal(router.currentSequence64StepIndex(), 0);
 	assert.equal(harness.namedMessages.some((message) =>
 		message[0] === '2input' && message[1] === 3 && message[2] === 1), true);
@@ -2898,7 +3638,8 @@ test('Restart starts a stopped phrase at step 1 and does not move other pattern 
 	other.phaseOrigin = 7;
 	const otherBefore = router.sequence64PlaybackLocation(other).flat;
 
-	router.dispatch(2, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(2, 14, 1);
 	assert.equal(pattern.running, 1);
 	assert.equal(pattern.restartArmed, 0);
 	assert.equal(router.currentSequence64StepIndex(), 0);
@@ -2917,7 +3658,8 @@ test('Restart starts a stopped group at step 1 and latches Run', () => {
 	router.sequence64ClockPosition = 31;
 	harness.clearLog();
 
-	router.dispatch(2, 13, 1);
+	selectPatternContext(harness);
+	router.dispatch(2, 14, 1);
 
 	assert.equal(pattern.running, 1);
 	assert.equal(router.currentSequence64StepIndex(), 0);
@@ -3131,6 +3873,577 @@ test('sample browser pages 240 entries while preserving lower-half editor drawin
 		message[2] === 0 && message[3] === -1), true);
 });
 
+test('sample browser maps folder-local cells to stable global sample indices', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.sampleBrowserReset(2, 2, 1);
+	router.sampleBrowserColor(0, 240, 50, 30, 100);
+	router.sampleBrowserColor(1, 30, 170, 235, 101);
+	router.sampleBrowserAssignment(2, 100);
+	router.sampleBrowserOpen(2, 100);
+
+	router.dispatch(1, 1, 1);
+	assert.equal(router.sampleBrowserState.selectedSample, 101);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'assign' &&
+		message[2] === 2 && message[3] === 101), true);
+
+	router.dispatch(7, 7, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'selectFolder' &&
+		message[2] === 0 && message[3] === 2), true);
+});
+
+test('switching from the sample browser to Scene closes the overlay before the composite frame', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.sampleBrowserReset(1);
+	router.sampleBrowserOpen(0, 0);
+	harness.clearLog();
+
+	router.dispatch(2, 15, 1);
+	assert.equal(router.sampleBrowserState.active, false);
+	assert.equal(router.s.editorWorkspace.view64, 'scene');
+	const frames = harness.outlets.filter((message) =>
+		message[0] === 1 && message[1] === 'replaceframe');
+	assert.equal(frames.length, 1);
+	for (let groupRow = 1; groupRow <= 8; groupRow++) {
+		assert.equal(frames[0][4 + groupRow * 16] > 0, true,
+			`group row ${groupRow + 1} is present in the first Scene frame`);
+	}
+	assert.equal(harness.hudMessages.some((message) =>
+		message[0] === 'sample_browser' && message[1] === 0), true);
+});
+
+test('Scene view combines song rows with embedded steps and suppresses legacy side effects', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	harness.clearLog();
+
+	// Bottom row: Sequence, Setup, Scene.
+	router.dispatch(2, 15, 1);
+	assert.equal(router.s.editorWorkspace.view64, 'scene');
+	assert.equal(hasLed(harness, 0, 0, 15), true);
+	assert.equal(hasLed(harness, 2, 15, 15), true);
+
+	harness.clearLog();
+	router.dispatch(1, 1, 1); // Group 1, pattern slot 2.
+	assert.equal(router.s.editorWorkspace.performanceGroupPatternRefs[0],
+		'group-pattern:0:1');
+	assert.equal(router.s.editorWorkspace.patterns64['group:0'].running, 1);
+	assert.equal(router.s.channels[0].timestretch, 0,
+		'full-grid Scene ownership must suppress the old row-3 control');
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 2 && message[1] === 'scene_pattern' &&
+		message[2] === 1 && message[3] === 'group-pattern:0:1'), true);
+
+	// Rows 12–15 remain a directly editable 64-step grid for the touched group.
+	router.dispatch(3, 11, 1);
+	router.dispatch(3, 11, 0);
+	assert.ok(router.s.editorWorkspace.patterns64['group:0'].steps[3].cut);
+});
+
+test('Scene view exposes explicit global Start, Stop, and Reset controls', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+
+	let levels = router.buildSceneLevels();
+	assert.equal(levels[10 * 16], 5);
+	assert.equal(levels[10 * 16 + 1], 15);
+	assert.equal(levels[10 * 16 + 2], 6);
+
+	harness.clearLog();
+	router.dispatch(0, 10, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '[mlr]start' && message[1] === 'bang'), true);
+	levels = router.buildSceneLevels();
+	assert.equal(levels[10 * 16], 15);
+	assert.equal(levels[10 * 16 + 1], 5);
+
+	router.dispatch(2, 10, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '[mlr]reset' && message[1] === 'bang'), true);
+	router.dispatch(1, 10, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '[mlr]stop' && message[1] === 'bang'), true);
+	assert.equal(router.s.globalTransportRunning, 0);
+
+	// Start/Stop can originate outside Scene view; the shared receives mirror
+	// that state through globalTransport without emitting another bus command.
+	harness.clearLog();
+	assert.equal(router.globalTransport(1), 1);
+	levels = router.buildSceneLevels();
+	assert.equal(levels[10 * 16], 15);
+	assert.equal(levels[10 * 16 + 1], 5);
+	assert.deepEqual(harness.namedMessages, []);
+	assert.equal(router.globalTransport(0), 0);
+});
+
+test('Sequence64 launch owns transport while global Stop preserves Run for resume', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	router.s.tracks[0].channel = 1;
+	selectGroup(harness, 0);
+	const pattern = router.ensureSequence64Pattern('group', 0);
+	pattern.steps[1].cut = { track: 0, slice: 5, gateLength: 1 };
+
+	harness.clearLog();
+	router.setSequence64TargetRunning('group', 0, true);
+	assert.equal(router.s.globalTransportRunning, 1);
+	assert.equal(pattern.running, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '[mlr]start' && message[1] === 'bang'), true);
+
+	router.triggerEditorTrack(0, 3, 'group:0');
+	assert.equal(router.s.channels[0].sequence64Owner, 'group:0');
+	const pausedClock = router.sequence64ClockPosition;
+	harness.clearLog();
+	router.sceneGlobalTransport('stop');
+	assert.equal(router.s.globalTransportRunning, 0);
+	assert.equal(pattern.running, 1, 'global Stop is a pause, not a pattern edit');
+	assert.equal(router.s.channels[0].sequence64Owner, null);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '1[pl]stop'), true);
+	router.sequence64SubPulse();
+	assert.equal(router.sequence64ClockPosition, pausedClock);
+
+	harness.clearLog();
+	router.sceneGlobalTransport('start');
+	router.sequence64SubPulse();
+	assert.equal(router.sequence64ClockPosition, pausedClock + 1);
+	assert.equal(pattern.running, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2input' && message[1] === 5 && message[2] === 1), true);
+
+	harness.clearLog();
+	router.stopSequence64Target('group', 0, 'last_pattern');
+	assert.equal(router.s.globalTransportRunning, 0,
+		'removing the final continuous pattern stops transport');
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '[mlr]stop' && message[1] === 'bang'), true);
+});
+
+test('Scene pattern choices accumulate atomically and a repeated queued tap advances them', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.dispatch(0, 1, 1); // Start group 1 immediately at clock zero.
+	router.sequence64ClockPosition = 5;
+
+	router.dispatch(2, 1, 1); // Group 1, slot 3.
+	router.dispatch(3, 2, 1); // Group 2, slot 4, same pending combination.
+	const pending = router.s.editorWorkspace.pendingSceneLaunch;
+	assert.equal(pending.type, 'patterns');
+	assert.equal(pending.dueClock, 64);
+	assert.equal(pending.patternRefs[0], 'group-pattern:0:2');
+	assert.equal(pending.patternRefs[1], 'group-pattern:1:3');
+	assert.equal(router.s.editorWorkspace.performanceGroupPatternRefs[0],
+		'group-pattern:0:0');
+	assert.equal(router.buildSceneLevels()[1 * 16 + 2], 15,
+		'queued pattern is in the bright half of its flash at clock 5');
+	router.sequence64ClockPosition = 8;
+	assert.equal(router.buildSceneLevels()[1 * 16 + 2], 3,
+		'queued pattern enters the dim half of its flash at clock 8');
+
+	router.sequence64ClockPosition = 5;
+	router.dispatch(2, 1, 1); // Re-tap a flashing cell: commit the combination next step.
+	assert.equal(router.s.editorWorkspace.pendingSceneLaunch.dueClock, 6);
+	router.sequence64SubPulse();
+	assert.equal(router.sequence64ClockPosition, 6);
+	assert.equal(router.s.editorWorkspace.pendingSceneLaunch, null);
+	assert.equal(router.s.editorWorkspace.performanceGroupPatternRefs[0],
+		'group-pattern:0:2');
+	assert.equal(router.s.editorWorkspace.performanceGroupPatternRefs[1],
+		'group-pattern:1:3');
+	assert.equal(router.s.editorWorkspace.patterns64['group:0'].running, 1);
+	assert.equal(router.s.editorWorkspace.patterns64['group:1'].running, 1);
+});
+
+test('tapping each live group pattern removes its pending replacement', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.dispatch(0, 1, 1); // Start Group 1 on its current slot.
+	router.sequence64ClockPosition = 5;
+	router.dispatch(2, 1, 1); // Queue Group 1 slot 3.
+	router.dispatch(3, 2, 1); // Queue Group 2 slot 4.
+
+	router.dispatch(0, 1, 1); // Tap Group 1's live slot to cancel its replacement.
+	let pending = router.s.editorWorkspace.pendingSceneLaunch;
+	assert.equal(pending.type, 'patterns');
+	assert.equal(pending.patternRefs[0], undefined);
+	assert.equal(pending.patternRefs[1], 'group-pattern:1:3');
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 2 && message[1] === 'scene_pattern_queue_cancelled' &&
+		message[2] === 1 && message[3] === 1), true);
+
+	router.dispatch(0, 2, 1); // Cancel the final queued group.
+	pending = router.s.editorWorkspace.pendingSceneLaunch;
+	assert.equal(pending, null);
+});
+
+test('queued scene cells flash and a second tap launches on the next step', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.dispatch(0, 1, 1); // A running pattern makes scene launches quantized.
+	router.dispatch(12, 15, 1);
+	router.dispatch(1, 0, 1); // Store Scene 2.
+	router.dispatch(12, 15, 0);
+	router.sequence64ClockPosition = 5;
+
+	router.dispatch(0, 0, 1);
+	assert.equal(router.s.editorWorkspace.pendingSceneLaunch.dueClock, 64);
+	assert.equal(router.buildSceneLevels()[0], 15);
+	router.sequence64ClockPosition = 8;
+	assert.equal(router.buildSceneLevels()[0], 3);
+
+	router.sequence64ClockPosition = 5;
+	router.dispatch(0, 0, 1);
+	assert.equal(router.s.editorWorkspace.pendingSceneLaunch.dueClock, 6);
+	router.sequence64SubPulse();
+	assert.equal(router.s.editorWorkspace.sceneState.activeSceneId, 'scene:0');
+	assert.equal(router.s.editorWorkspace.pendingSceneLaunch, null);
+});
+
+test('tapping the active scene cancels a different queued scene launch', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.dispatch(0, 1, 1); // Keep launches quantized.
+	router.dispatch(12, 15, 1);
+	router.dispatch(1, 0, 1); // Store Scene 2.
+	router.dispatch(12, 15, 0);
+	router.sequence64ClockPosition = 5;
+	router.dispatch(0, 0, 1); // Queue Scene 1; captured Scene 2 is active.
+
+	assert.equal(router.s.editorWorkspace.pendingSceneLaunch.sceneIndex, 0);
+	router.dispatch(1, 0, 1); // Tap active Scene 2 to cancel it.
+	assert.equal(router.s.editorWorkspace.pendingSceneLaunch, null);
+	assert.equal(router.s.editorWorkspace.sceneState.activeSceneId, 'scene:1');
+	assert.equal(router.s.editorWorkspace.sceneState.selectedSceneId, 'scene:1');
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 2 && message[1] === 'scene_queue_cancelled' &&
+		message[2] === 'scene'), true);
+});
+
+test('capturing an empty scene adopts it without restarting and Shift selects stored scenes', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.chUpdateCollEvent(2, 42, 0, 16, 1, 0, 0, 1, 0);
+	router.dispatch(1, 1, 1);
+
+	router.dispatch(1, 0, 1);   // Plain empty tap captures Scene 2.
+	const state = router.s.editorWorkspace.sceneState;
+	assert.equal(state.scenes.length, 2);
+	assert.equal(state.scenes[1].groupPatternRefs[0], 'group-pattern:0:1');
+	assert.equal(state.scenes[1].trackSlotRef, 'trackslot:1');
+	assert.equal(state.trackSlots['trackslot:1'].tracks[0].buffer, 42);
+	assert.equal(state.activeSceneId, 'scene:1');
+	assert.equal(state.selectedSceneId, 'scene:1');
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 2 && message[1] === 'scene_capture' && message[2] === 2), true);
+
+	router.dispatch(11, 15, 1); // Shift held.
+	router.dispatch(0, 0, 1);
+	router.dispatch(11, 15, 0);
+	assert.equal(state.selectedSceneId, 'scene:0');
+	assert.equal(state.activeSceneId, 'scene:1');
+});
+
+test('pattern and Run changes write through to the active Scene without Store', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.dispatch(1, 0, 1); // Capture/adopt Scene 2.
+
+	router.dispatch(1, 1, 1); // Switch Group 1 to another pattern slot.
+	assert.equal([8, 15].includes(router.buildSceneLevels()[1 * 16 + 1]), true,
+		'the running pattern may be in either half of its transport pulse');
+	assert.equal(router.s.editorWorkspace.sceneState.scenes[1].groupPatternRefs[0],
+		'group-pattern:0:1');
+
+	router.dispatch(12, 1, 1); // Stop Group 1 and persist its launch state.
+	assert.equal(router.s.editorWorkspace.sceneState.scenes[1].groupLaunch[0], 0);
+	router.dispatch(12, 1, 1);
+	assert.equal(router.s.editorWorkspace.sceneState.scenes[1].groupLaunch[0], 1);
+});
+
+test('empty pattern slots fork the live pattern, Shift starts blank, and touch sets edit focus', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	const source = router.s.editorWorkspace.patterns64['group:0'];
+	source.bars[0].steps[0].cut = { track: -1, slice: 5, gateLength: 1 };
+
+	router.dispatch(1, 1, 1); // Group 1 slot 2 forks slot 1 and launches it.
+	const forked = router.s.editorWorkspace.sceneState.patternLibrary['group-pattern:0:1'];
+	assert.notEqual(forked, source);
+	assert.equal(forked.bars[0].steps[0].cut.slice, 5);
+	assert.equal(router.s.editorWorkspace.targetType, 'group');
+	assert.equal(router.s.editorWorkspace.targetId, 0);
+
+	router.dispatch(11, 15, 1);
+	router.dispatch(2, 1, 1); // Shift + empty Group 1 slot 3 starts blank.
+	router.dispatch(11, 15, 0);
+	const blank = router.s.editorWorkspace.sceneState.patternLibrary['group-pattern:0:2'];
+	assert.equal(router.sequence64PatternHasContent(blank), false);
+});
+
+test('plain empty taps capture Scenes and clone independent empty Track Slots sparsely', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	const state = router.s.editorWorkspace.sceneState;
+
+	router.dispatch(5, 0, 1); // Plain empty Scene 6 captures and becomes active.
+	router.dispatch(11, 15, 1);
+	router.dispatch(6, 0, 1); // Shift-select empty Scene 7.
+	router.dispatch(11, 15, 0);
+	router.dispatch(7, 9, 1); // Empty Track Slot 8 clones the current Slot directly.
+	assert.equal(state.scenes.length, 6);
+	assert.equal(state.scenes[5].id, 'scene:5');
+	assert.equal(harness.outlets.filter((message) =>
+		message[0] === 2 && message[1] === 'scene_empty').length, 1);
+	assert.equal(state.scenes[5].trackSlotRef, 'trackslot:7');
+	assert.ok(state.trackSlots['trackslot:7']);
+
+	router.dispatch(15, 0, 1); // Capture directly into Scene 16.
+	assert.equal(state.scenes.length, 16);
+	assert.equal(state.scenes[1], null);
+	assert.equal(state.scenes[14], null);
+	assert.equal(state.scenes[15].id, 'scene:15');
+	assert.equal(state.trackSlots['trackslot:1'], undefined);
+	assert.ok(state.trackSlots['trackslot:15']);
+	assert.equal(router.buildSceneLevels()[1], 2);
+	assert.equal(router.buildSceneLevels()[15], 15);
+});
+
+test('Track Slot row switches independent slots and track edits write through immediately', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.chUpdateCollEvent(2, 17, 0, 16, 1, 0, 0, 1, 0);
+	router.dispatch(1, 0, 1); // Scene 2 creates matching Track Slot 2.
+
+	// Row 10 directly chooses Track Slot 1, independent of Scene numbering.
+	router.dispatch(0, 9, 1);
+	const state = router.s.editorWorkspace.sceneState;
+	assert.equal(state.scenes[1].trackSlotRef, 'trackslot:0');
+	router.chUpdateCollEvent(2, 33, 0, 16, 1, 0, 0, 1, 0);
+	assert.equal(state.trackSlots['trackslot:0'].tracks[0].buffer, 33);
+	router.sampleBrowserReference(0, 4, 'folder:1', 'drums/kick.wav', 1);
+	assert.deepEqual(state.trackSlots['trackslot:0'].tracks[0].sampleRef,
+		{ folderId: 'folder:1', path: 'drums/kick.wav' });
+
+	router.dispatch(1, 9, 1);
+	assert.equal(state.scenes[1].trackSlotRef, 'trackslot:1');
+	assert.equal(router.s.tracks[0].buffer, 17);
+	router.dispatch(2, 9, 1); // Empty Track Slot 3 clones Slot 2 and selects it.
+	assert.equal(state.scenes[1].trackSlotRef, 'trackslot:2');
+	assert.equal(state.trackSlots['trackslot:2'].tracks[0].buffer, 17);
+	state.trackSlots['trackslot:1'].tracks[0].buffer = 99;
+	assert.equal(state.trackSlots['trackslot:2'].tracks[0].buffer, 17);
+});
+
+test('capturing an empty Scene forks a Slot when its matching Slot is already in use', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.chUpdateCollEvent(2, 11, 0, 16, 1, 0, 0, 1, 0);
+
+	// Put Scene 1 on Track Slot 3, then capture Scene 3. The old behavior made
+	// both Scenes reference Slot 3 because the matching Slot already existed.
+	router.dispatch(2, 9, 1);
+	router.dispatch(2, 0, 1);
+	const state = router.s.editorWorkspace.sceneState;
+	assert.equal(state.scenes[0].trackSlotRef, 'trackslot:2');
+	assert.notEqual(state.scenes[2].trackSlotRef, 'trackslot:2');
+	assert.equal(state.trackSlots[state.scenes[2].trackSlotRef].tracks[0].buffer, 11);
+
+	// Model the sample randomizer callback while Scene 3 is active. Each Scene
+	// must recall its own value with no Store gesture.
+	router.chUpdateCollEvent(2, 22, 0, 16, 1, 0, 0, 1, 0);
+	assert.equal(state.trackSlots[state.scenes[2].trackSlotRef].tracks[0].buffer, 22);
+	assert.equal(state.trackSlots['trackslot:2'].tracks[0].buffer, 11);
+	router.dispatch(0, 0, 1);
+	assert.equal(router.s.tracks[0].buffer, 11);
+	router.dispatch(2, 0, 1);
+	assert.equal(router.s.tracks[0].buffer, 22);
+});
+
+test('quantized Scene launch applies only changed tracks and preserves unchanged group phase', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.dispatch(0, 1, 1); // Running group makes later launch quantized.
+
+	router.chUpdateCollEvent(2, 11, 0, 16, 1, 0, 0, 1, 0);
+	router.dispatch(1, 0, 1); // Scene 2 creates Track Slot 2 from the live state.
+	router.chUpdateCollEvent(2, 22, 0, 16, 1, 0, 0, 1, 0);
+	router.dispatch(0, 0, 1); // Return to Scene 1 immediately at the boundary.
+	assert.equal(router.s.tracks[0].buffer, 11);
+	const phaseBefore = router.s.editorWorkspace.patterns64['group:0'].phaseOrigin;
+	router.sequence64ClockPosition = 5;
+	harness.clearLog();
+
+	router.dispatch(1, 0, 1);
+	assert.equal(router.s.editorWorkspace.pendingSceneLaunch.dueClock, 64);
+	assert.equal(router.s.tracks[0].buffer, 11);
+	for (let pulse = 0; pulse < 59; pulse++) router.sequence64SubPulse();
+	assert.equal(router.s.editorWorkspace.sceneState.activeSceneId, 'scene:1');
+	assert.equal(router.s.tracks[0].buffer, 22);
+	assert.equal(router.s.editorWorkspace.patterns64['group:0'].running, 1);
+	assert.equal(router.s.editorWorkspace.patterns64['group:0'].phaseOrigin, phaseBefore);
+	const firstTrackApply = harness.timeline.findIndex((message) =>
+		message[0] === 'messnamed' && message[1] === '2[sample]select' &&
+		message[2] === 21);
+	const sceneAnnouncement = harness.timeline.findIndex((message) =>
+		message[0] === 'outlet' && message[1] === 2 && message[2] === 'scene_launch');
+	assert.equal(firstTrackApply >= 0, true);
+	assert.equal(sceneAnnouncement > firstTrackApply, true);
+	assert.equal(harness.namedMessages.filter((message) =>
+		/\[sample\]select$/.test(message[0])).length, 1);
+	assert.equal(harness.namedMessages.some((message) => /\[pl\]stop$/.test(message[0])), false);
+});
+
+test('same-Track-Slot Scene switches send zero track recalls', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.dispatch(1, 9, 1); // Create Slot 2.
+	router.dispatch(0, 9, 1); // Return Scene 1 to Slot 1.
+	router.dispatch(1, 0, 1);  // Empty Scene capture starts with an independent Slot.
+	router.dispatch(0, 9, 1); // Deliberately share Slot 1 through the direct row.
+	const state = router.s.editorWorkspace.sceneState;
+	assert.equal(state.scenes[0].trackSlotRef, 'trackslot:0');
+	assert.equal(state.scenes[1].trackSlotRef, 'trackslot:0');
+	harness.clearLog();
+	router.dispatch(0, 0, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		/\[sample\]select$/.test(message[0])), false);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'syncTrackBuffer'), false);
+});
+
+test('scene state survives router snapshot/apply while playback remains stopped', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectGroup(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.dispatch(1, 1, 1);
+	router.dispatch(12, 15, 1);
+	router.dispatch(1, 0, 1);
+	router.dispatch(12, 15, 0);
+	const snapshot = router.sessionRouterSnapshotObject();
+
+	assert.equal(snapshot.sceneState.scenes.length, 2);
+	assert.equal(router.sessionApply(JSON.stringify(snapshot)), true);
+	assert.equal(router.s.editorWorkspace.sceneState.scenes.length, 2);
+	assert.equal(router.s.editorWorkspace.sceneState.scenes[1].groupPatternRefs[0],
+		'group-pattern:0:1');
+	assert.equal(router.s.editorWorkspace.patterns64['group:0'].running, 0);
+	assert.equal(router.s.automation.playing, false);
+});
+
+test('session snapshots use durable Track Slot values instead of transient sequencer ownership', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	selectTrack(harness, 0);
+	router.dispatch(2, 15, 1);
+	router.chUpdateCollEvent(2, 9, 0, 16, 1, 0, 0, 1, 0);
+	assert.equal(router.s.editorWorkspace.sceneState.trackSlots[
+		'trackslot:0'].tracks[0].octave, 0);
+
+	router.setEditorOctave(0, 2, false, true); // Runtime-owned pitch frame.
+	assert.equal(router.s.tracks[0].octave, 2);
+	const snapshot = router.sessionRouterSnapshotObject();
+	assert.equal(snapshot.tracks[0].octave, 0);
+	assert.equal(snapshot.sceneState.trackSlots['trackslot:0'].tracks[0].octave, 0);
+});
+
+test('session track recall sets reverse absolutely without issuing a toggle command', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	const recalled = {
+		group: 0,
+		octave: 0,
+		transpose: 0,
+		reverse: 1,
+		randomOffset: 0,
+		buffer: 2,
+		length: 16,
+		speed: 1,
+		speedMode: 0,
+		loopStart: 0,
+		loopEnd: 16,
+		loopDivision: 8,
+		loopActive: 0
+	};
+	harness.clearLog();
+	router.sessionApplyTrack(0, recalled);
+	assert.equal(router.s.tracks[0].reverse, 1);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2[box]rev' && message[1] === 'set' && message[2] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2[box]rev' && message[1] === 'int'), false);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2[sample]select' && message[1] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '[mlr]ch' && message[1] === 2 && message[2] === 2 &&
+		message[6] === 1), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '[mlr]ch' && message[1] === 'store'), false);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'syncTrackBuffer' &&
+		message[2] === 0 && message[3] === 2), true);
+
+	harness.clearLog();
+	recalled.reverse = 0;
+	router.sessionApplyTrack(0, recalled);
+	assert.equal(router.s.tracks[0].reverse, 0);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '2[box]rev' && message[1] === 'set' && message[2] === 0), true);
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '[mlr]ch' && message[1] === 2 && message[2] === 2 &&
+		message[6] === 0), true);
+});
+
+test('session recording buffers wait after player stop before replacement', () => {
+	const harness = createSequence64Harness();
+	const router = harness.context;
+	harness.clearLog();
+	router.scheduleSessionRecordingRestores([
+		{ bufferIndex: 1, resolvedPath: '/session/recordings/a.wav' },
+		{ bufferIndex: 2, resolvedPath: '/session/recordings/b.wav' }
+	]);
+	assert.equal(router.sessionRecordingRestoreTask.scheduledDelay, 75);
+	assert.equal(harness.namedMessages.some((message) => /load$/.test(message[0])), false);
+
+	router.drainSessionRecordingRestores();
+	assert.equal(harness.namedMessages.some((message) =>
+		message[0] === '1load' && message[1] === 'replace'), true);
+	assert.equal(router.sessionRecordingRestoreTask.scheduledDelay, 35);
+});
+
 test('mode changes close the sample-browser overlay and restore the requested page', () => {
 	const harness = createSequence64Harness();
 	const router = harness.context;
@@ -3145,4 +4458,744 @@ test('mode changes close the sample-browser overlay and restore the requested pa
 		message[0] === 1 && message[1] === 'replaceframe').length, 1);
 	assert.equal(harness.hudMessages.some((message) =>
 		message[0] === 'sample_browser' && message[1] === 0), true);
+});
+
+test('kick grid page edits physical locks and manual baselines without creating hits', () => {
+ const h = createSequence64Harness(), r = h.context;
+ selectTrack(h, 14);
+ r.dispatch(15, 12, 1);
+ assert.equal(r.sequence64InstrumentPage, true);
+ assert.deepEqual(Array.from(r.sequence64VisibleParameters()), ['kickPitch','kickDecay','kickSweep','kickSweepDecay']);
+ r.dispatch(15, 13, 1);
+ let step = r.currentSequence64EditStep();
+ assert.equal(step.locks.kickPitch.value, 120);
+ assert.equal(step.cut, null);
+ r.dispatch(3, 14, 1);
+ assert.equal(step.locks.kickPitch.value, 119.5);
+ r.dispatch(2, 14, 1);
+ r.dispatch(0, 13, 1);
+ assert.equal(r.s.tracks[14].instrumentParameters.kickPitch, 20);
+ assert.equal(step.locks.kickPitch.value, 119.5);
+ r.dispatch(1, 14, 1);
+ assert.equal(r.sequence64InstrumentBaseEdit, false);
+ r.kickManual('fmIndex', 1.25);
+ const pos = r.currentSequence64PlaybackLocation(r.currentSequence64Pattern());
+ assert.equal(r.currentSequence64Pattern().bars[pos.bar].steps[pos.step].locks.kickFM.value, 1.25);
+ selectTrack(h, 0);
+ assert.equal(r.sequence64InstrumentPage, false);
+ assert.equal(r.sequence64VisibleParameters()[0], 'slice');
+});
+
+test('kick ownership restores previous writer and edited baseline; snapshots exclude effective locks', () => {
+ const h = createSequence64Harness(), r = h.context;
+ r.s.tracks[14].channel = 1;
+ r.instrumentManual(15, 'kickPitch', 50);
+ r.sequence64WriteOwnedProperty('group', 0, 'kickPitch', 70, 0, 14, 0);
+ r.sequence64WriteOwnedProperty('track', 14, 'kickPitch', 90, 0, 14, 0);
+ r.instrumentManual(15, 'kickPitch', 55);
+ assert.equal(r.sequence64CurrentPropertyValue('kickPitch', 0, 14), 70);
+ assert.equal(r.sceneTrackSnapshot(14).instrumentParameters.kickPitch, 55);
+ r.releaseSequence64OwnedProperties('track:14', 0);
+ assert.equal(r.sequence64CurrentPropertyValue('kickPitch', 0, 14), 70);
+ r.releaseSequence64OwnedProperties('group:0', 0);
+ assert.equal(r.sequence64CurrentPropertyValue('kickPitch', 0, 14), 55);
+ const saved = JSON.parse(JSON.stringify(r.sceneTrackSnapshot(14)));
+ r.instrumentManual(15, 'kickPitch', 30);
+ r.sessionApplyTrack(14, saved);
+ assert.equal(r.sequence64CurrentPropertyValue('kickPitch', 0, 14), 55);
+ delete saved.instrumentParameters;
+ r.sessionApplyTrack(14, saved);
+ assert.equal(r.sequence64CurrentPropertyValue('kickPitch', 0, 14), 48);
+});
+
+test('kick audio arm captures the full effective sound with the hit', () => {
+ const h = createSequence64Harness(), r = h.context;
+ r.s.tracks[14].channel = 1;
+ const p = r.ensureSequence64Pattern('track', 14);
+ p.steps[0].cut = {track:14,slice:3,gateLength:1};
+ p.steps[0].locks.kickPitch = {value:75,behavior:'set'};
+ p.steps[0].locks.kickDecay = {value:1200,behavior:'set'};
+ p.steps[0].locks.kickFM = {value:2.5,behavior:'set'};
+ p.running = 1;
+ h.clearLog();
+ r.runSequence64StepForTarget('track', 14, p, 0, 0);
+ const arm = h.namedMessages.find(m => m[0] === 'sequence64_audio_arm');
+ assert.deepEqual(arm, ['sequence64_audio_arm',1,16,3,75,1200,2.5,150,32,1.5,.08,1.8,.22,58,8,.5]);
+ r.instrumentManual(15, 'kickPitch', 30);
+ assert.equal(arm[4], 75);
+});
+
+test('kick baselines and physical step locks survive the complete session snapshot/apply path', () => {
+ const h = createSequence64Harness(), r = h.context;
+ selectTrack(h,14);
+ r.instrumentManual(15,'kickDecay',950);
+ r.sequence64SetInstrumentValue('kickPitch',83.5);
+ const snapshot = JSON.parse(JSON.stringify(r.sessionRouterSnapshotObject()));
+ assert.equal(snapshot.tracks[14].instrumentParameters.kickDecay,950);
+ r.instrumentManual(15,'kickDecay',100);
+ assert.equal(r.sessionApply(JSON.stringify(snapshot)),true);
+ assert.equal(r.s.tracks[14].instrumentParameters.kickDecay,950);
+ const p = r.ensureSequence64Pattern('track',14);
+ assert.equal(p.steps[0].locks.kickPitch.value,83.5);
+ assert.equal(p.running,0);
+});
+
+test('group instrument page follows selected step and edits the group lock without changing the track pattern', () => {
+ const h = createSequence64Harness(), r = h.context;
+ r.s.tracks[14].channel=1; r.s.tracks[0].channel=1;
+ selectGroup(h,0);
+ const p=r.currentSequence64Pattern();
+ p.steps[0].cut={track:14,slice:0,gateLength:1};
+ p.steps[1].cut={track:0,slice:0,gateLength:1};
+ r.selectSequence64EditStep(0);
+ r.dispatch(15,12,1);
+ assert.equal(r.sequence64InstrumentPage,true);
+ r.dispatch(15,13,1);
+ assert.equal(p.steps[0].locks.kickPitch.value,120);
+ assert.equal(r.ensureSequence64Pattern('track',14).steps[0].locks.kickPitch,undefined);
+ r.selectSequence64EditStep(1);
+ assert.equal(r.sequence64KickTarget(),false);
+ assert.equal(r.sequence64InstrumentPage,false);
+ r.sequence64SetInstrumentValue('kickPitch',60);
+ assert.equal(p.steps[1].locks.kickPitch,undefined);
+ r.selectSequence64EditStep(0);
+ r.dispatch(15,12,1);
+ assert.equal(r.sequence64InstrumentPage,true);
+});
+
+test('group instrument override affects only its merged hit, then child hits use their own locks', () => {
+ const h=createSequence64Harness(),r=h.context;
+ r.s.tracks[14].channel=1;
+ const track=r.ensureSequence64Pattern('track',14);
+ track.steps[0].locks.kickPitch={value:40,behavior:'set'};
+ track.steps[1].locks.kickPitch={value:45,behavior:'set'};
+ track.steps[1].cut={track:14,slice:1,gateLength:1};
+ const group=r.ensureSequence64Pattern('group',0);
+ group.steps[0].cut={track:14,slice:0,gateLength:1};
+ group.steps[0].locks.kickPitch={value:80,behavior:'set'};
+ group.running=1;
+ h.clearLog();r.runSequence64StepForTarget('group',0,group,0,0);
+ let arms=h.namedMessages.filter(m=>m[0]==='sequence64_audio_arm');
+ assert.equal(arms.at(-1)[4],80);
+ const instance=Object.values(r.s.editorWorkspace.phraseInstances64)[0];
+ r.runSequence64PhraseStep(instance,1);
+ arms=h.namedMessages.filter(m=>m[0]==='sequence64_audio_arm');
+ assert.equal(arms.at(-1)[4],45);
+ assert.equal(r.sequence64CurrentPropertyValue('kickPitch',0,14),48);
+ assert.equal(track.steps[0].locks.kickPitch.value,40);
+ assert.equal(group.steps[0].locks.kickPitch.value,80);
+});
+
+test('kick and snare locks affect one hit and the next unlocked hit uses its baseline',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ const cases=[
+  {track:14,id:'kickPitch',locked:84,baseline:48,packet:4},
+  {track:13,id:'snareBodyHz',locked:260,baseline:180,packet:4}
+ ];
+ for(const item of cases){
+  r.s.tracks[item.track].channel=1;
+  const p=r.ensureSequence64Pattern('track',item.track);
+  p.steps[0].cut={track:item.track,slice:0,gateLength:1};
+  p.steps[0].locks[item.id]={value:item.locked,behavior:'set'};
+  p.steps[1].cut={track:item.track,slice:1,gateLength:1};
+  p.running=1;h.clearLog();
+  r.runSequence64StepForTarget('track',item.track,p,0,0);
+  r.runSequence64StepForTarget('track',item.track,p,0,1);
+  const arms=h.namedMessages.filter(m=>m[0]==='sequence64_audio_arm');
+  assert.equal(arms[0][item.packet],item.locked);
+  assert.equal(arms[1][item.packet],item.baseline);
+  assert.equal(h.namedMessages.some(m=>m[0]==='rnbo_kick_owned_param'||m[0]==='rnbo_snare_owned_param'),false);
+ }
+});
+
+test('lab mapping ranges affect grid edits but never rewrite stored locks or baselines', () => {
+ const h=createSequence64Harness(),r=h.context;
+ selectTrack(h,14);r.dispatch(15,12,1);
+ r.sequence64SetInstrumentValue('kickPitch',100);
+ assert.equal(r.kickRange('kickPitch',40,60),true);
+ assert.equal(r.currentSequence64EditStep().locks.kickPitch.value,100);
+ assert.equal(r.sequence64CurrentPropertyValue('kickPitch',0,14),48);
+ r.dispatch(0,13,1);
+ assert.equal(r.currentSequence64EditStep().locks.kickPitch.value,40);
+ r.sequence64InstrumentFine(-1);
+ assert.equal(r.currentSequence64EditStep().locks.kickPitch.value,40);
+ r.dispatch(15,13,1);
+ assert.equal(r.currentSequence64EditStep().locks.kickPitch.value,60);
+ assert.equal(r.kickRange('kickPitch',80,30),false);
+ assert.equal(r.kickRange('kickPitch',0,500),false);
+ assert.equal(r.kickParameterRange('kickPitch').max,60);
+});
+
+test('all kick banks edit their own four parameters and persist complete baselines and locks',()=>{
+ const h=createSequence64Harness(),r=h.context,model=require('../instrument_model');
+ selectTrack(h,14);r.dispatch(15,12,1);
+ for(let bank=0;bank<3;bank++){
+  r.dispatch(9+bank,12,1);
+  const ids=model.KICK_PAGES[bank].parameters;
+  assert.deepEqual(Array.from(r.sequence64VisibleParameters()),ids);
+  for(let col=0;col<4;col++){
+   r.dispatch(4+col,12,1);r.dispatch(15,13,1);
+   assert.equal(r.currentSequence64EditStep().locks[ids[col]].value,model.definition(ids[col]).gridMax);
+   r.instrumentManual(15,ids[col],model.definition(ids[col]).min);
+  }
+ }
+ const snapshot=JSON.parse(JSON.stringify(r.sessionRouterSnapshotObject()));
+ assert.equal(Object.keys(snapshot.tracks[14].instrumentParameters).length,12);
+ assert.equal(r.sessionApply(JSON.stringify(snapshot)),true);
+ const p=r.ensureSequence64Pattern('track',14);
+ for(const id of model.KICK_LOCKS){
+  assert.equal(r.s.tracks[14].instrumentParameters[id],model.definition(id).min);
+  assert.equal(p.steps[0].locks[id].value,model.definition(id).gridMax);
+ }
+});
+
+test('legacy three-parameter sessions gain remaining defaults without changing their old values',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ r.sessionApplyTrack(14,{instrumentParameters:{kickPitch:80,kickDecay:900,kickFM:2}});
+ assert.equal(r.s.tracks[14].instrumentParameters.kickPitch,80);
+ assert.equal(r.s.tracks[14].instrumentParameters.kickDrive,1.8);
+ assert.equal(r.s.tracks[14].instrumentParameters.kickLevel,.5);
+});
+
+test('parameter focus updates HUD values and context without retriggering grid labels on edits',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);h.clearLog();
+ r.dispatch(15,12,1);
+ let labels=()=>h.namedMessages.filter(m=>m[0]==='togridmatrixio'&&m[1]==='parameterLabel');
+ assert.equal(labels().at(-1)[2],'PCH');
+ h.clearLog();r.dispatch(15,13,1);
+ const focus=()=>JSON.parse(h.hudMessages.filter(m=>m[0]==='parameter_focus').at(-1)[1]);
+ assert.equal(focus().name,'Pitch');assert.equal(focus().value,120);assert.equal(focus().layer,'Track lock');
+ assert.equal(labels().length,0);
+ r.dispatch(2,14,1);assert.equal(focus().layer,'Baseline');assert.equal(labels().length,0);
+ r.dispatch(10,12,1);assert.equal(labels().at(-1)[2],'FMAT');
+ r.dispatch(7,12,1);assert.equal(focus().name,'Drive');assert.equal(labels().at(-1)[2],'DRV');
+ r.dispatch(14,12,1);assert.equal(focus().active,false);
+ assert.ok(h.namedMessages.some(m=>m[1]==='parameterLabelClear'));
+});
+
+test('group parameter focus describes selected step override and stays out of session state',()=>{
+ const h=createSequence64Harness(),r=h.context;r.s.tracks[14].channel=1;selectGroup(h,0);
+ const p=r.currentSequence64Pattern();p.steps[8].cut={track:14,slice:0,gateLength:1};
+ r.selectSequence64EditStep(8);r.dispatch(15,12,1);r.sequence64SetInstrumentValue('kickPitch',77);
+ const f=JSON.parse(h.hudMessages.filter(m=>m[0]==='parameter_focus').at(-1)[1]);
+ assert.equal(f.track,15);assert.equal(f.step,9);assert.equal(f.layer,'Group override');
+ const saved=JSON.stringify(r.sessionRouterSnapshotObject());assert.equal(saved.includes('parameterFocus'),false);
+});
+
+
+test('kick page buttons always announce the selected bank, including repeated presses',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);r.dispatch(15,12,1);
+ for(const bank of [0,1,2,0,0,2,1]) {
+  h.clearLog();r.dispatch(9+bank,12,1);r.dispatch(9+bank,12,0);
+  const labels=h.namedMessages.filter(m=>m[0]==='togridmatrixio'&&m[1]==='parameterLabel');
+  assert.deepEqual(labels.map(m=>m[2]),[['BODY','FMAT','RES'][bank]]);
+  const f=JSON.parse(h.hudMessages.filter(m=>m[0]==='parameter_focus').at(-1)[1]);
+  assert.equal(f.page,['Kick 1/3 · Body','Kick 2/3 · FM / attack','Kick 3/3 · Resonator / output'][bank]);
+  assert.equal(f.id,['kickPitch','kickFM','kickResMix'][bank]);
+  h.clearLog();r.dispatch(8,13,1);
+  assert.equal(h.namedMessages.filter(m=>m[1]==='parameterLabel').length,0);
+ }
+});
+
+test('snare grid pages expose all twelve controls and keep baseline edits separate from step locks',()=>{
+ const h=createSequence64Harness(),r=h.context,model=require('../snare_instrument_model');
+ selectTrack(h,13);r.dispatch(15,12,1);
+ assert.equal(r.sequence64InstrumentPage,true);
+ for(let bank=0;bank<3;bank++){
+  r.dispatch(9+bank,12,1);
+  const ids=model.SNARE_PAGES[bank].parameters;
+  assert.deepEqual(Array.from(r.sequence64VisibleParameters()),ids);
+  for(let col=0;col<4;col++){
+   r.dispatch(4+col,12,1);r.dispatch(15,13,1);
+   assert.equal(r.currentSequence64EditStep().locks[ids[col]].value,model.definition(ids[col]).gridMax);
+  }
+ }
+ const locked=r.currentSequence64EditStep().locks.snareLevel.value;
+ r.dispatch(2,14,1);r.dispatch(0,13,1);
+ assert.equal(r.s.tracks[13].instrumentParameters.snareLevel,model.definition('snareLevel').gridMin);
+ assert.equal(r.currentSequence64EditStep().locks.snareLevel.value,locked);
+ const snapshot=JSON.parse(JSON.stringify(r.sessionRouterSnapshotObject()));
+ assert.equal(Object.keys(snapshot.tracks[13].instrumentParameters).length,12);
+ assert.equal(r.sessionApply(JSON.stringify(snapshot)),true);
+ for(const id of model.SNARE_LOCKS) assert.ok(Object.hasOwn(r.ensureSequence64Pattern('track',13).steps[0].locks,id));
+});
+
+test('snare audio arm captures the full effective sound with each Track 14 hit',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ r.s.tracks[13].channel=1;
+ const p=r.ensureSequence64Pattern('track',13);
+ p.steps[0].cut={track:13,slice:2,gateLength:1};
+ p.steps[0].locks.snareBodyHz={value:240,behavior:'set'};
+ p.steps[0].locks.snareNoiseDecay={value:700,behavior:'set'};
+ p.steps[0].locks.snareSnap={value:.9,behavior:'set'};
+ p.running=1;h.clearLog();
+ r.runSequence64StepForTarget('track',13,p,0,0);
+ const arm=h.namedMessages.find(m=>m[0]==='sequence64_audio_arm');
+ assert.deepEqual(arm,['sequence64_audio_arm',1,15,2,240,180,.35,90,700,3500,.9,1.7,.65,.72,1.1,.45]);
+ r.instrumentManual(14,'snareBodyHz',110);
+ assert.equal(arm[4],240);
+});
+
+test('snare ranges, ownership, and legacy sessions use the same durable instrument path as kick',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ r.s.tracks[13].channel=1;
+ r.instrumentManual(14,'snareBodyHz',150);
+ r.sequence64WriteOwnedProperty('group',0,'snareBodyHz',280,0,13,0);
+ r.sequence64WriteOwnedProperty('track',13,'snareBodyHz',210,0,13,0);
+ assert.equal(r.sequence64CurrentPropertyValue('snareBodyHz',0,13),280);
+ r.releaseSequence64OwnedProperties('group:0',0);
+ assert.equal(r.sequence64CurrentPropertyValue('snareBodyHz',0,13),210);
+ r.releaseSequence64OwnedProperties('track:13',0);
+ assert.equal(r.sequence64CurrentPropertyValue('snareBodyHz',0,13),150);
+ assert.equal(r.snareRange('snareBodyHz',120,260),true);
+ assert.deepEqual(JSON.parse(JSON.stringify(r.snareParameterRange('snareBodyHz'))),{min:120,max:260});
+ r.sessionApplyTrack(13,{instrumentParameters:{snareBodyHz:190,snareSnap:.8}});
+ assert.equal(r.s.tracks[13].instrumentParameters.snareBodyHz,190);
+ assert.equal(r.s.tracks[13].instrumentParameters.snareSnap,.8);
+ assert.equal(r.s.tracks[13].instrumentParameters.snareDrive,1.7);
+});
+
+test('group inspector follows snare and kick steps without retaining the previous engine parameter',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ r.s.tracks[13].channel=1;r.s.tracks[14].channel=1;selectGroup(h,0);
+ const p=r.currentSequence64Pattern();
+ p.steps[0].cut={track:13,slice:0,gateLength:1};
+ p.steps[1].cut={track:14,slice:0,gateLength:1};
+ r.selectSequence64EditStep(0);r.dispatch(15,12,1);
+ assert.equal(r.sequence64VisibleParameters()[0],'snareBodyHz');
+ r.sequence64SetInstrumentValue('snareBodyHz',230);
+ r.selectSequence64EditStep(1);
+ assert.equal(r.sequence64InstrumentPage,true);
+ assert.equal(r.sequence64VisibleParameters()[0],'kickPitch');
+ r.sequence64SetInstrumentValue('kickPitch',72);
+ assert.equal(p.steps[0].locks.snareBodyHz.value,230);
+ assert.equal(p.steps[1].locks.kickPitch.value,72);
+ assert.equal(p.steps[1].locks.snareBodyHz,undefined);
+});
+
+test('Setup sound slots store and recall engine baselines without recording locks',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ for(const [track,id,value,label] of [[14,'kickPitch',71,'KP3'],[13,'snareBodyHz',251,'SP3']]){
+  selectTrack(h,track);r.switchSequence64View('setup');
+  r.instrumentManual(track+1,id,value);
+  r.dispatch(11,15,1);r.dispatch(9,14,1);r.dispatch(9,14,0);r.dispatch(11,15,0);
+  assert.equal(r.buildEditorShellLevels()[6*16+9],15);
+  assert.ok(h.namedMessages.some(m=>m[1]==='parameterLabel'&&m[2]===label));
+  r.instrumentManual(track+1,id,value+10);
+  assert.equal(r.buildEditorShellLevels()[6*16+9],5);
+  const locks=JSON.stringify(r.currentSequence64Pattern().bars);
+  r.sequence64InspectorLiveWrite=true;
+  r.dispatch(9,14,1);r.dispatch(9,14,0);
+  assert.equal(r.s.tracks[track].instrumentParameters[id],value);
+  assert.equal(JSON.stringify(r.currentSequence64Pattern().bars),locks);
+  assert.equal(r.buildEditorShellLevels()[6*16+9],15);
+  r.sequence64InspectorLiveWrite=false;
+ }
+ assert.equal(r.s.instrumentPresets.kick[2].kickPitch,71);
+ assert.equal(r.s.instrumentPresets.snare[2].snareBodyHz,251);
+ const before=JSON.stringify(r.s.tracks[13].instrumentParameters);
+ r.dispatch(7,14,1);
+ assert.equal(JSON.stringify(r.s.tracks[13].instrumentParameters),before);
+ selectTrack(h,0);r.switchSequence64View('setup');r.dispatch(11,15,1);r.dispatch(7,14,1);
+ assert.equal(r.buildEditorShellLevels()[6*16+7],0);
+});
+
+test('sound banks survive the session document path and clear for old or new sessions',()=>{
+ const h=createSequence64Harness(),r=h.context,core=require('../mlr_session_core');
+ r.instrumentManual(15,'kickPitch',64);r.instrumentPresetAction(14,7,true);
+ r.instrumentManual(14,'snareSnap',.8);r.instrumentPresetAction(13,0,true);
+ const snapshot=JSON.parse(JSON.stringify(r.sessionRouterSnapshotObject()));
+ const doc=core.buildDocument({router:snapshot});
+ assert.equal(doc.instrumentPresets.kick[7].kickPitch,64);
+ assert.equal(Object.keys(doc.instrumentPresets.kick[7]).length,12);
+ assert.equal(JSON.stringify(doc).includes('instrumentPresetSelection'),false);
+ r.sessionNew();
+ assert.equal(r.s.instrumentPresets.kick[7],null);
+ assert.equal(r.sessionApply(JSON.stringify(doc)),true);
+ assert.equal(r.s.instrumentPresets.snare[0].snareSnap,.8);
+ r.instrumentManual(15,'kickPitch',30);r.instrumentPresetAction(14,7,false);
+ assert.equal(r.sceneTrackSnapshot(14).instrumentParameters.kickPitch,64);
+ assert.equal(r.sessionRouterSnapshotObject().tracks[14].instrumentParameters.kickPitch,64);
+ r.sessionApply(JSON.stringify({}));
+ assert.equal(r.s.instrumentPresets.snare[0],null);
+ const malformed=r.sanitizeInstrumentPresets({kick:[null,5,[],{kickPitch:1e9,repeat:1}]});
+ assert.equal(malformed.kick.length,8);
+ assert.equal(malformed.kick[1],null);
+ assert.equal(malformed.kick[2],null);
+ assert.equal(malformed.kick[3].kickPitch,2000);
+ assert.equal(malformed.kick[3].repeat,undefined);
+});
+
+test('snare page buttons announce their bank and focused parameter',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,13);r.dispatch(15,12,1);
+ for(const bank of [0,1,2,1]){
+  h.clearLog();r.dispatch(9+bank,12,1);r.dispatch(9+bank,12,0);
+  const labels=h.namedMessages.filter(m=>m[0]==='togridmatrixio'&&m[1]==='parameterLabel');
+  assert.deepEqual(labels.map(m=>m[2]),[['BODY','NOIS','MIX'][bank]]);
+  const f=JSON.parse(h.hudMessages.filter(m=>m[0]==='parameter_focus').at(-1)[1]);
+  assert.equal(f.page,['Snare 1/3 · Body','Snare 2/3 · Noise','Snare 3/3 · Mix / output'][bank]);
+  assert.equal(f.id,['snareBodyHz','snareNoiseDecay','snareBodyLevel'][bank]);
+ }
+});
+
+test('hat grid pages expose all twelve controls and keep baseline edits separate from step locks',()=>{
+ const h=createSequence64Harness(),r=h.context,model=require('../hat_instrument_model');
+ selectTrack(h,12);r.dispatch(15,12,1);
+ assert.equal(r.sequence64InstrumentPage,true);
+ for(let bank=0;bank<3;bank++){
+  r.dispatch(9+bank,12,1);
+  const ids=model.HAT_PAGES[bank].parameters;
+  assert.deepEqual(Array.from(r.sequence64VisibleParameters()),ids);
+  for(let col=0;col<4;col++){
+   r.dispatch(4+col,12,1);r.dispatch(15,13,1);
+   assert.equal(r.currentSequence64EditStep().locks[ids[col]].value,model.definition(ids[col]).gridMax);
+  }
+ }
+ const locked=r.currentSequence64EditStep().locks.hatLevel.value;
+ r.dispatch(2,14,1);r.dispatch(0,13,1);
+ assert.equal(r.s.tracks[12].instrumentParameters.hatLevel,model.definition('hatLevel').gridMin);
+ assert.equal(r.currentSequence64EditStep().locks.hatLevel.value,locked);
+ const snapshot=JSON.parse(JSON.stringify(r.sessionRouterSnapshotObject()));
+ assert.equal(Object.keys(snapshot.tracks[12].instrumentParameters).length,12);
+ assert.equal(r.sessionApply(JSON.stringify(snapshot)),true);
+ for(const id of model.HAT_LOCKS) assert.ok(Object.hasOwn(r.ensureSequence64Pattern('track',12).steps[0].locks,id));
+});
+
+
+test('hat queued hits return to baseline and its sound bank survives session restore',()=>{
+ const h=createSequence64Harness(),r=h.context,model=require('../hat_instrument_model');
+ r.s.tracks[12].channel=1;
+ const p=r.ensureSequence64Pattern('track',12);
+ p.steps[0].cut={track:12,slice:0,gateLength:1};
+ p.steps[1].cut={track:12,slice:1,gateLength:1};
+ p.steps[0].locks.hatDecay={value:1400,behavior:'set'};
+ p.steps[0].locks.hatFilterHz={value:8500,behavior:'set'};
+ p.running=1;h.clearLog();
+ r.runSequence64StepForTarget('track',12,p,0,0);
+ r.runSequence64StepForTarget('track',12,p,0,1);
+ const arms=h.namedMessages.filter(m=>m[0]==='sequence64_audio_arm');
+ const base=model.HAT_LOCKS.map(id=>model.definition(id).initial);
+ const locked=base.slice();locked[1]=1400;locked[5]=8500;
+ assert.deepEqual(arms[0],['sequence64_audio_arm',1,14,0,...locked]);
+ assert.deepEqual(arms[1],['sequence64_audio_arm',1,14,1,...base]);
+ r.hatManual('metalHz',920);r.instrumentPresetAction(12,0,true);
+ const doc=r.sessionRouterSnapshotObject();
+ r.hatManual('metalHz',400);r.sessionApply(JSON.stringify(doc));
+ r.instrumentPresetAction(12,0,false);
+ assert.equal(r.s.tracks[12].instrumentParameters.hatPitch,920);
+ assert.ok(h.namedMessages.some(m=>m[1]==='parameterLabel'&&m[2]==='HP1'));
+ assert.equal(r.s.instrumentPresets.kick[0],null);
+ assert.equal(r.s.instrumentPresets.snare[0],null);
+});
+
+test('hat page announcements identify all three banks',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,12);r.dispatch(15,12,1);
+ for(const [bank,label,id] of [[0,'METL','hatPitch'],[1,'SHAP','hatDecay'],[2,'FILT','hatFilterHz']]){
+  h.clearLog();r.dispatch(9+bank,12,1);
+  assert.ok(h.namedMessages.some(m=>m[1]==='parameterLabel'&&m[2]===label));
+  const focus=JSON.parse(h.hudMessages.filter(m=>m[0]==='parameter_focus').at(-1)[1]);
+  assert.equal(focus.id,id);
+ }
+});
+
+test('clap grid pages expose all twelve controls and keep baseline edits separate from step locks',()=>{
+ const h=createSequence64Harness(),r=h.context,model=require('../clap_instrument_model');
+ selectTrack(h,11);r.dispatch(15,12,1);
+ assert.equal(r.sequence64InstrumentPage,true);
+ for(let bank=0;bank<3;bank++){
+  r.dispatch(9+bank,12,1);
+  const ids=model.CLAP_PAGES[bank].parameters;
+  assert.deepEqual(Array.from(r.sequence64VisibleParameters()),ids);
+  for(let col=0;col<4;col++){
+   r.dispatch(4+col,12,1);r.dispatch(15,13,1);
+   assert.equal(r.currentSequence64EditStep().locks[ids[col]].value,model.definition(ids[col]).gridMax);
+  }
+ }
+ const locked=r.currentSequence64EditStep().locks.clapLevel.value;
+ r.dispatch(2,14,1);r.dispatch(0,13,1);
+ assert.equal(r.s.tracks[11].instrumentParameters.clapLevel,model.definition('clapLevel').gridMin);
+ assert.equal(r.currentSequence64EditStep().locks.clapLevel.value,locked);
+ const snapshot=JSON.parse(JSON.stringify(r.sessionRouterSnapshotObject()));
+ assert.equal(Object.keys(snapshot.tracks[11].instrumentParameters).length,12);
+ assert.equal(r.sessionApply(JSON.stringify(snapshot)),true);
+ for(const id of model.CLAP_LOCKS) assert.ok(Object.hasOwn(r.ensureSequence64Pattern('track',11).steps[0].locks,id));
+});
+
+
+
+test('clap locks restore baseline on the next hit and presets round-trip independently',()=>{
+ const h=createSequence64Harness(),r=h.context,m=require('../clap_instrument_model');
+ r.s.tracks[11].channel=1;
+ const p=r.ensureSequence64Pattern('track',11);
+ p.steps[0].cut={track:11,slice:0,gateLength:1};p.steps[1].cut={track:11,slice:1,gateLength:1};
+ p.steps[0].locks.clapCount={value:6,behavior:'set'};
+ p.steps[0].locks.clapTailDecay={value:1200,behavior:'set'};
+ p.running=1;h.clearLog();
+ r.runSequence64StepForTarget('track',11,p,0,0);r.runSequence64StepForTarget('track',11,p,0,1);
+ const arms=h.namedMessages.filter(m=>m[0]==='sequence64_audio_arm');
+ const base=m.CLAP_LOCKS.map(id=>m.definition(id).initial),locked=base.slice();locked[0]=6;locked[4]=1200;
+ assert.deepEqual(arms[0],['sequence64_audio_arm',1,13,0,...locked]);
+ assert.deepEqual(arms[1],['sequence64_audio_arm',1,13,1,...base]);
+ r.clapManual('count',4.7);r.instrumentPresetAction(11,0,true);
+ const core=require('../mlr_session_core');
+ const doc=core.buildDocument({router:r.sessionRouterSnapshotObject()});
+ r.clapManual('count',2);r.sessionApply(JSON.stringify(doc));r.instrumentPresetAction(11,0,false);
+ assert.equal(r.s.tracks[11].instrumentParameters.clapCount,5);
+ assert.ok(h.namedMessages.some(m=>m[1]==='parameterLabel'&&m[2]==='CP1'));
+ for(const name of ['kick','snare','hat'])assert.equal(r.s.instrumentPresets[name][0],null);
+});
+test('clap page announcements and group inspector follow Track 12',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,11);r.dispatch(15,12,1);
+ for(const [bank,label,id] of [[0,'CLAP','clapCount'],[1,'TONE','clapFilterHz'],[2,'TAIL','clapTailDecay']]){
+  h.clearLog();r.dispatch(9+bank,12,1);
+  assert.ok(h.namedMessages.some(m=>m[1]==='parameterLabel'&&m[2]===label));
+  const f=JSON.parse(h.hudMessages.filter(m=>m[0]==='parameter_focus').at(-1)[1]);assert.equal(f.id,id);
+ }
+ r.s.tracks[11].channel=1;selectGroup(h,0);const p=r.currentSequence64Pattern();p.steps[0].cut={track:11,slice:0,gateLength:1};r.selectSequence64EditStep(0);
+ r.sequence64InstrumentPage=true;r.sequence64InstrumentBank=0;
+ assert.equal(r.sequence64VisibleParameters()[0],'clapCount');
+ r.sequence64SetInstrumentValue('clapCount',5);assert.equal(p.steps[0].locks.clapCount.value,5);
+});
+
+test('selected step breathes in brightness and color without touching pattern data',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);
+ r.selectSequence64EditStep(3);
+ const pattern=r.currentSequence64Pattern();pattern.steps[3].cut={track:14,slice:3,gateLength:1};
+ const before=JSON.stringify(pattern);
+ const index=r.editorShellLevelIndex(3,8);
+ r.sequence64SelectionPulse=0;
+ const low=r.buildEditorShellLevels(),lowColor=Array.from(r.buildEditorShellColors(low)[index]);
+ r.sequence64SelectionPulse=1;
+ const high=r.buildEditorShellLevels(),highColor=Array.from(r.buildEditorShellColors(high)[index]);
+ assert.equal(low[index],11);assert.equal(high[index],15);
+ assert.notDeepEqual(lowColor,highColor);
+ assert.equal(JSON.stringify(pattern),before);
+ r.selectSequence64EditStep(4);
+ assert.equal(r.buildEditorShellLevels()[index],7);
+ assert.equal(r.sequence64SelectionPulseVisible(),true);
+ r.sequence64ShiftHeld=true;assert.equal(r.sequence64SelectionPulseVisible(),false);
+ r.sequence64ShiftHeld=false;r.ensureEditorWorkspaceDefaults().view64='setup';
+ assert.equal(r.sequence64SelectionPulseVisible(),false);
+ r.sequence64SelectionPulseTask.callback();assert.equal(r.sequence64SelectionPulsePending,false);
+});
+
+test('playhead stays full-bright over the selection pulse',()=>{
+ const h=createSequence64Harness(),r=h.context;selectGroup(h,0);
+ const p=r.currentSequence64Pattern();p.running=1;p.steps[0].cut={track:0,slice:0,gateLength:1};
+ const location=r.currentSequence64PlaybackLocation(p);r.selectSequence64EditStep(location.step);
+ r.sequence64SelectionPulse=0;
+ const xy=r.sequence64StepCoords(location.step),index=r.editorShellLevelIndex(xy[0],xy[1]);
+ const levels=r.buildEditorShellLevels();assert.equal(levels[index],15);
+ assert.deepEqual(Array.from(r.buildEditorShellColors(levels)[index]),Array.from(r.SEQUENCE64_COLORS.playhead));
+});
+
+test('Target Jump copies a snapshot to multiple steps without triggering or jumping',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);
+ const p=r.currentSequence64Pattern();
+ p.steps[2]={cut:{track:14,slice:4,gateLength:2},locks:{kickPitch:{value:80,behavior:'set'}},probability:9,condition:2};
+ const saved=JSON.parse(JSON.stringify(p.steps[2]));h.clearLog();
+ r.dispatch(13,15,1);r.dispatch(2,8,1);r.dispatch(2,8,0);
+ p.steps[2].locks.kickPitch.value=40;
+ r.dispatch(5,8,1);r.dispatch(5,8,0);r.dispatch(6,8,1);
+ // Release Copy before the destination pad: its release must not create a cut.
+ r.dispatch(13,15,0);r.dispatch(6,8,0);
+ assert.deepEqual(JSON.parse(JSON.stringify(p.steps[5])),saved);
+ assert.deepEqual(JSON.parse(JSON.stringify(p.steps[6])),saved);
+ p.steps[5].locks.kickPitch.value=55;assert.equal(p.steps[6].locks.kickPitch.value,80);
+ assert.equal(r.s.editorWorkspace.targetType,'track');assert.equal(r.s.editorWorkspace.targetId,14);
+ assert.equal(r.sequence64CopyGesture,null);assert.equal(r.sequence64PressedStep,-1);
+ assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_audio_arm'),false);
+ assert.ok(h.namedMessages.some(m=>m[0]==='mlr_session_dirty'&&m[2]==='ṛta step paste'));
+ assert.equal(JSON.stringify(r.sessionRouterSnapshotObject()).includes('CopyGesture'),false);
+});
+test('copying a triggerless step preserves it, works across bars, and cancels on view change',()=>{
+ const h=createSequence64Harness(),r=h.context;selectGroup(h,0);
+ const p=r.currentSequence64Pattern();r.addSequence64Bar();r.selectSequence64Bar(0);
+ p.bars[0].steps[1].locks.volume={value:6,behavior:'set'};
+ r.dispatch(13,15,1);r.dispatch(1,8,1);r.dispatch(1,8,0);
+ r.dispatch(r.SEQUENCE64_BAR_FIRST_COL+1,15,1);r.dispatch(r.SEQUENCE64_BAR_FIRST_COL+1,15,0);
+ r.dispatch(4,8,1);r.dispatch(13,15,0);r.dispatch(4,8,0);
+ assert.equal(p.bars[1].steps[4].cut,null);assert.equal(p.bars[1].steps[4].locks.volume.value,6);
+ assert.equal(p.bars[1].length,64);
+ r.dispatch(13,15,1);r.sequence64CopyHoldTask.callback();
+ r.dispatch(13,15,0);assert.equal(r.s.editorWorkspace.targetType,'group');
+ r.dispatch(13,15,1);r.switchSequence64View('setup');r.dispatch(13,15,0);
+ assert.equal(r.sequence64CopyGesture,null);assert.equal(r.s.editorWorkspace.targetType,'group');
+});
+test('copy source selection leaves an empty step empty',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);const p=r.currentSequence64Pattern();
+ r.dispatch(13,15,1);r.dispatch(3,8,1);r.dispatch(13,15,0);r.dispatch(3,8,0);
+ assert.equal(p.steps[3].cut,null);assert.equal(r.s.editorWorkspace.targetId,14);
+});
+
+test('Shift and Delete cannot leave Copy or their own modifiers latched',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);
+ for(const col of [11,14]){
+  r.dispatch(col,15,1);r.dispatch(13,15,1);
+  assert.equal(r.sequence64CopyGesture,null);
+  r.dispatch(col,15,0);r.dispatch(13,15,0);
+  assert.equal(r.sequence64ShiftHeld,false);assert.equal(r.sequence64DeleteHeld,false);
+  assert.equal(r.s.editorWorkspace.targetId,14);
+ }
+});
+
+test('selection rendering does not normalize the full pattern once per pad',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);
+ const p=r.currentSequence64Pattern();p.steps[0].cut={track:14,slice:0,gateLength:1};
+ let calls=0;const original=r.ensureSequence64Pattern;
+ r.ensureSequence64Pattern=function(...args){calls++;return original(...args);};
+ const levels=r.buildEditorShellLevels();r.buildEditorShellColors(levels);
+ assert.ok(calls<30,`full-pattern lookups for one frame: ${calls}`);
+});
+
+test('selection pulse refresh updates one pad without rebuilding or normalizing the pattern',()=>{
+ const h=createSequence64Harness(),r=h.context;selectTrack(h,14);
+ const p=r.currentSequence64Pattern();p.steps[0].cut={track:14,slice:0,gateLength:1};
+ r.ensureSequence64Pattern=()=>{throw Error('pulse must not normalize a pattern');};
+ r.buildEditorShellLevels=()=>{throw Error('pulse must not rebuild the editor');};
+ let changes;r.applyEditorLevelDiff=value=>{changes=value;};
+ r.sequence64SelectionPulse=0;r.refreshSequence64SelectionCell();
+ assert.equal(changes.length,1);assert.deepEqual(Array.from(changes[0].slice(0,3)),[0,8,11]);
+});
+
+for(const e of require('../synth_engine_catalog').engines){
+ test(e.name+' grid pages, non-latching hit packets and session preset recall',()=>{
+  const h=createSequence64Harness(),r=h.context,m=require('../'+e.id+'_instrument_model');selectTrack(h,e.track);r.dispatch(15,12,1);
+  for(let bank=0;bank<3;bank++){
+   r.dispatch(9+bank,12,1);const ids=m[e.id.toUpperCase()+'_PAGES'][bank].parameters;
+   assert.deepEqual(Array.from(r.sequence64VisibleParameters()),ids);
+   for(let col=0;col<4;col++){r.dispatch(4+col,12,1);r.dispatch(15,13,1);assert.equal(r.currentSequence64EditStep().locks[ids[col]].value,m.definition(ids[col]).gridMax);}
+  }
+  const p=r.ensureSequence64Pattern('track',e.track);r.s.tracks[e.track].channel=1;
+  p.steps[0].cut={track:e.track,slice:0,gateLength:1};p.steps[1].cut={track:e.track,slice:1,gateLength:1};p.running=1;h.clearLog();
+  r.runSequence64StepForTarget('track',e.track,p,0,0);r.runSequence64StepForTarget('track',e.track,p,0,1);
+  const arms=h.namedMessages.filter(m=>m[0]==='sequence64_audio_arm');
+  assert.deepEqual(arms[0],['sequence64_audio_arm',1,e.track+2,0,...e.parameters.map(p=>p.gridMax)]);
+  assert.deepEqual(arms[1],['sequence64_audio_arm',1,e.track+2,1,...e.parameters.map(p=>p.initial)]);
+  const d=e.parameters[0];r[e.id+'Manual'](d.rnbo,d.gridMax);r.instrumentPresetAction(e.track,0,true);
+  const doc=require('../mlr_session_core').buildDocument({router:r.sessionRouterSnapshotObject()});
+  r[e.id+'Manual'](d.rnbo,d.gridMin);r.sessionApply(JSON.stringify(doc));r.instrumentPresetAction(e.track,0,false);
+  assert.equal(r.s.tracks[e.track].instrumentParameters[d.id],d.gridMax);
+ });
+}
+
+
+test('64 to 16 to 64 length edits retain beat alignment and fractional rate progress', () => {
+ const h=createSequence64Harness(),r=h.context;
+ selectGroup(h,2);
+ const p=r.ensureSequence64Pattern('group',2);
+ p.running=1;p.phaseOrigin=0;p.rateNumerator=1;p.rateDenominator=2;
+ r.sequence64ClockPosition=69;
+ r.setCurrentSequence64BarLength(16);
+ assert.equal(r.currentSequence64StepIndex(),2);
+ assert.equal(p.phaseOrigin%32,0);
+ r.sequence64ClockPosition=75;
+ r.setCurrentSequence64BarLength(64);
+ assert.equal(p.phaseOrigin%32,0);
+ const other=r.ensureSequence64Pattern('group',0);other.rateDenominator=2;other.phaseOrigin=0;
+ for(let i=0;i<128;i++){
+  r.sequence64ClockPosition=76+i;
+  assert.equal(r.sequence64PatternAbsoluteStep(p,r.sequence64ClockPosition)%16,
+   r.sequence64PatternAbsoluteStep(other,r.sequence64ClockPosition)%16);
+ }
+});
+
+function nativeCacheHarness() {
+ const h=createSequence64Harness(),r=h.context;
+ r.globalTransport(0);
+ const p=r.ensureSequence64Pattern('group',0);
+ p.running=0;p.bars[0].length=16;
+ p.bars[0].steps[0].cut={track:14,slice:0,gateLength:1};
+ r.s.tracks[14].channel=1;r.s.tracks[14].buffer=0;
+ h.clearLog();return h;
+}
+test('router initialization silences and invalidates an external left running across autowatch reload',()=>{
+ const h=nativeCacheHarness();
+ assert.deepEqual(h.startupMessages.filter(m=>m[0]==='sequence64_native_control'),
+  [['sequence64_native_control','stop'],['sequence64_native_control','reset']]);
+});
+function acknowledgeNativeCache(h) {
+ const r=h.context;
+ assert.equal(r.nativeSequence64Groups(1),true);
+ const nonce=r.sequence64NativePending.nonce;
+ r.nativeSequence64Report('hello',7,nonce,1);
+ const generation=r.sequence64NativePending.generation;
+ r.nativeSequence64Report('committed',7,generation);
+ return generation;
+}
+test('native cache waits for whole-cache acknowledgement and suppresses V8 duplicate arms',()=>{
+ const h=nativeCacheHarness(),r=h.context;
+ assert.equal(r.nativeSequence64Groups(1),true);
+ assert.equal(r.s.globalTransportRunning,0);
+ assert.equal(r.sequence64NativeGroups[0],undefined);
+ assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_native_control'&&m[1]==='start'),false);
+ r.nativeSequence64Report('hello',7,r.sequence64NativePending.nonce,1);
+ const generation=r.sequence64NativePending.generation;
+ assert.ok(h.namedMessages.some(m=>m[0]==='sequence64_native_control'&&m[1]==='commit'));
+ r.nativeSequence64Report('committed',7,generation-1);
+ assert.equal(r.sequence64NativeGroups[0],undefined);
+ r.nativeSequence64Report('committed',7,generation);
+ assert.equal(r.sequence64NativeGroups[0],true);
+ assert.equal(r.s.globalTransportRunning,1);
+ const timeline=h.namedMessages;
+ const clear=timeline.findIndex(m=>m[0]==='sequence64_audio_cancel');
+ const resume=timeline.findIndex(m=>m[0]==='sequence64_native_control'&&m[1]==='resume');
+ const start=timeline.findIndex(m=>m[0]==='sequence64_native_control'&&m[1]==='start');
+ assert.ok(clear>=0&&clear<resume&&resume<start);
+ h.clearLog();for(let i=0;i<40;i++)r.sequence64SubPulse();
+ assert.equal(h.namedMessages.filter(m=>m[0]==='sequence64_audio_arm').length,0);
+ assert.equal(r.ensureSequence64Pattern('group',0).lastSequencedAbsolute,39);
+ assert.equal(/sequence64Native|nativeEpoch|nativeGeneration/.test(JSON.stringify(r.sessionRouterSnapshotObject())),false);
+});
+test('native cache edits, manual cuts and session stop release ownership; late acknowledgements cannot restart',()=>{
+ for(const action of ['edit','manual','session']){
+  const h=nativeCacheHarness(),r=h.context;acknowledgeNativeCache(h);h.clearLog();
+  if(action==='edit')r.markSessionDirty('step');
+  if(action==='manual')r.triggerEditorTrack(14,3);
+  if(action==='session')r.sessionStopAndReset();
+  assert.equal(Object.keys(r.sequence64NativeGroups).length,0);
+  assert.equal(r.ensureSequence64Pattern('group',0).running,0);
+  assert.ok(h.namedMessages.some(m=>m[0]==='sequence64_native_control'&&m[1]==='stop'));
+  assert.ok(h.namedMessages.some(m=>m[0]==='sequence64_native_control'&&m[1]==='reset'));
+ }
+ const h=nativeCacheHarness(),r=h.context;
+ r.nativeSequence64Groups(1);const nonce=r.sequence64NativePending.nonce;
+ r.nativeSequence64Report('hello',7,nonce,1);const generation=r.sequence64NativePending.generation;
+ r.globalTransport(0);h.clearLog();r.nativeSequence64Report('committed',7,generation);
+ assert.equal(r.s.globalTransportRunning,0);
+ assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_native_control'&&m[1]==='start'),false);
+});
+test('native cache missing bridge, unsupported patterns and rejected uploads remain stopped',()=>{
+ const h=nativeCacheHarness(),r=h.context;
+ r.ensureSequence64Pattern('group',0).bars[0].steps[0].probability=8;
+ assert.equal(r.nativeSequence64Groups(1),false);
+ assert.equal(r.sequence64NativePending,null);
+ r.ensureSequence64Pattern('group',0).bars[0].steps[0].probability=15;
+ assert.equal(r.nativeSequence64Groups(1),true);
+ r.sequence64NativeTimeout.callback();
+ assert.equal(r.sequence64NativePending,null);assert.equal(r.s.globalTransportRunning,0);
+ r.nativeSequence64Groups(1);r.nativeSequence64Report('rejected','begin');
+ assert.equal(r.sequence64NativePending,null);assert.equal(r.s.globalTransportRunning,0);
+ r.s.sequencers[0].on=1;assert.equal(r.nativeSequence64Groups(1),false);
+ r.s.sequencers[0].on=0;r.nativeSequence64Groups(1);
+ r.nativeSequence64Report('hello',7,r.sequence64NativePending.nonce,1);
+ const generation=r.sequence64NativePending.generation;
+ r.globalTransport(1);h.clearLog();r.nativeSequence64Report('committed',7,generation);
+ assert.equal(Object.keys(r.sequence64NativeGroups).length,0);
+ assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_native_control'&&m[1]==='start'),false);
+ r.globalTransport(0);r.nativeSequence64Groups(1);
+ r.nativeSequence64Report('hello',7,r.sequence64NativePending.nonce);
+ assert.equal(r.sequence64NativePending,null);
+ assert.equal(r.s.globalTransportRunning,0,'older loaded binaries fail closed with a restart notice');
+});
+test('native telemetry updates display ownership without arming audio; stale epochs are ignored',()=>{
+ const h=nativeCacheHarness(),r=h.context;acknowledgeNativeCache(h);h.clearLog();
+ r.nativeSequence64Report('frame',6,1,16,8);
+ assert.notEqual(r.s.tracks[14].playPos,8);
+ r.nativeSequence64Report('frame',7,1,16,8);
+ assert.equal(r.s.tracks[14].playPos,8);assert.equal(r.s.channels[0].activeTrack,14);
+ assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_audio_arm'||m[0]==='16input'),false);
+ r.markSessionDirty('edit');h.clearLog();r.nativeSequence64Report('frame',7,1,16,9);
+ assert.equal(r.s.tracks[14].playPos,8);
+ assert.equal(r.s.globalTransportRunning,0);
 });

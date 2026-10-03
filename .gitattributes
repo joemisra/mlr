@@ -1,0 +1,5 @@
+# Preserve RNBO exports and bundled vendor sources as supplied by the exporter.
+# Their generated whitespace is not maintained by this project.
+rnbo_bank/** -text -whitespace
+rnbo_kick/** -text -whitespace
+"New Project/rnbo_source.cpp" -text -whitespace

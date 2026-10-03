@@ -1,0 +1,75 @@
+// Per-hit controls and coefficients are latched in the audio thread.
+@state hitNote = 36;
+@state hitDecayMs = 550;
+@state hitFmIndex = 1.2;
+@state hitFmRatio = 1;
+@state hitFmDecayMs = 220;
+@state hitFeedback = 0.15;
+@state hitSubLevel = 0.35;
+@state hitBrightness = 0.6;
+@state hitAttackMs = 2;
+@state hitBendSemitones = 0;
+@state hitDrive = 1.4;
+@state hitLevel = 0.45;
+@state active = 0;
+@state env = 0;
+@state fmEnv = 0;
+@state attackEnv = 0;
+@state bendEnv = 0;
+@state envCoef = 0;
+@state fmCoef = 0;
+@state attackCoef = 0;
+@state bendCoef = 0;
+@state phase = 0;
+@state modPhase = 0;
+@state subPhase = 0;
+@state modLast = 0;
+@state low = 0;
+@state lowCoef = 0;
+@state baseHz = 65.406;
+let trig = in1;
+let sr = samplerate();
+if (trig > 0) {
+    hitNote = in2;
+    hitDecayMs = in3;
+    hitFmIndex = in4;
+    hitFmRatio = in5;
+    hitFmDecayMs = in6;
+    hitFeedback = in7;
+    hitSubLevel = in8;
+    hitBrightness = in9;
+    hitAttackMs = in10;
+    hitBendSemitones = in11;
+    hitDrive = in12;
+    hitLevel = in13;
+}
+if (trig > 0) {
+    active = 1;
+    env = 1; fmEnv = 1; attackEnv = 0; bendEnv = 1;
+    phase = 0; modPhase = 0; subPhase = 0; modLast = 0; low = 0;
+    baseHz = 440 * pow(2, (floor(clamp(hitNote, 12, 96) + 0.5) - 69) / 12);
+    envCoef = exp(-6.907755 / (maximum(10, hitDecayMs) * 0.001 * sr));
+    fmCoef = exp(-6.907755 / (maximum(5, hitFmDecayMs) * 0.001 * sr));
+    attackCoef = exp(-4.60517 / (maximum(0.2, hitAttackMs) * 0.001 * sr));
+    bendCoef = exp(-6.907755 / (0.04 * sr));
+    lowCoef = exp(-6.283185307179586 * minimum(150 + 14000 * hitBrightness * hitBrightness, sr * 0.45) / sr);
+}
+out1 = 0;
+if (active > 0) {
+env *= envCoef; fmEnv *= fmCoef; bendEnv *= bendCoef;
+attackEnv = 1 - (1 - attackEnv) * attackCoef;
+let hz = minimum(baseHz * pow(2, hitBendSemitones * bendEnv / 12), sr * 0.2);
+phase = wrap(phase + hz / sr, 0, 1);
+modPhase = wrap(modPhase + minimum(hz * hitFmRatio, sr * 0.45) / sr, 0, 1);
+subPhase = wrap(subPhase + hz * 0.5 / sr, 0, 1);
+let modulator = sin(modPhase * 6.283185307179586 + modLast * clamp(hitFeedback, 0, 0.95) * 3);
+modLast = modulator;
+let carrier = sin(phase * 6.283185307179586 + modulator * hitFmIndex * fmEnv);
+let sub = sin(subPhase * 6.283185307179586);
+let source = (carrier * 0.75 + sub * hitSubLevel * 0.6) * env * attackEnv;
+low = source * (1 - lowCoef) + low * lowCoef;
+let raw = low;
+let drive = maximum(0.25, hitDrive);
+out1 = tanh(raw * drive) / tanh(drive) * clamp(hitLevel, 0, 1);
+if (env < 0.0000001 && abs(low) < 0.0000001) active = 0;
+}

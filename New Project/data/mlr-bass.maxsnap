@@ -1,0 +1,52 @@
+{
+    "filetype": "C74Snapshot",
+    "version": 2,
+    "minorversion": 0,
+    "name": "mlr-bass",
+    "origin": "mlr-bass",
+    "type": "rnbo",
+    "subtype": "",
+    "embed": 0,
+    "snapshot": {
+        "__sps": {
+            "p_rnbo-voice": {            }
+        },
+        "brightness": {
+            "value": 0.6
+        },
+        "subLevel": {
+            "value": 0.35
+        },
+        "drive": {
+            "value": 1.4
+        },
+        "attackMs": {
+            "value": 2.0
+        },
+        "decayMs": {
+            "value": 550.0
+        },
+        "feedback": {
+            "value": 0.15
+        },
+        "fmRatio": {
+            "value": 1.0
+        },
+        "note": {
+            "value": 36.0
+        },
+        "fmIndex": {
+            "value": 1.2
+        },
+        "level": {
+            "value": 0.45
+        },
+        "fmDecayMs": {
+            "value": 220.0
+        },
+        "bendSemitones": {
+            "value": 0.0
+        },
+        "__presetid": "mlr-bass"
+    }
+}

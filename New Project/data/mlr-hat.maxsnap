@@ -1,0 +1,52 @@
+{
+    "filetype": "C74Snapshot",
+    "version": 2,
+    "minorversion": 0,
+    "name": "mlr-hat",
+    "origin": "mlr-hat",
+    "type": "rnbo",
+    "subtype": "",
+    "embed": 0,
+    "snapshot": {
+        "drive": {
+            "value": 1.4
+        },
+        "__presetid": "mlr-hat",
+        "noiseLevel": {
+            "value": 0.55
+        },
+        "filterHz": {
+            "value": 6500.0
+        },
+        "spread": {
+            "value": 1.0
+        },
+        "inharmonicity": {
+            "value": 0.65
+        },
+        "decayMs": {
+            "value": 120.0
+        },
+        "__sps": {
+            "p_rnbo-voice": {            }
+        },
+        "filterQ": {
+            "value": 0.8
+        },
+        "level": {
+            "value": 0.4
+        },
+        "metalLevel": {
+            "value": 0.7
+        },
+        "noiseDecayMs": {
+            "value": 85.0
+        },
+        "attack": {
+            "value": 0.4
+        },
+        "metalHz": {
+            "value": 700.0
+        }
+    }
+}

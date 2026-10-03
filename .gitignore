@@ -13,3 +13,7 @@ __pycache__/
 
 # Release bundles
 release/
+
+# Isolated native timing prototype build products
+native/build/
+mlr.sequence_player.mxo/

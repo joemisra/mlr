@@ -2,6 +2,10 @@ autowatch = 1;
 inlets = 1;
 outlets = 2;
 
+var ColorMath = require("grid_color_math.js");
+var GridLabel = require("grid_label.js");
+var labelMask = null, labelAlpha = 0, labelStarted = 0, labelTask = null;
+
 /**
  * Varibright LED state bridge: JS byte arrays -> /grid/led/level/map
  * Map layout matches mlr4k3r0update7/gridfantastic: 8x8 blocks at (0,0), (8,0),
@@ -25,7 +29,14 @@ var animationLevels = new Uint8Array(16 * 16);
 var animationMask = new Uint8Array(16 * 16);
 var foregroundClearCount = 0;
 var frameBatchDepth = 0;
+var roleColors = new Uint8Array(16 * 16 * 3);
+var stateColorModifiers = new Array(16 * 16).fill(null);
+var motionColorModifiers = new Array(16 * 16).fill(null);
 var hudColors = new Uint8Array(16 * 16 * 3);
+var colorDirty = new Uint8Array(16 * 16);
+var stateDirty = new Uint8Array(16 * 16);
+var fullStateFramePending = 0;
+var nextStateFrameId = 1;
 var hudColorPresets = new Array(8);
 var hardwareStats = {
 	levelFrames: 0,
@@ -36,10 +47,47 @@ var hardwareStats = {
 	colorAllPackets: 0,
 	presetStorePackets: 0,
 	presetRecallPackets: 0,
+	stateSetPackets: 0,
+	stateMapPackets: 0,
+	frameBeginPackets: 0,
+	frameMapPackets: 0,
+	frameCommitPackets: 0,
 	lastLevelFrameTime: 0,
 	lastExtensionTime: 0,
 	lastExtensionPath: ""
 };
+
+
+// Separate from animationMask: labels cannot cancel playhead or pulse animations.
+function parameterLabel(word) {
+ if (labelTask) labelTask.cancel();
+ var wh = dims_for_edition(edition);
+ labelMask = GridLabel.bitmap(word, wh[0], wh[1]);
+ labelAlpha = 1; labelStarted = Date.now();
+ if (!labelTask) labelTask = new Task(parameterLabelTick, this);
+ refreshParameterLabel();
+ labelTask.schedule(50);
+}
+function refreshParameterLabel() {
+ var wh = dims_for_edition(edition);
+ for (var i=0; i<wh[0]*Math.min(8,wh[1]); i++) { stateDirty[i]=1; colorDirty[i]=1; }
+ flush();
+}
+function parameterLabelTick() {
+ var next = Math.round(GridLabel.opacity(Date.now()-labelStarted)*15)/15;
+ if (next !== labelAlpha) { labelAlpha=next; refreshParameterLabel(); }
+ if (next > 0) labelTask.schedule(50);
+ else labelMask=null;
+}
+function parameterLabelClear() {
+ if (labelTask) labelTask.cancel();
+ if (!labelMask) return;
+ labelAlpha=0; labelMask=null; refreshParameterLabel();
+}
+function labelApplies(index) {
+ return labelMask && labelAlpha>0 && index<dims_for_edition(edition)[0]*8;
+}
+function notifydeleted() { if (labelTask) labelTask.cancel(); }
 
 function loadbang() {
 	var wh = dims_for_edition(edition);
@@ -50,6 +98,8 @@ function loadbang() {
 }
 
 function resetLevelState(width, height) {
+	if (labelTask) labelTask.cancel();
+	labelMask=null; labelAlpha=0;
 	var cells = width * height;
 	foreground = new Uint8Array(cells);
 	bg = new Uint8Array(cells);
@@ -73,6 +123,11 @@ function noteExtensionPacket(path, packetCount) {
 	else if (path === "/grid/led/color/all") hardwareStats.colorAllPackets += count;
 	else if (path === "/grid/led/color/preset/store") hardwareStats.presetStorePackets += count;
 	else if (path === "/grid/led/color/preset/recall") hardwareStats.presetRecallPackets += count;
+	else if (path === "/grid/led/state/set") hardwareStats.stateSetPackets += count;
+	else if (path === "/grid/led/state/map") hardwareStats.stateMapPackets += count;
+	else if (path === "/grid/led/frame/begin") hardwareStats.frameBeginPackets += count;
+	else if (path === "/grid/led/frame/map") hardwareStats.frameMapPackets += count;
+	else if (path === "/grid/led/frame/commit") hardwareStats.frameCommitPackets += count;
 }
 
 function bytesToArray(values) {
@@ -91,8 +146,18 @@ function byteHash(values) {
 }
 
 function resetHudColors(width, height) {
-	hudColors = new Uint8Array(width * height * 3);
+	var cells = width * height;
+	roleColors = new Uint8Array(cells * 3);
+	stateColorModifiers = new Array(cells).fill(null);
+	motionColorModifiers = new Array(cells).fill(null);
+	hudColors = new Uint8Array(cells * 3);
+	colorDirty = new Uint8Array(cells);
+	stateDirty = new Uint8Array(cells);
+	fullStateFramePending = 1;
 	for (var cell = 0; cell < width * height; cell++) {
+		roleColors[cell * 3] = 28;
+		roleColors[cell * 3 + 1] = 48;
+		roleColors[cell * 3 + 2] = 90;
 		hudColors[cell * 3] = 28;
 		hudColors[cell * 3 + 1] = 48;
 		hudColors[cell * 3 + 2] = 90;
@@ -130,6 +195,7 @@ function flush() {
 function clear() {
 	post("[grid_matrix_bridge] clear() called\n");
 	foreground.fill(0);
+	stateDirty.fill(1);
 	foregroundClearCount++;
 	flush();
 }
@@ -142,6 +208,8 @@ function beginframe() {
 	frameBatchDepth++;
 	if (frameBatchDepth === 1) {
 		foreground.fill(0);
+		stateDirty.fill(1);
+		fullStateFramePending = 1;
 		foregroundClearCount++;
 		for (var i = 0; i < bg.length; i++) bg[i] = 0;
 	}
@@ -185,6 +253,8 @@ function replaceframe() {
 	}
 	foreground = nextForeground;
 	bg = background;
+	stateDirty.fill(1);
+	fullStateFramePending = 1;
 	flush();
 }
 
@@ -204,7 +274,9 @@ function setcell(x, y, v) {
 			" dim=" + wh[0] + "x" + wh[1] + "\n");
 		return;
 	}
-	foreground[y * wh[0] + x] = v;
+	var index = y * wh[0] + x;
+	if (foreground[index] !== v) stateDirty[index] = 1;
+	foreground[index] = v;
 }
 
 function setcell_bg(x, y, v) {
@@ -213,17 +285,25 @@ function setcell_bg(x, y, v) {
 	v = clamp(Math.floor(v), 0, 15);
 	var wh = dims_for_edition(edition);
 	if (x < 0 || y < 0 || x >= wh[0] || y >= wh[1]) return;
-	bg[y * wh[0] + x] = v;
+	var index = y * wh[0] + x;
+	if (bg[index] !== v) stateDirty[index] = 1;
+	bg[index] = v;
 }
 
 function clear_bg() {
 	post("[grid_matrix_bridge] clear_bg() called\n");
-	for (var i = 0; i < bg.length; i++) bg[i] = 0;
+	for (var i = 0; i < bg.length; i++) {
+		if (bg[i]) stateDirty[i] = 1;
+		bg[i] = 0;
+	}
 }
 
 function fill_bg(v) {
 	v = clamp(Math.floor(v), 0, 15);
-	for (var i = 0; i < bg.length; i++) bg[i] = v;
+	for (var i = 0; i < bg.length; i++) {
+		if (bg[i] !== v) stateDirty[i] = 1;
+		bg[i] = v;
+	}
 }
 
 function fade_step() {
@@ -234,7 +314,10 @@ function fade_step() {
 
 function fill(v) {
 	v = clamp(Math.floor(v), 0, 15);
-	foreground.fill(v);
+	for (var i = 0; i < foreground.length; i++) {
+		if (foreground[i] !== v) stateDirty[i] = 1;
+		foreground[i] = v;
+	}
 }
 
 /** Transient animation updates arrive from grid_anim_engine.js. */
@@ -250,28 +333,244 @@ function animcell(x, y, level, visible) {
 	var index = y * wh[0] + x;
 	animationLevels[index] = clamp(parseInt(level, 10) || 0, 0, 15);
 	animationMask[index] = parseInt(visible, 10) ? 1 : 0;
+	colorDirty[index] = 1;
+	stateDirty[index] = 1;
 }
 
 function animclear() {
+	for (var index = 0; index < animationMask.length; index++) {
+		if (animationMask[index]) {
+			colorDirty[index] = 1;
+			stateDirty[index] = 1;
+		}
+	}
 	animationLevels.fill(0);
 	animationMask.fill(0);
+}
+
+function roleColorAt(index) {
+	var offset = index * 3;
+	return [roleColors[offset], roleColors[offset + 1], roleColors[offset + 2]];
+}
+
+function animationMotionModifier(index) {
+	if (!animationMask[index]) return null;
+	return {
+		op: "half_add",
+		rgb: [255, 255, 255],
+		amount: Math.round(animationLevels[index] / 15 * 224)
+	};
+}
+
+function composedColorAt(index) {
+	var rgb = ColorMath.compose(roleColorAt(index), stateColorModifiers[index],
+		animationMotionModifier(index) || motionColorModifiers[index]);
+	return labelApplies(index) ? GridLabel.color(rgb, labelMask[index], labelAlpha) : rgb;
+}
+
+function updateComposedColor(index) {
+	var rgb = composedColorAt(index);
+	var offset = index * 3;
+	var changed = hudColors[offset] !== rgb[0] || hudColors[offset + 1] !== rgb[1] ||
+		hudColors[offset + 2] !== rgb[2];
+	hudColors[offset] = rgb[0];
+	hudColors[offset + 1] = rgb[1];
+	hudColors[offset + 2] = rgb[2];
+	colorDirty[index] = 0;
+	return changed;
+}
+
+function flushComposedColorCells() {
+	var wh = dims_for_edition(edition);
+	for (var index = 0; index < colorDirty.length; index++) {
+		if (!colorDirty[index]) continue;
+		var force = colorDirty[index] > 1;
+		var changed = updateComposedColor(index);
+		if (!changed && !force) continue;
+		var x = index % wh[0];
+		var y = Math.floor(index / wh[0]);
+		var offset = index * 3;
+		var rgb = [hudColors[offset], hudColors[offset + 1], hudColors[offset + 2]];
+		publishHud("grid_color_cell", x, y, rgb[0], rgb[1], rgb[2]);
+		stateDirty[index] = 1;
+		if (mechatrellisExtensionsEnabled === 1) {
+			extension_cell("/grid/led/color/set", x, y, rgb);
+		}
+	}
+}
+
+function setRoleColor(index, rgb) {
+	var normalized = ColorMath.normalizeRgb(rgb);
+	var offset = index * 3;
+	roleColors[offset] = normalized[0];
+	roleColors[offset + 1] = normalized[1];
+	roleColors[offset + 2] = normalized[2];
+	// Role commands are explicit hardware requests. Preserve them even when the
+	// Max-side composed value is unchanged (for example after enabling the
+	// optional extension or reconnecting a device).
+	colorDirty[index] = 2;
+}
+
+function colorModifier(operation, red, green, blue, amount) {
+	if (String(operation || "").toLowerCase() === "none") return null;
+	return ColorMath.normalizeModifier({
+		op: operation,
+		rgb: [red, green, blue],
+		amount: amount
+	});
+}
+
+function setColorModifier(layer, x, y, operation, red, green, blue, amount) {
+	var wh = dims_for_edition(edition);
+	var normalizedX = parseInt(x, 10);
+	var normalizedY = parseInt(y, 10);
+	if (!isFinite(normalizedX) || !isFinite(normalizedY) || normalizedX < 0 ||
+		normalizedY < 0 || normalizedX >= wh[0] || normalizedY >= wh[1]) return false;
+	var index = normalizedY * wh[0] + normalizedX;
+	var modifier = colorModifier(operation, red, green, blue, amount);
+	if (layer === "motion") motionColorModifiers[index] = modifier;
+	else stateColorModifiers[index] = modifier;
+	colorDirty[index] = 1;
+	if (frameBatchDepth === 0) {
+		flushComposedColorCells();
+		flushV2StateUpdates();
+	}
+	return true;
+}
+
+function colorstatecell(x, y, operation, red, green, blue, amount) {
+	return setColorModifier("state", x, y, operation, red, green, blue, amount);
+}
+
+function colormotioncell(x, y, operation, red, green, blue, amount) {
+	return setColorModifier("motion", x, y, operation, red, green, blue, amount);
+}
+
+function colorlayersclear() {
+	for (var index = 0; index < stateColorModifiers.length; index++) {
+		stateColorModifiers[index] = null;
+		motionColorModifiers[index] = null;
+		colorDirty[index] = 1;
+	}
+}
+
+function composedLevels() {
+	var values = new Uint8Array(foreground.length);
+	for (var index = 0; index < values.length; index++) {
+		var base = foreground[index] > bg[index] ? foreground[index] : bg[index];
+		var level = animationMask[index] ? animationLevels[index] : base;
+		values[index] = labelApplies(index) ? GridLabel.level(level,labelMask[index],labelAlpha) : level;
+	}
+	return values;
+}
+
+function stateMapValues(levels, width, x0, y0) {
+	var values = [];
+	for (var y = 0; y < 4; y++) {
+		for (var x = 0; x < 4; x++) {
+			var index = (y0 + y) * width + x0 + x;
+			var offset = index * 3;
+			values.push(levels[index], hudColors[offset], hudColors[offset + 1],
+				hudColors[offset + 2]);
+		}
+	}
+	return values;
+}
+
+function outputV2(path, outputIndex, args) {
+	noteExtensionPacket(path, 1);
+	outlet.apply(this, [outputIndex, prefix + path].concat(args));
+}
+
+function v2DeviceSegments(width, height) {
+	if (!dual128Mode) return [{ output: 0, logicalY: 0, height: height }];
+	var segments = [{ output: 0, logicalY: 0, height: Math.min(8, height) }];
+	if (height > 8) segments.push({ output: 1, logicalY: 8, height: height - 8 });
+	return segments;
+}
+
+function sendV2FullStateFrame(levels, width, height) {
+	var frameId = nextStateFrameId;
+	nextStateFrameId = nextStateFrameId >= 255 ? 1 : nextStateFrameId + 1;
+	var segments = v2DeviceSegments(width, height);
+	for (var segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+		var segment = segments[segmentIndex];
+		outputV2("/grid/led/frame/begin", segment.output,
+			[frameId, width, segment.height]);
+		for (var logicalY = segment.logicalY;
+			logicalY < segment.logicalY + segment.height; logicalY += 4) {
+			for (var x = 0; x < width; x += 4) {
+				outputV2("/grid/led/frame/map", segment.output,
+					[frameId, x, logicalY - segment.logicalY].concat(
+						stateMapValues(levels, width, x, logicalY)));
+			}
+		}
+		outputV2("/grid/led/frame/commit", segment.output, [frameId]);
+	}
+	stateDirty.fill(0);
+	fullStateFramePending = 0;
+}
+
+function sendV2SparseState(levels, width, height) {
+	for (var y0 = 0; y0 < height; y0 += 4) {
+		for (var x0 = 0; x0 < width; x0 += 4) {
+			var dirtyCount = 0;
+			for (var y = 0; y < 4; y++) {
+				for (var x = 0; x < 4; x++) {
+					if (stateDirty[(y0 + y) * width + x0 + x]) dirtyCount++;
+				}
+			}
+			if (!dirtyCount) continue;
+			var outputIndex = dual128Mode && y0 >= 8 ? 1 : 0;
+			var deviceY = dual128Mode && y0 >= 8 ? y0 - 8 : y0;
+			if (dirtyCount >= 4) {
+				outputV2("/grid/led/state/map", outputIndex,
+					[x0, deviceY].concat(stateMapValues(levels, width, x0, y0)));
+				for (var mapY = 0; mapY < 4; mapY++) {
+					for (var mapX = 0; mapX < 4; mapX++) {
+						stateDirty[(y0 + mapY) * width + x0 + mapX] = 0;
+					}
+				}
+			} else {
+				for (var cellY = 0; cellY < 4; cellY++) {
+					for (var cellX = 0; cellX < 4; cellX++) {
+						var index = (y0 + cellY) * width + x0 + cellX;
+						if (!stateDirty[index]) continue;
+						var offset = index * 3;
+						outputV2("/grid/led/state/set", outputIndex,
+							[x0 + cellX, deviceY + cellY, levels[index],
+								hudColors[offset], hudColors[offset + 1], hudColors[offset + 2]]);
+						stateDirty[index] = 0;
+					}
+				}
+			}
+		}
+	}
+}
+
+function flushV2StateUpdates() {
+	if (mechatrellisExtensionsEnabled !== 2 || frameBatchDepth > 0) return;
+	var wh = dims_for_edition(edition);
+	var levels = composedLevels();
+	if (fullStateFramePending) sendV2FullStateFrame(levels, wh[0], wh[1]);
+	else sendV2SparseState(levels, wh[0], wh[1]);
 }
 
 function send_level_maps() {
 	var wh = dims_for_edition(edition);
 	var w = wh[0];
-	var n = w * wh[1];
-	var composite = new Uint8Array(n);
-	for (var j = 0; j < n; j++) {
-		var base = foreground[j] > bg[j] ? foreground[j] : bg[j];
-		composite[j] = animationMask[j] ? animationLevels[j] : base;
-	}
+	var composite = composedLevels();
 	publishHudLevelMaps(composite, w, wh[1]);
+	flushComposedColorCells();
+	hardwareStats.levelFrames++;
+	hardwareStats.lastLevelFrameTime = Date.now();
+	if (mechatrellisExtensionsEnabled === 2) {
+		flushV2StateUpdates();
+		return;
+	}
 	var path = prefix + "/grid/led/level/map";
 	var regions = regions_for_edition(edition);
-	hardwareStats.levelFrames++;
 	hardwareStats.levelMapPackets += regions.length;
-	hardwareStats.lastLevelFrameTime = Date.now();
 	for (var i = 0; i < regions.length; i++) {
 		var ox = regions[i][0];
 		var oy = regions[i][1];
@@ -309,11 +608,7 @@ function publishHudColorMaps() {
 function hudSnapshot() {
 	var wh = dims_for_edition(edition);
 	var width = wh[0];
-	var composite = new Uint8Array(width * wh[1]);
-	for (var index = 0; index < composite.length; index++) {
-		var base = foreground[index] > bg[index] ? foreground[index] : bg[index];
-		composite[index] = animationMask[index] ? animationLevels[index] : base;
-	}
+	var composite = composedLevels();
 	publishHudLevelMaps(composite, width, wh[1]);
 	publishHudColorMaps();
 }
@@ -347,9 +642,14 @@ function clamp(n, lo, hi) {
 }
 
 function mechatrellis(enabled) {
-	mechatrellisExtensionsEnabled = parseInt(enabled, 10) ? 1 : 0;
+	var requested = parseInt(enabled, 10);
+	mechatrellisExtensionsEnabled = isFinite(requested) ? clamp(requested, 0, 2) : 0;
+	if (mechatrellisExtensionsEnabled === 2) {
+		stateDirty.fill(1);
+		fullStateFramePending = 1;
+	}
 	post("[grid_matrix_bridge] MechaTrellis private OSC " +
-		(mechatrellisExtensionsEnabled ? "enabled" : "disabled") + "\n");
+		(mechatrellisExtensionsEnabled ? "v" + mechatrellisExtensionsEnabled : "disabled") + "\n");
 }
 
 // MechaTrellis private OSC extension. These messages bypass the level matrix:
@@ -410,19 +710,13 @@ function colorcell(x, y, r, g, b) {
 	var wh = dims_for_edition(edition);
 	var normalizedX = parseInt(x, 10);
 	var normalizedY = parseInt(y, 10);
-	var values = [
-		clamp(parseInt(r, 10) || 0, 0, 255),
-		clamp(parseInt(g, 10) || 0, 0, 255),
-		clamp(parseInt(b, 10) || 0, 0, 255)
-	];
 	if (normalizedX >= 0 && normalizedY >= 0 && normalizedX < wh[0] && normalizedY < wh[1]) {
-		var offset = (normalizedY * wh[0] + normalizedX) * 3;
-		hudColors[offset] = values[0];
-		hudColors[offset + 1] = values[1];
-		hudColors[offset + 2] = values[2];
-		publishHud("grid_color_cell", normalizedX, normalizedY, values[0], values[1], values[2]);
+		setRoleColor(normalizedY * wh[0] + normalizedX, [r, g, b]);
+		if (frameBatchDepth === 0) {
+			flushComposedColorCells();
+			flushV2StateUpdates();
+		}
 	}
-	extension_cell("/grid/led/color/set", x, y, values);
 }
 
 function colormap() {
@@ -440,44 +734,85 @@ function colormap() {
 	var mapY = parseInt(args[1], 10);
 	if (mapX >= 0 && mapY >= 0 && mapX + 4 <= wh[0] && mapY + 4 <= wh[1]) {
 		for (var cell = 0; cell < 16; cell++) {
-			var offset = ((mapY + Math.floor(cell / 4)) * wh[0] + mapX + (cell % 4)) * 3;
-			hudColors[offset] = colors[cell * 3];
-			hudColors[offset + 1] = colors[cell * 3 + 1];
-			hudColors[offset + 2] = colors[cell * 3 + 2];
+			var index = (mapY + Math.floor(cell / 4)) * wh[0] + mapX + (cell % 4);
+			setRoleColor(index, colors.slice(cell * 3, cell * 3 + 3));
+			updateComposedColor(index);
+			stateDirty[index] = 1;
+			var offset = index * 3;
+			colors[cell * 3] = hudColors[offset];
+			colors[cell * 3 + 1] = hudColors[offset + 1];
+			colors[cell * 3 + 2] = hudColors[offset + 2];
 		}
 		publishHud.apply(this, ["grid_color_map", mapX, mapY].concat(colors));
+		if (mechatrellisExtensionsEnabled === 1) {
+			extension_map("/grid/led/color/map", mapX, mapY, colors);
+		} else if (mechatrellisExtensionsEnabled === 2 && frameBatchDepth === 0) {
+			flushV2StateUpdates();
+		}
 	}
-	extension_map("/grid/led/color/map", args[0], args[1], colors);
 }
 
 function colorall(r, g, b) {
-	var values = [
-		clamp(parseInt(r, 10) || 0, 0, 255),
-		clamp(parseInt(g, 10) || 0, 0, 255),
-		clamp(parseInt(b, 10) || 0, 0, 255)
-	];
-	for (var cell = 0; cell < hudColors.length / 3; cell++) {
-		hudColors[cell * 3] = values[0];
-		hudColors[cell * 3 + 1] = values[1];
-		hudColors[cell * 3 + 2] = values[2];
+	var values = ColorMath.normalizeRgb([r, g, b]);
+	var hasModifiers = false;
+	for (var cell = 0; cell < roleColors.length / 3; cell++) {
+		if (stateColorModifiers[cell] || motionColorModifiers[cell] || animationMask[cell]) {
+			hasModifiers = true;
+		}
+		setRoleColor(cell, values);
+		updateComposedColor(cell);
 	}
-	publishHud("grid_color_all", values[0], values[1], values[2]);
-	extension_all("/grid/led/color/all", values);
+	if (mechatrellisExtensionsEnabled === 2) {
+		publishHudColorMaps();
+		stateDirty.fill(1);
+		fullStateFramePending = 1;
+		flushV2StateUpdates();
+	} else if (!hasModifiers) {
+		publishHud("grid_color_all", values[0], values[1], values[2]);
+		extension_all("/grid/led/color/all", values);
+	} else {
+		publishHudColorMaps();
+		var wh = dims_for_edition(edition);
+		for (var y = 0; y < wh[1]; y += 4) {
+			for (var x = 0; x < wh[0]; x += 4) {
+				var map = [];
+				for (var mapY = 0; mapY < 4; mapY++) {
+					for (var mapX = 0; mapX < 4; mapX++) {
+						var offset = ((y + mapY) * wh[0] + x + mapX) * 3;
+						map.push(hudColors[offset], hudColors[offset + 1], hudColors[offset + 2]);
+					}
+				}
+				extension_map("/grid/led/color/map", x, y, map);
+			}
+		}
+	}
 }
 
 function colorpresetstore(slot) {
 	var target = clamp(parseInt(slot, 10) || 0, 0, 7);
 	hudColorPresets[target] = new Uint8Array(hudColors);
-	extension_all("/grid/led/color/preset/store", [target]);
+	if (mechatrellisExtensionsEnabled === 1) {
+		extension_all("/grid/led/color/preset/store", [target]);
+	}
 }
 
 function colorpresetrecall(slot) {
 	var target = clamp(parseInt(slot, 10) || 0, 0, 7);
 	if (hudColorPresets[target]) {
+		roleColors = new Uint8Array(hudColorPresets[target]);
+		stateColorModifiers = new Array(roleColors.length / 3).fill(null);
+		motionColorModifiers = new Array(roleColors.length / 3).fill(null);
 		hudColors = new Uint8Array(hudColorPresets[target]);
+		colorDirty = new Uint8Array(roleColors.length / 3);
 		publishHudColorMaps();
 	}
-	extension_all("/grid/led/color/preset/recall", [target]);
+	if (mechatrellisExtensionsEnabled === 1) {
+		extension_all("/grid/led/color/preset/recall", [target]);
+	} else if (mechatrellisExtensionsEnabled === 2) {
+		stateDirty.fill(1);
+		fullStateFramePending = 1;
+		flushV2StateUpdates();
+	}
 }
 
 function rgbcell(x, y, r, g, b) {
@@ -491,6 +826,9 @@ function rgbcell(x, y, r, g, b) {
 	var normalizedY = parseInt(y, 10);
 	if (normalizedX >= 0 && normalizedY >= 0 && normalizedX < wh[0] && normalizedY < wh[1]) {
 		var offset = (normalizedY * wh[0] + normalizedX) * 3;
+		roleColors[offset] = values[0];
+		roleColors[offset + 1] = values[1];
+		roleColors[offset + 2] = values[2];
 		hudColors[offset] = values[0];
 		hudColors[offset + 1] = values[1];
 		hudColors[offset + 2] = values[2];
@@ -506,6 +844,9 @@ function rgball(r, g, b) {
 		clamp(parseInt(b, 10) || 0, 0, 255)
 	];
 	for (var cell = 0; cell < hudColors.length / 3; cell++) {
+		roleColors[cell * 3] = values[0];
+		roleColors[cell * 3 + 1] = values[1];
+		roleColors[cell * 3 + 2] = values[2];
 		hudColors[cell * 3] = values[0];
 		hudColors[cell * 3 + 1] = values[1];
 		hudColors[cell * 3 + 2] = values[2];
@@ -533,11 +874,7 @@ function intensity8(level) {
  */
 function diagnostic_snapshot(incidentId) {
 	var wh = dims_for_edition(edition);
-	var composite = new Uint8Array(wh[0] * wh[1]);
-	for (var index = 0; index < composite.length; index++) {
-		var base = foreground[index] > bg[index] ? foreground[index] : bg[index];
-		composite[index] = animationMask[index] ? animationLevels[index] : base;
-	}
+	var composite = composedLevels();
 	var presetHashes = [];
 	for (var slot = 0; slot < hudColorPresets.length; slot++) {
 		presetHashes.push(hudColorPresets[slot] ? byteHash(hudColorPresets[slot]) : null);
@@ -549,18 +886,23 @@ function diagnostic_snapshot(incidentId) {
 		prefix: prefix,
 		dual128: dual128Mode,
 		mechaTrellisExtensions: mechatrellisExtensionsEnabled,
+		mechaTrellisProtocol: mechatrellisExtensionsEnabled,
 		frameBatchDepth: frameBatchDepth,
 		foreground: bytesToArray(foreground),
 		background: bytesToArray(bg),
 		animationLevels: bytesToArray(animationLevels),
 		animationMask: bytesToArray(animationMask),
 		composite: bytesToArray(composite),
+		roleColors: bytesToArray(roleColors),
+		stateColorModifiers: stateColorModifiers,
+		motionColorModifiers: motionColorModifiers,
 		colors: bytesToArray(hudColors),
 		foregroundHash: byteHash(foreground),
 		backgroundHash: byteHash(bg),
 		animationLevelHash: byteHash(animationLevels),
 		animationMaskHash: byteHash(animationMask),
 		compositeHash: byteHash(composite),
+		roleColorHash: byteHash(roleColors),
 		colorHash: byteHash(hudColors),
 		presetHashes: presetHashes,
 		packetStats: {
@@ -572,6 +914,11 @@ function diagnostic_snapshot(incidentId) {
 			colorAllPackets: hardwareStats.colorAllPackets,
 			presetStorePackets: hardwareStats.presetStorePackets,
 			presetRecallPackets: hardwareStats.presetRecallPackets,
+			stateSetPackets: hardwareStats.stateSetPackets,
+			stateMapPackets: hardwareStats.stateMapPackets,
+			frameBeginPackets: hardwareStats.frameBeginPackets,
+			frameMapPackets: hardwareStats.frameMapPackets,
+			frameCommitPackets: hardwareStats.frameCommitPackets,
 			lastLevelFrameTime: hardwareStats.lastLevelFrameTime,
 			lastExtensionTime: hardwareStats.lastExtensionTime,
 			lastExtensionPath: hardwareStats.lastExtensionPath
@@ -644,6 +991,15 @@ function anything() {
 			break;
 		case "animclear":
 			animclear();
+			break;
+		case "colorlayersclear":
+			colorlayersclear();
+			break;
+		case "colorstatecell":
+			if (a.length >= 7) colorstatecell.apply(this, a);
+			break;
+		case "colormotioncell":
+			if (a.length >= 7) colormotioncell.apply(this, a);
 			break;
 		case "colorcell":
 			if (a.length >= 5) colorcell.apply(this, a);

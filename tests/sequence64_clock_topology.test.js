@@ -48,6 +48,41 @@ test('grid router receives the dedicated sequence64 pulse on inlet 4', () => {
 	assert.equal(hasConnection(io, 'obj-rseqpulse', 0, 'obj-router', 3), true);
 });
 
+test('grid router mirrors the shared global transport into Scene view state', () => {
+	const io = readPatcher('grid_router_io.maxpat');
+
+	assert.equal(boxById(io, 'obj-r-global-start').text, 'r [mlr]start');
+	assert.equal(boxById(io, 'obj-global-start-state').text, 'globalTransport 1');
+	assert.equal(boxById(io, 'obj-r-global-stop').text, 'r [mlr]stop');
+	assert.equal(boxById(io, 'obj-global-stop-state').text, 'globalTransport 0');
+	assert.equal(hasConnection(io,
+		'obj-r-global-start', 0, 'obj-global-start-state', 0), true);
+	assert.equal(hasConnection(io,
+		'obj-global-start-state', 0, 'obj-router', 0), true);
+	assert.equal(hasConnection(io,
+		'obj-r-global-stop', 0, 'obj-global-stop-state', 0), true);
+	assert.equal(hasConnection(io,
+		'obj-global-stop-state', 0, 'obj-router', 0), true);
+});
+
+test('routine grid-router Console status is globally gated and off by default', () => {
+	const io = readPatcher('grid_router_io.maxpat');
+
+	assert.equal(boxById(io, 'obj-console-gate').text, 'gate 1');
+	assert.equal(boxById(io, 'obj-console-debug-receive').text,
+		'r mlr_debug_console');
+	assert.equal(boxById(io, 'obj-console-debug-default').text, 'loadmess 0');
+	assert.equal(hasConnection(io, 'obj-router', 2, 'obj-console-gate', 1), true);
+	assert.equal(hasConnection(io, 'obj-console-gate', 0, 'obj-print', 0), true);
+	assert.equal(hasConnection(io,
+		'obj-console-debug-receive', 0, 'obj-console-gate', 0), true);
+	assert.equal(hasConnection(io,
+		'obj-console-debug-default', 0, 'obj-console-gate', 0), true);
+	assert.equal(hasConnection(io, 'obj-router', 2, 'obj-print', 0), false);
+	// The ungated outlet remains available to automation and session plumbing.
+	assert.equal(hasConnection(io, 'obj-router', 2, 'obj-out1', 0), true);
+});
+
 test('sequence64 audio cuts are armed in V8 and released by the native pulse bridge', () => {
 	const io = readPatcher('grid_router_io.maxpat');
 	const bridge = readPatcher('sequence64_audio_bridge.maxpat');
@@ -68,7 +103,8 @@ test('sequence64 audio cuts are armed in V8 and released by the native pulse bri
 	assert.equal(hasConnection(bridge, 'obj-fireorder', 2, 'obj-press', 0), true);
 	assert.equal(hasConnection(bridge, 'obj-fireorder', 1, 'obj-forwardtrigger', 0), true);
 	assert.equal(hasConnection(bridge, 'obj-fireorder', 0, 'obj-release', 0), true);
-	assert.match(router, /messnamed\("sequence64_audio_arm"/);
+	assert.match(router, /var arm = \["sequence64_audio_arm"/);
+	assert.match(router, /messnamed\.apply\(this, arm\)/);
 	assert.match(router, /cancelSequence64AudioForChannel/);
 });
 
@@ -84,6 +120,50 @@ test('sequence64 has a group-local immediate player trigger that bypasses only t
 	assert.equal(boxById(player, 'obj-104').text, 'r [mlr]trig');
 	assert.equal(hasConnection(player, 'obj-104', 0, 'obj-70', 1), true);
 	assert.equal(hasConnection(player, 'obj-70', 0, 'obj-68', 0), true);
+	assert.equal(boxById(player, 'obj-playback-loop-recv').text,
+		'r #1[mlr]pl-playback-loop');
+	assert.equal(hasConnection(player,
+		'obj-playback-loop-recv', 0, 'obj-98', 0), true);
+});
+
+test('each accepted group trigger emits a gated pulse on the matching ES-9 CV output', () => {
+	const main = readPatcher('_mlr.maxpat');
+	const player = readPatcher('pl.maxpat');
+	const cv = readPatcher('mlr_cv_outputs.maxpat');
+
+	assert.equal(boxById(main, 'obj-cv-outputs').text, 'mlr_cv_outputs');
+	assert.equal(boxById(player, 'obj-cv-trigger-send').text,
+		's #1[mlr]cv-trigger');
+	assert.equal(hasConnection(player,
+		'obj-68', 1, 'obj-cv-trigger-send', 0), true);
+
+	assert.equal(boxById(cv, 'obj-config-recv').text,
+		'r mlr_cv_pulse_config');
+	assert.equal(boxById(cv, 'obj-config-default').text,
+		'loadmess config 0 0.5');
+	assert.equal(boxById(cv, 'obj-dac').text,
+		'dac~ 9 10 11 12 13 14 15 16');
+
+	for (let group = 1; group <= 8; group += 1) {
+		assert.equal(boxById(cv, `obj-trigger${group}`).text,
+			`r ${group}[mlr]cv-trigger`);
+		assert.equal(boxById(cv, `obj-click${group}`).text, 'click~');
+		assert.equal(boxById(cv, `obj-slew${group}`).text,
+			'rampsmooth~ 0 240');
+		assert.equal(boxById(cv, `obj-square${group}`).text, '>~ 0.');
+		assert.equal(hasConnection(cv,
+			`obj-trigger${group}`, 0, `obj-click${group}`, 0), true);
+		assert.equal(hasConnection(cv,
+			`obj-click${group}`, 0, `obj-slew${group}`, 0), true);
+		assert.equal(hasConnection(cv,
+			`obj-slew${group}`, 0, `obj-square${group}`, 0), true);
+		assert.equal(hasConnection(cv,
+			`obj-square${group}`, 0, `obj-level${group}`, 0), true);
+		assert.equal(hasConnection(cv,
+			group <= 4 ? 'drum-cv-level' : 'synth-cv-level', 0, `obj-level${group}`, 1), true);
+		assert.equal(hasConnection(cv,
+			`obj-level${group}`, 0, 'obj-dac', group - 1), true);
+	}
 });
 
 test('track pitch combines the existing octave multiplier with semitone transposition', () => {

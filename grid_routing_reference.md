@@ -1,7 +1,7 @@
 # Grid LED Routing Reference
 
 Architecture map for the mlr grid LED and key-press signal flow.
-Updated 2026-08-03.
+Updated 2026-08-16.
 
 ---
 
@@ -42,8 +42,12 @@ Audio Engine (p chnls / playback heads)
   │      → probability → persistent parameter locks → quantized cut trigger
   │      (rate~ 0.125 plus both edges produces 16 phase-locked steps per
   │       quarter note: exactly 64 steps per 4/4 bar)
-  │      (JavaScript receives one pulse per step; no scheduled subdivision
-  │       callbacks or catch-up bursts can accumulate phase drift)
+  │      (V8 receives native subdivision pulses and prepares the pending hit;
+  │       preparation still depends on the low-priority queue being serviced)
+  │      (playback reads validated pattern identities; edits/replacements normalize)
+  │    playback telemetry + editor playhead → bounded latest-state mailbox
+  │      → one on-demand 33 ms display task → grid/HUD diffs
+  │      (playhead state, ownership, recording capture, locks and audio arms remain immediate)
   │      (one bar is the default; up to eight per-target bars play consecutively
   │       while the user may independently view/edit another bar)
   │      (Run resets off whenever a target is selected; Stop releases Gate
@@ -51,8 +55,9 @@ Audio Engine (p chnls / playback heads)
   │    main-page hold col 14 + matching cut → wait for quantized chRowPos
   │      → buffer exact track/slice and absolute sequence-clock position
   │      → on release, round take to nearest 16-step beat and create 1–8 bars
-  │    optional editorColors → paced semantic palette + color-only cell diffs
-  │      (visible page sent directly as 4×4 maps at 8 ms; no auto presets)
+  │    optional editorColors → Role palette + State/Motion modifier diffs
+  │      → bridge-side Role → State → Motion color composition
+  │      (v1 sends 4×4 color maps at 8 ms; v2 stages combined state then commits)
   │      (off by default; legacy 0–15 levels remain authoritative)
   │    drawModPage / animateLeds → led() calls (kmod 2 only)
   │
@@ -71,6 +76,11 @@ Audio Engine (p chnls / playback heads)
   │    inlet 0 ──► grid_matrix_bridge.js
   │      replaceframe validates and swaps the stable foreground/background
   │      in one operation; beginupdate preserves both for small live diffs
+  │      color math retains separate Role, State, and Motion layers; modifier
+  │      changes inside beginupdate are composed and flushed only at endupdate
+  │      hardware backend 0: standard 0–15 level OSC only
+  │      hardware backend 1: separate private color + standard level packets
+  │      hardware backend 2: combined sparse state or staged complete frames
   │    inlet 1 ──► toggle → qmetro 33 → [t b b] out1 → "flush" msg → bridge
   │    inlet 2 ──► "tick" msg → grid_anim_engine.js
   │    inlet 3 ──► grid_anim_engine.js (kf / line)
@@ -103,18 +113,20 @@ The HUD Live page's **Capture + Reinit Grid** action snapshots the bridge's
 foreground, background, composite, semantic-color cache, palette hashes, and
 outgoing packet counters before and after a full hardware resync. Incidents are
 written to `/tmp/mlr-display-incidents.jsonl` and cross-referenced in
-`/tmp/mlr-diagnostic.log`. The private MechaTrellis color packets have no reply,
-so these records describe the exact state requested by Max rather than verified
-firmware state. Readback would require a future firmware/libmonome/serialosc
-protocol addition; no standard serialosc messages are changed by recovery.
+`/tmp/mlr-diagnostic.log`. The private MechaTrellis packets have no reply, so
+these records describe the exact state requested by Max rather than verified
+firmware state. Readback/capability negotiation would require a future protocol
+addition; mode 2 is selected explicitly in workstation-local settings and no
+standard serialosc messages are changed by recovery.
 
 The router and matrix bridge are one logical 16×16/edition-256 surface.
 `grid_composite_2x128` may split that downstream across two physical panels,
 but the matrix bridge stays `dual128 0`. Startup and recovery explicitly
 reassert `edition 256` and `dual128 0`, so stale Max Global state cannot reduce
-HUD snapshots to 16×8. Automatic MechaTrellis colors upload only the visible
-palette directly; firmware preset store/recall is explicit/manual compatibility
-functionality rather than part of page switching or recovery.
+HUD snapshots to 16×8. In v2, automatic MechaTrellis output publishes the
+visible composed level/RGB frame in one staged transaction. Firmware preset
+store/recall remains explicit/manual compatibility functionality rather than
+part of page switching or recovery.
 
 ---
 
@@ -143,28 +155,46 @@ Physical Grid(s)
   → grid_router_io (r box/press_mlr) → grid_router.js
 ```
 
-### 16×16 editor ownership
+### 16×16 editor and Scene ownership
 
 The editor is dormant until mode-2 physical column 14 is held and a group or
-track is selected. Its default `sequence64` layout owns physical rows 9–16 only
-while mode 2 is visible. Rows 9–12 map row-major to steps 1–64; row 16 switches
-between Sequence and Setup or exits. The selected target persists on the main
+track is selected. Sequence and Setup own physical rows 9–16 only while mode 2
+is visible. Rows 9–12 map row-major to steps 1–64; row 16 switches among
+Sequence, Setup, and Scene or exits. Scene view owns all 16 rows: row 1 selects
+scenes; rows 2–9 hold one group's 12 horizontal pattern slots and Run control;
+row 10 selects Track Slots; row 11 holds global transport; and rows 12–15 edit
+the focused group's 64 steps. Its bar-quantized commits are serviced by the
+same incoming audio-derived pulse.
+The selected target persists on the main
 page so holding physical column 14 there can record cuts, but no lower-half LEDs
 or legacy key routes are intercepted outside mode 2.
+
+Scene view's full-grid ownership also consumes the old mode-2 target-chooser
+coordinate while it is visible, allowing all 16 top-row cells to address scenes.
+Returning to Sequence or Setup restores the momentary chooser on physical
+column 14. Standard 0–15 levels completely describe active, selected, queued,
+stored, and empty state; private color is optional.
 
 The sample browser is a separate split overlay. It owns rows 1–8 while open and
 deliberately yields rows 9–16 to the active editor. Its renderer composes both
 halves into one atomic frame, and the ordinary LED/animation paths reject
 top-half writes until the browser closes. Row 16 column 13 toggles it from
-Sequence or Setup; its 240-entry cap is presented as three 96-sample pages.
+Sequence or Setup. Each of up to eight scanned folders has its own 240-entry
+view presented as three 96-sample pages. Browser row 8 columns 8–15 select the
+folder; local cells map back to append-only global sample indices so Track Slot
+assignments remain stable when another folder is added.
 
-Each target starts with one bar and may contain up to eight. Sequence row 13
-chooses a viewed bar, steps through bars, adds a bar, or removes one with a
-double press. Bars play consecutively; switching the viewed bar is non-disruptive
-and hides the playhead when a different bar is playing. Structural add/remove
-operations stop Run. Setup lock recording follows the playing bar, not the
-independently viewed bar. Main-page live cuts are buffered until record release,
-when their take length determines the required bar count and partial final bar.
+Each target starts with one bar and may contain up to eight. Sequence always
+shows a per-target edit cursor and Slice-first inspector. Tapping an existing
+step selects it non-destructively; Trigger and row-16-column-15 Delete separate
+cut removal from full-step erasure. Row 13 columns 1–4 choose length, columns
+5–15 select parameters or Pattern context, and row 16 columns 4–11 choose bars.
+Pattern row 15 owns transport. Bars play
+consecutively; switching the viewed bar is non-disruptive and hides the
+playhead when a different bar is playing. Setup/Live Write recording follows
+the playing bar, not the independently viewed bar. Main-page live cuts are
+buffered until record release, when their take length determines the required
+bar count and partial final bar.
 
 `chRowPos` is the commit point for live cuts. A normal-mode press first creates a
 short-lived pending record candidate; only the matching track's returned,
@@ -175,7 +205,7 @@ clears stale playback markers on sibling tracks in the same channel.
 
 Sequence64 Transpose is sent as signed semitones and combines with the existing
 track-wide octave multiplier in `ch.maxpat`: playback rate is
-`2^octave × 2^(transpose/12)`. In the lock editor, the first two pitch keys
+`2^octave × 2^(transpose/12)`. In the persistent inspector, the first two pitch keys
 subtract/add twelve semitones in the step lock; the remaining fourteen select
 its −6 through +7 semitone component.
 
@@ -233,10 +263,12 @@ immediately reveals the authoritative base.
 | `fromgridmatrixio` | s/r | LED OSC output from bridge → composite |
 | `gridrouter` | s/r | boxled/boxledrow/boxledcol to grid_router.js |
 | `mlr_hud_state` | s/r | Passive normalized HUD snapshots and incremental state |
-| `sample_bank` | s/r | Bank reload/read/folder scan, preview, runtime assignment, metadata snapshot |
+| `sample_bank` | s/r | Bank reload/read, additive folder scans/selection, preview, runtime assignment, metadata snapshot |
 | `mlr_sample_preview` | r | Private sample audition player; does not replace a track buffer |
 | `mlr_hud_preview_ready` | s/r | Preview-buffer load completion → cached HUD waveform |
 | `grid_router_playback` | s/r | Normal-mode presses from grid_router → p box |
+| `1[mlr]cv-trigger` … `8[mlr]cv-trigger` | s/r | Accepted player hits → matching ES-9 pulse output |
+| `mlr_cv_pulse_config` | r | Workstation-local `config enabled level` for the eight CV outputs |
 | `kmod` | s/r | Current grid page (1=Main, 2=Mod/Sequence64, 3=Groups) |
 | `tr_pulse` | r | Transport clock pulse |
 | `box_out` | r | ⚠️ Dead — no active senders (legacy intra-patch UDP path) |
@@ -344,3 +376,7 @@ immediately reveals the authoritative base.
    bottom-half LED data is sent to outlet 1 which has no patchcord in
    `_mlr.maxpat`. This is correct when using `grid_composite_2x128` (which
    expects `dual128 0`), but would need wiring for the alt two-grid path.
+
+### Transient parameter text
+
+`grid_matrix_bridge.js` owns an independent bitmap-label layer above stable foreground/background and animation masks. `parameterLabel <abbreviation>` replaces it; `parameterLabelClear` cancels it. Its timer respects frame batching, composes only the upper eight rows, and blends back to current brightness and optional color. It does not alter input routing or any underlying LED buffer. `grid_label.js` contains the pure font/fade math; HUD previews and diagnostic brightness snapshots include the final label composite. See `docs/parameter-announcements.md`.

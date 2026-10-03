@@ -1,0 +1,76 @@
+// Per-hit controls and coefficients are latched in the audio thread.
+@state hitPitchHz = 850;
+@state hitDecayMs = 65;
+@state hitModeRatio = 2.73;
+@state hitModeLevel = 0.65;
+@state hitClickLevel = 0.6;
+@state hitNoiseDecayMs = 4;
+@state hitFilterHz = 4200;
+@state hitFilterQ = 1.2;
+@state hitFmAmount = 0.2;
+@state hitFmRatio = 2;
+@state hitDrive = 1.8;
+@state hitLevel = 0.45;
+@state active = 0;
+@state env = 0;
+@state noiseEnv = 0;
+@state envCoef = 0;
+@state noiseCoef = 0;
+@state phase = 0;
+@state modePhase = 0;
+@state modPhase = 0;
+@state noiseState = 23455;
+@state ic1 = 0;
+@state ic2 = 0;
+@state k = 1;
+@state a1 = 1;
+@state a2 = 0;
+@state a3 = 0;
+let trig = in1;
+let sr = samplerate();
+if (trig > 0) {
+    hitPitchHz = in2;
+    hitDecayMs = in3;
+    hitModeRatio = in4;
+    hitModeLevel = in5;
+    hitClickLevel = in6;
+    hitNoiseDecayMs = in7;
+    hitFilterHz = in8;
+    hitFilterQ = in9;
+    hitFmAmount = in10;
+    hitFmRatio = in11;
+    hitDrive = in12;
+    hitLevel = in13;
+}
+if (trig > 0) {
+    active = 1;
+    env = 1; noiseEnv = 1; phase = 0; modePhase = 0; modPhase = 0;
+    ic1 = 0; ic2 = 0;
+    envCoef = exp(-6.907755 / (maximum(1, hitDecayMs) * 0.001 * sr));
+    noiseCoef = exp(-6.907755 / (maximum(0.5, hitNoiseDecayMs) * 0.001 * sr));
+    let g = tan(3.141592653589793 * clamp(hitFilterHz, 200, sr * 0.45) / sr);
+    k = 1 / maximum(0.5, hitFilterQ);
+    a1 = 1 / (1 + g * (g + k)); a2 = g * a1; a3 = g * a2;
+}
+out1 = 0;
+if (active > 0) {
+env *= envCoef; noiseEnv *= noiseCoef;
+let hz = clamp(hitPitchHz, 100, sr * 0.2);
+phase = wrap(phase + hz / sr, 0, 1);
+modePhase = wrap(modePhase + minimum(hz * hitModeRatio, sr * 0.45) / sr, 0, 1);
+modPhase = wrap(modPhase + minimum(hz * hitFmRatio, sr * 0.45) / sr, 0, 1);
+let body = sin(phase * 6.283185307179586 + sin(modPhase * 6.283185307179586) * hitFmAmount * env);
+let shell = sin(modePhase * 6.283185307179586);
+noiseState = wrap((noiseState + 1) * 16807, 0, 2147483647) - 1;
+let white = (noiseState + 1) / 1073741823.5 - 1;
+let excitation = white * noiseEnv;
+let v3 = excitation - ic2;
+let band = a1 * ic1 + a2 * v3;
+let low = ic2 + a2 * ic1 + a3 * v3;
+ic1 = 2 * band - ic1; ic2 = 2 * low - ic2;
+let high = excitation - k * band - low;
+let raw = (body * 0.65 + shell * hitModeLevel * 0.6) * env + (band * k + high * 0.2) * hitClickLevel;
+let drive = maximum(0.25, hitDrive);
+out1 = tanh(raw * drive) / tanh(drive) * clamp(hitLevel, 0, 1);
+if (env < 0.0000001 && noiseEnv < 0.0000001 && abs(ic1) + abs(ic2) < 0.0000001) active = 0;
+}

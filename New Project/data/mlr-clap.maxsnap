@@ -1,0 +1,52 @@
+{
+    "filetype": "C74Snapshot",
+    "version": 2,
+    "minorversion": 0,
+    "name": "mlr-clap",
+    "origin": "mlr-clap",
+    "type": "rnbo",
+    "subtype": "",
+    "embed": 0,
+    "snapshot": {
+        "level": {
+            "value": 0.5
+        },
+        "drive": {
+            "value": 1.5
+        },
+        "__sps": {
+            "p_rnbo-voice": {            }
+        },
+        "filterQ": {
+            "value": 1.1
+        },
+        "tailLevel": {
+            "value": 0.65
+        },
+        "filterHz": {
+            "value": 1600.0
+        },
+        "spacingMs": {
+            "value": 12.0
+        },
+        "tailDecayMs": {
+            "value": 280.0
+        },
+        "brightness": {
+            "value": 0.2
+        },
+        "scatter": {
+            "value": 0.15
+        },
+        "balance": {
+            "value": 0.45
+        },
+        "burstDecayMs": {
+            "value": 10.0
+        },
+        "count": {
+            "value": 3.0
+        },
+        "__presetid": "mlr-clap"
+    }
+}

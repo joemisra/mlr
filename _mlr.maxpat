@@ -4,12 +4,12 @@
         "appversion": {
             "major": 9,
             "minor": 1,
-            "revision": 4,
+            "revision": 5,
             "architecture": "x64",
             "modernui": 1
         },
         "classnamespace": "box",
-        "rect": [ 34.0, 92.0, 1110.0, 674.0 ],
+        "rect": [ 1813.0, -20.0, 1022.0, 674.0 ],
         "openinpresentation": 1,
         "gridsize": [ 8.0, 8.0 ],
         "boxes": [
@@ -74,6 +74,10 @@
                     "numoutlets": 1,
                     "outlettype": [ "" ],
                     "patching_rect": [ 648.5, 883.0, 115.0, 22.0 ],
+                    "saved_object_attributes": {
+                        "filename": "mlr_startup.js",
+                        "parameter_enable": 0
+                    },
                     "text": "js mlr_startup.js"
                 }
             },
@@ -113,7 +117,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -144,7 +148,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -163,7 +167,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -793,7 +797,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -992,7 +996,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -1191,7 +1195,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -1390,7 +1394,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -1589,7 +1593,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -1800,7 +1804,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -1999,7 +2003,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -2198,7 +2202,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -2397,7 +2401,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -2954,8 +2958,6 @@
                                     "saved_object_attributes": {
                                         "autostart": 0,
                                         "defer": 0,
-                                        "node_bin_path": "",
-                                        "npm_bin_path": "",
                                         "watch": 0
                                     },
                                     "text": "node.script max_mcp_node.js",
@@ -3165,7 +3167,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -3417,7 +3419,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -3448,7 +3450,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -3467,7 +3469,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -4097,7 +4099,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -4296,7 +4298,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -4495,7 +4497,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -4694,7 +4696,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -4893,7 +4895,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -5104,7 +5106,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -5303,7 +5305,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -5502,7 +5504,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -5701,7 +5703,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -6359,8 +6361,6 @@
                     "saved_object_attributes": {
                         "autostart": 0,
                         "defer": 0,
-                        "node_bin_path": "",
-                        "npm_bin_path": "",
                         "watch": 0
                     },
                     "text": "node.script max_mcp_node.js",
@@ -6762,7 +6762,7 @@
                     "patching_rect": [ 748.5, 752.0, 50.0, 22.0 ],
                     "presentation": 1,
                     "presentation_rect": [ 435.0, 560.0, 71.0, 22.0 ],
-                    "text": "0 13 0",
+                    "text": "8 0 0",
                     "varname": "obj-15790"
                 }
             },
@@ -7013,7 +7013,7 @@
                     "numinlets": 1,
                     "numoutlets": 3,
                     "offset": [ 0.0, 0.0 ],
-                    "outlettype": [ "", "", "bang" ],
+                    "outlettype": [ "", "", "" ],
                     "patching_rect": [ 921.0, 65.0, 202.0, 25.0 ],
                     "presentation": 1,
                     "presentation_rect": [ 435.0, 486.0, 202.0, 25.0 ],
@@ -7588,7 +7588,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -7766,7 +7766,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -8113,12 +8113,12 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
+                        "rect": [ 0.0, 26.0, 1022.0, 618.0 ],
                         "title": "debug",
                         "boxes": [
                             {
@@ -8314,12 +8314,12 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
+                        "rect": [ 0.0, 26.0, 1022.0, 618.0 ],
                         "title": "grid_drawing",
                         "boxes": [
                             {
@@ -8722,12 +8722,12 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
+                        "rect": [ 0.0, 26.0, 1022.0, 618.0 ],
                         "title": "grid_metronome",
                         "boxes": [
                             {
@@ -8914,12 +8914,12 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
+                        "rect": [ 0.0, 26.0, 1022.0, 618.0 ],
                         "title": "presetswitchez",
                         "boxes": [
                             {
@@ -8931,8 +8931,6 @@
                                     "numinlets": 1,
                                     "numoutlets": 0,
                                     "patching_rect": [ 299.0, 137.0, 39.0, 17.0 ],
-                                    "presentation": 0,
-                                    "presentation_rect": [ 381.0, 460.0, 39.0, 17.0 ],
                                     "text": "preset",
                                     "varname": "obj-10857"
                                 }
@@ -8953,8 +8951,6 @@
                                     "numoutlets": 0,
                                     "offset": [ -26.0, -39.0 ],
                                     "patching_rect": [ 50.0, 105.0, 250.0, 41.0 ],
-                                    "presentation": 0,
-                                    "presentation_rect": [ 132.0, 428.0, 250.0, 41.0 ],
                                     "varname": "obj-5145",
                                     "viewvisibility": 1
                                 }
@@ -8970,8 +8966,6 @@
                                     "numinlets": 1,
                                     "numoutlets": 0,
                                     "patching_rect": [ 50.0, 100.0, 290.0, 51.0 ],
-                                    "presentation": 0,
-                                    "presentation_rect": [ 128.0, 422.0, 290.0, 51.0 ],
                                     "rounded": 0,
                                     "varname": "obj-0"
                                 }
@@ -8995,12 +8989,12 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
+                        "rect": [ 0.0, 26.0, 1022.0, 618.0 ],
                         "title": "waveforms",
                         "boxes": [
                             {
@@ -9388,7 +9382,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -10309,12 +10303,12 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
+                        "rect": [ 0.0, 26.0, 1022.0, 618.0 ],
                         "title": "mixer",
                         "boxes": [
                             {
@@ -10548,12 +10542,14 @@
                             {
                                 "patchline": {
                                     "destination": [ "obj-1", 1 ],
+                                    "disabled": 1,
                                     "source": [ "obj-26", 1 ]
                                 }
                             },
                             {
                                 "patchline": {
                                     "destination": [ "obj-1", 0 ],
+                                    "disabled": 1,
                                     "source": [ "obj-26", 0 ]
                                 }
                             }
@@ -10727,7 +10723,7 @@
                     "fontname": "Arial",
                     "fontsize": 13.0,
                     "id": "obj-335",
-                    "items": [ "Model 16 MIDI IN", ",", "to Max 1", ",", "to Max 2" ],
+                    "items": "<empty>",
                     "maxclass": "umenu",
                     "numinlets": 1,
                     "numoutlets": 3,
@@ -11049,7 +11045,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -11472,7 +11468,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -11591,7 +11587,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -12601,7 +12597,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -13673,7 +13669,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -14698,7 +14694,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -16236,7 +16232,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -17013,7 +17009,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -17425,7 +17421,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -17462,7 +17458,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -17823,7 +17819,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -17845,7 +17841,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -17867,7 +17863,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -18697,7 +18693,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-28",
-                                                                                    "items": [ "Model 16 MIDI IN", ",", "to Max 1", ",", "to Max 2" ],
+                                                                                    "items": "<empty>",
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -19117,7 +19113,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -19415,7 +19411,7 @@
                                                     "fontname": "Arial",
                                                     "fontsize": 9.0,
                                                     "id": "obj-9",
-                                                    "items": [ "AU DLS Synth 1", ",", "Model 16 MIDI OUT", ",", "from Max 1", ",", "from Max 2" ],
+                                                    "items": "AU DLS Synth 1",
                                                     "maxclass": "umenu",
                                                     "numinlets": 1,
                                                     "numoutlets": 3,
@@ -19431,7 +19427,7 @@
                                                     "fontname": "Arial",
                                                     "fontsize": 9.0,
                                                     "id": "obj-10",
-                                                    "items": [ "Model 16 MIDI IN", ",", "to Max 1", ",", "to Max 2" ],
+                                                    "items": "<empty>",
                                                     "maxclass": "umenu",
                                                     "numinlets": 1,
                                                     "numoutlets": 3,
@@ -19477,7 +19473,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -19926,7 +19922,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -19948,7 +19944,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -20242,7 +20238,7 @@
                                                                                         "appversion": {
                                                                                             "major": 9,
                                                                                             "minor": 1,
-                                                                                            "revision": 4,
+                                                                                            "revision": 5,
                                                                                             "architecture": "x64",
                                                                                             "modernui": 1
                                                                                         },
@@ -20596,7 +20592,7 @@
                                                                                         "appversion": {
                                                                                             "major": 9,
                                                                                             "minor": 1,
-                                                                                            "revision": 4,
+                                                                                            "revision": 5,
                                                                                             "architecture": "x64",
                                                                                             "modernui": 1
                                                                                         },
@@ -21008,7 +21004,7 @@
                                                                                         "appversion": {
                                                                                             "major": 9,
                                                                                             "minor": 1,
-                                                                                            "revision": 4,
+                                                                                            "revision": 5,
                                                                                             "architecture": "x64",
                                                                                             "modernui": 1
                                                                                         },
@@ -21349,7 +21345,7 @@
                                                                                                         "appversion": {
                                                                                                             "major": 9,
                                                                                                             "minor": 1,
-                                                                                                            "revision": 4,
+                                                                                                            "revision": 5,
                                                                                                             "architecture": "x64",
                                                                                                             "modernui": 1
                                                                                                         },
@@ -22257,7 +22253,7 @@
                                                                                                         "appversion": {
                                                                                                             "major": 9,
                                                                                                             "minor": 1,
-                                                                                                            "revision": 4,
+                                                                                                            "revision": 5,
                                                                                                             "architecture": "x64",
                                                                                                             "modernui": 1
                                                                                                         },
@@ -23435,7 +23431,7 @@
                                                                                                         "appversion": {
                                                                                                             "major": 9,
                                                                                                             "minor": 1,
-                                                                                                            "revision": 4,
+                                                                                                            "revision": 5,
                                                                                                             "architecture": "x64",
                                                                                                             "modernui": 1
                                                                                                         },
@@ -24389,7 +24385,7 @@
                                                                                                         "appversion": {
                                                                                                             "major": 9,
                                                                                                             "minor": 1,
-                                                                                                            "revision": 4,
+                                                                                                            "revision": 5,
                                                                                                             "architecture": "x64",
                                                                                                             "modernui": 1
                                                                                                         },
@@ -25829,7 +25825,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-77",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25845,7 +25841,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-78",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25861,7 +25857,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-79",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25877,7 +25873,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-80",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25893,7 +25889,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-81",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25909,7 +25905,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-82",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25925,7 +25921,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-83",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25941,7 +25937,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-84",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25957,7 +25953,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-85",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25973,7 +25969,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-86",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -25989,7 +25985,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-87",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26005,7 +26001,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-88",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26021,7 +26017,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-89",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26037,7 +26033,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-90",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26053,7 +26049,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-91",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26069,7 +26065,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-92",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26085,7 +26081,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-93",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26101,7 +26097,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-94",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26117,7 +26113,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-95",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26133,7 +26129,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-96",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26149,7 +26145,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-97",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26165,7 +26161,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-98",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26181,7 +26177,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-99",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26197,7 +26193,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-100",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26213,7 +26209,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-101",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26229,7 +26225,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-102",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26245,7 +26241,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-103",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26261,7 +26257,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-104",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26277,7 +26273,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-105",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26293,7 +26289,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-106",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26309,7 +26305,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-107",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -26325,7 +26321,7 @@
                                                                                                     "fontname": "Arial",
                                                                                                     "fontsize": 9.0,
                                                                                                     "id": "obj-108",
-                                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                                     "maxclass": "umenu",
                                                                                                     "numinlets": 1,
                                                                                                     "numoutlets": 3,
@@ -27706,7 +27702,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-50",
-                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -27765,7 +27761,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-54",
-                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14" ],
+                                                                                    "items": [ "Off", ",", 1, "Audio Output 1", ",", 2, "Audio Output 2", ",", 3, "Audio Output 3", ",", 4, "Audio Output 4", ",", 5, "Audio Output 5", ",", 6, "Audio Output 6", ",", 7, "Audio Output 7", ",", 8, "Audio Output 8", ",", 9, "Audio Output 9", ",", 10, "Audio Output 10", ",", 11, "Audio Output 11", ",", 12, "Audio Output 12", ",", 13, "Audio Output 13", ",", 14, "Audio Output 14", ",", 15, "Audio Output 15", ",", 16, "Audio Output 16" ],
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -27882,7 +27878,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-62",
-                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -27941,7 +27937,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-66",
-                                                                                    "items": [ "Off", ",", 1, "Channel 1", ",", 2, "Channel 2", ",", 3, "Channel 3", ",", 4, "Channel 4", ",", 5, "Channel 5", ",", 6, "Channel 6", ",", 7, "Channel 7", ",", 8, "Channel 8", ",", 9, "Channel 9", ",", 10, "Channel 10", ",", 11, "Channel 11", ",", 12, "Channel 12", ",", 13, "Channel 13", ",", 14, "Channel 14", ",", 15, "Channel 15", ",", 16, "Channel 16" ],
+                                                                                    "items": [ "Off", ",", 1, "Audio Input 1", ",", 2, "Audio Input 2", ",", 3, "Audio Input 3", ",", 4, "Audio Input 4", ",", 5, "Audio Input 5", ",", 6, "Audio Input 6", ",", 7, "Audio Input 7", ",", 8, "Audio Input 8", ",", 9, "Audio Input 9", ",", 10, "Audio Input 10", ",", 11, "Audio Input 11", ",", 12, "Audio Input 12", ",", 13, "Audio Input 13", ",", 14, "Audio Input 14", ",", 15, "Audio Input 15", ",", 16, "Audio Input 16" ],
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -28160,7 +28156,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-81",
-                                                                                    "items": [ "None", ",", "System Device: Model 16", ",", "Model 16", ",", "BlackHole 16ch", ",", "MacBook Pro Speakers", ",", "Camo Microphone" ],
+                                                                                    "items": [ "None", ",", "System Device: Model 16", ",", "MO34WQC", ",", "Ableton Push 3 Audio", ",", "ES-9", ",", "Model 16", ",", "BlackHole 16ch", ",", "MacBook Pro Speakers", ",", "Camo Microphone" ],
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -28191,7 +28187,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-83",
-                                                                                    "items": [ "None", ",", "System Device: Model 16", ",", "Model 16", ",", "BlackHole 16ch", ",", "MacBook Pro Microphone", ",", "Camo Microphone" ],
+                                                                                    "items": [ "None", ",", "System Device: Model 16", ",", "Joseph Misra’s iPhone Microphone", ",", "Ableton Push 3 Audio", ",", "ES-9", ",", "Giga-Byte USB Audio", ",", "Model 16", ",", "BlackHole 16ch", ",", "MacBook Pro Microphone", ",", "Camo Microphone" ],
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -28399,7 +28395,7 @@
                                                                                     "fontname": "Arial",
                                                                                     "fontsize": 9.0,
                                                                                     "id": "obj-97",
-                                                                                    "items": [ 44100, ",", 48000 ],
+                                                                                    "items": [ 32000, ",", 44100, ",", 48000, ",", 88200, ",", 96000 ],
                                                                                     "maxclass": "umenu",
                                                                                     "numinlets": 1,
                                                                                     "numoutlets": 3,
@@ -29998,7 +29994,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -31311,7 +31307,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -32104,7 +32100,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -32360,7 +32356,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -32870,7 +32866,7 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
@@ -33227,7 +33223,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -33892,12 +33888,12 @@
                         "appversion": {
                             "major": 9,
                             "minor": 1,
-                            "revision": 4,
+                            "revision": 5,
                             "architecture": "x64",
                             "modernui": 1
                         },
                         "classnamespace": "box",
-                        "rect": [ 0.0, 26.0, 1110.0, 592.0 ],
+                        "rect": [ 0.0, 26.0, 1022.0, 618.0 ],
                         "gridsize": [ 8.0, 8.0 ],
                         "title": "box",
                         "boxes": [
@@ -33911,7 +33907,7 @@
                                     "numoutlets": 1,
                                     "outlettype": [ "" ],
                                     "patching_rect": [ 264.0, 417.0, 50.0, 22.0 ],
-                                    "text": "1 6 1",
+                                    "text": "1 3 1",
                                     "varname": "obj-5095"
                                 }
                             },
@@ -33956,7 +33952,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -33978,7 +33974,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -35374,7 +35370,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -35786,7 +35782,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -36303,7 +36299,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -37237,7 +37233,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -37513,7 +37509,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -41088,7 +41084,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -42637,7 +42633,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -42670,7 +42666,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -43490,7 +43486,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -47431,7 +47427,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -47562,7 +47558,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -48405,7 +48401,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -48578,7 +48574,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -49869,7 +49865,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -49890,7 +49886,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -50859,7 +50855,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -51937,7 +51933,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -54561,7 +54557,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -54830,7 +54826,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -55916,7 +55912,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -56484,7 +56480,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -58256,7 +58252,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -59731,7 +59727,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -61401,7 +61397,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -61659,7 +61655,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -63368,7 +63364,7 @@
                                                         "appversion": {
                                                             "major": 9,
                                                             "minor": 1,
-                                                            "revision": 4,
+                                                            "revision": 5,
                                                             "architecture": "x64",
                                                             "modernui": 1
                                                         },
@@ -63626,7 +63622,7 @@
                                                                         "appversion": {
                                                                             "major": 9,
                                                                             "minor": 1,
-                                                                            "revision": 4,
+                                                                            "revision": 5,
                                                                             "architecture": "x64",
                                                                             "modernui": 1
                                                                         },
@@ -65599,7 +65595,7 @@
                                         "appversion": {
                                             "major": 9,
                                             "minor": 1,
-                                            "revision": 4,
+                                            "revision": 5,
                                             "architecture": "x64",
                                             "modernui": 1
                                         },
@@ -68011,7 +68007,7 @@
                     "maxclass": "textbutton",
                     "numinlets": 1,
                     "numoutlets": 3,
-                    "outlettype": [ "bang", "", "int" ],
+                    "outlettype": [ "", "", "int" ],
                     "parameter_enable": 0,
                     "patching_rect": [ 795.0, 142.0, 58.0, 24.0 ],
                     "presentation": 1,
@@ -68061,6 +68057,26 @@
                     "patching_rect": [ 795.0, 178.0, 360.0, 240.0 ],
                     "varname": "mlr_hud_host",
                     "viewvisibility": 1
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-cv-outputs",
+                    "maxclass": "newobj",
+                    "numinlets": 0,
+                    "numoutlets": 0,
+                    "patching_rect": [ 795.0, 430.0, 94.0, 22.0 ],
+                    "text": "mlr_cv_outputs"
+                }
+            },
+            {
+                "box": {
+                    "id": "obj-track-capture",
+                    "maxclass": "newobj",
+                    "numinlets": 0,
+                    "numoutlets": 0,
+                    "patching_rect": [ 900.0, 430.0, 108.0, 22.0 ],
+                    "text": "mlr_track_capture"
                 }
             }
         ],
@@ -68866,12 +68882,6 @@
             },
             {
                 "patchline": {
-                    "destination": [ "obj-gr-io", 0 ],
-                    "source": [ "obj-grid-hardware-resync", 0 ]
-                }
-            },
-            {
-                "patchline": {
                     "destination": [ "obj-168", 0 ],
                     "midpoints": [ 1616.5, 1366.0, 1636.0, 1366.0, 1636.0, 1291.0, 1418.5, 1291.0 ],
                     "source": [ "obj-31", 1 ]
@@ -69210,6 +69220,12 @@
             },
             {
                 "patchline": {
+                    "destination": [ "obj-gr-io", 0 ],
+                    "source": [ "obj-grid-hardware-resync", 0 ]
+                }
+            },
+            {
+                "patchline": {
                     "destination": [ "obj-hud-open", 0 ],
                     "hidden": 1,
                     "source": [ "obj-hud-button", 0 ]
@@ -69230,6 +69246,49 @@
                 }
             }
         ],
+        "parameters": {
+            "obj-239::obj-116::obj-24::obj-plugin-rack::obj-slot-1::obj-vst": [ "vst~[3]", "vst~[3]", 0 ],
+            "obj-239::obj-116::obj-24::obj-plugin-rack::obj-slot-2::obj-vst": [ "vst~[2]", "vst~[2]", 0 ],
+            "obj-239::obj-116::obj-24::obj-plugin-rack::obj-slot-3::obj-vst": [ "vst~[1]", "vst~[1]", 0 ],
+            "obj-239::obj-116::obj-24::obj-plugin-rack::obj-slot-4::obj-vst": [ "vst~", "vst~", 0 ],
+            "obj-239::obj-25::obj-24::obj-plugin-rack::obj-slot-1::obj-vst": [ "vst~[31]", "vst~[31]", 0 ],
+            "obj-239::obj-25::obj-24::obj-plugin-rack::obj-slot-2::obj-vst": [ "vst~[30]", "vst~[30]", 0 ],
+            "obj-239::obj-25::obj-24::obj-plugin-rack::obj-slot-3::obj-vst": [ "vst~[29]", "vst~[29]", 0 ],
+            "obj-239::obj-25::obj-24::obj-plugin-rack::obj-slot-4::obj-vst": [ "vst~[28]", "vst~[28]", 0 ],
+            "obj-239::obj-26::obj-24::obj-plugin-rack::obj-slot-1::obj-vst": [ "vst~[27]", "vst~[27]", 0 ],
+            "obj-239::obj-26::obj-24::obj-plugin-rack::obj-slot-2::obj-vst": [ "vst~[26]", "vst~[26]", 0 ],
+            "obj-239::obj-26::obj-24::obj-plugin-rack::obj-slot-3::obj-vst": [ "vst~[25]", "vst~[25]", 0 ],
+            "obj-239::obj-26::obj-24::obj-plugin-rack::obj-slot-4::obj-vst": [ "vst~[24]", "vst~[24]", 0 ],
+            "obj-239::obj-27::obj-24::obj-plugin-rack::obj-slot-1::obj-vst": [ "vst~[23]", "vst~[23]", 0 ],
+            "obj-239::obj-27::obj-24::obj-plugin-rack::obj-slot-2::obj-vst": [ "vst~[22]", "vst~[22]", 0 ],
+            "obj-239::obj-27::obj-24::obj-plugin-rack::obj-slot-3::obj-vst": [ "vst~[21]", "vst~[21]", 0 ],
+            "obj-239::obj-27::obj-24::obj-plugin-rack::obj-slot-4::obj-vst": [ "vst~[20]", "vst~[20]", 0 ],
+            "obj-239::obj-28::obj-24::obj-plugin-rack::obj-slot-1::obj-vst": [ "vst~[19]", "vst~[19]", 0 ],
+            "obj-239::obj-28::obj-24::obj-plugin-rack::obj-slot-2::obj-vst": [ "vst~[18]", "vst~[18]", 0 ],
+            "obj-239::obj-28::obj-24::obj-plugin-rack::obj-slot-3::obj-vst": [ "vst~[17]", "vst~[17]", 0 ],
+            "obj-239::obj-28::obj-24::obj-plugin-rack::obj-slot-4::obj-vst": [ "vst~[16]", "vst~[16]", 0 ],
+            "obj-239::obj-68::obj-24::obj-plugin-rack::obj-slot-1::obj-vst": [ "vst~[15]", "vst~[15]", 0 ],
+            "obj-239::obj-68::obj-24::obj-plugin-rack::obj-slot-2::obj-vst": [ "vst~[14]", "vst~[14]", 0 ],
+            "obj-239::obj-68::obj-24::obj-plugin-rack::obj-slot-3::obj-vst": [ "vst~[13]", "vst~[13]", 0 ],
+            "obj-239::obj-68::obj-24::obj-plugin-rack::obj-slot-4::obj-vst": [ "vst~[12]", "vst~[12]", 0 ],
+            "obj-239::obj-69::obj-24::obj-plugin-rack::obj-slot-1::obj-vst": [ "vst~[11]", "vst~[11]", 0 ],
+            "obj-239::obj-69::obj-24::obj-plugin-rack::obj-slot-2::obj-vst": [ "vst~[10]", "vst~[10]", 0 ],
+            "obj-239::obj-69::obj-24::obj-plugin-rack::obj-slot-3::obj-vst": [ "vst~[9]", "vst~[9]", 0 ],
+            "obj-239::obj-69::obj-24::obj-plugin-rack::obj-slot-4::obj-vst": [ "vst~[8]", "vst~[8]", 0 ],
+            "obj-239::obj-70::obj-24::obj-plugin-rack::obj-slot-1::obj-vst": [ "vst~[7]", "vst~[7]", 0 ],
+            "obj-239::obj-70::obj-24::obj-plugin-rack::obj-slot-2::obj-vst": [ "vst~[6]", "vst~[6]", 0 ],
+            "obj-239::obj-70::obj-24::obj-plugin-rack::obj-slot-3::obj-vst": [ "vst~[5]", "vst~[5]", 0 ],
+            "obj-239::obj-70::obj-24::obj-plugin-rack::obj-slot-4::obj-vst": [ "vst~[4]", "vst~[4]", 0 ],
+            "parameterbanks": {
+                "0": {
+                    "index": 0,
+                    "name": "",
+                    "parameters": [ "-", "-", "-", "-", "-", "-", "-", "-" ],
+                    "buttons": [ "-", "-", "-", "-", "-", "-", "-", "-" ]
+                }
+            },
+            "inherited_shortname": 1
+        },
         "autosave": 0,
         "boxgroups": [
             {

@@ -1,0 +1,52 @@
+{
+    "filetype": "C74Snapshot",
+    "version": 2,
+    "minorversion": 0,
+    "name": "mlr-snare",
+    "origin": "mlr-snare",
+    "type": "rnbo",
+    "subtype": "",
+    "embed": 1,
+    "snapshot": {
+        "level": {
+            "value": 0.45
+        },
+        "drive": {
+            "value": 1.7
+        },
+        "noiseQ": {
+            "value": 1.1
+        },
+        "__presetid": "mlr-snare",
+        "bodyHz": {
+            "value": 180.0
+        },
+        "noiseLevel": {
+            "value": 0.72
+        },
+        "bodyLevel": {
+            "value": 0.65
+        },
+        "noiseHz": {
+            "value": 3500.0
+        },
+        "bodyDecayMs": {
+            "value": 180.0
+        },
+        "snap": {
+            "value": 0.45
+        },
+        "noiseDecayMs": {
+            "value": 260.0
+        },
+        "__sps": {
+            "p_rnbo-voice": {            }
+        },
+        "bodyBend": {
+            "value": 90.0
+        },
+        "bodyFM": {
+            "value": 0.35
+        }
+    }
+}

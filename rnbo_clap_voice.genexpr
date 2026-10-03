@@ -1,0 +1,91 @@
+// Controls are captured once per hit; the burst train runs at audio rate.
+@state hitCount = 3;
+@state hitScatter = 0.15;
+@state hitTailDecay = 280;
+@state hitBurstDecay = 10;
+@state hitSpacing = 12;
+@state hitFilterHz = 1600;
+@state hitBalance = 0.45;
+@state hitTailLevel = 0.65;
+@state hitFilterQ = 1.1;
+@state hitBrightness = 0.2;
+@state hitDrive = 1.5;
+@state hitLevel = 0.5;
+@state burstsLeft = 0;
+@state countdown = 0;
+@state burstEnv = 0;
+@state tailEnv = 0;
+@state tailRise = 0;
+@state noiseState = 12344;
+@state scatterState = 54320;
+@state svfIc1 = 0;
+@state svfIc2 = 0;
+
+let trig = in1;
+let sr = samplerate();
+let burstPulse = 0;
+if (trig > 0) {
+    hitCount = in2;
+    hitScatter = in3;
+    hitTailDecay = in4;
+    hitBurstDecay = in5;
+    hitSpacing = in6;
+    hitFilterHz = in7;
+    hitBalance = in8;
+    hitTailLevel = in9;
+    hitFilterQ = in10;
+    hitBrightness = in11;
+    hitDrive = in12;
+    hitLevel = in13;
+    burstsLeft = floor(clamp(hitCount, 1, 8) + 0.5) - 1;
+    burstPulse = 1;
+    burstEnv = 0;
+    tailEnv = 0;
+    tailRise = 0;
+    svfIc1 = 0;
+    svfIc2 = 0;
+} else if (burstsLeft > 0) {
+    countdown -= 1;
+    if (countdown <= 0) {
+        burstsLeft -= 1;
+        burstPulse = 1;
+    }
+}
+if (burstPulse > 0) {
+    burstEnv = 1;
+    if (burstsLeft > 0) {
+        // Independent PRNG: scatter does not depend on sample rate or audio noise.
+        scatterState = wrap((scatterState + 1) * 16807, 0, 2147483647) - 1;
+        let jitter = (scatterState + 1) / 1073741823.5 - 1;
+        let interval = maximum(2, hitSpacing) * (1 + jitter * clamp(hitScatter, 0, 1) * 0.45);
+        countdown = maximum(1, floor(interval * 0.001 * sr + 0.5));
+    } else {
+        // The diffuse tail blooms after the last clap, including one-burst hits.
+        tailEnv = 1;
+        tailRise = 0;
+    }
+}
+burstEnv *= exp(-6.907755 / (maximum(1, hitBurstDecay) * 0.001 * sr));
+tailEnv *= exp(-6.907755 / (maximum(5, hitTailDecay) * 0.001 * sr));
+tailRise = 1 - (1 - tailRise) * exp(-1 / (0.003 * sr));
+noiseState = wrap((noiseState + 1) * 16807, 0, 2147483647) - 1;
+let white = (noiseState + 1) / 1073741823.5 - 1;
+let balance = clamp(hitBalance, 0, 1);
+let excitation = white * (burstEnv * (1 - balance) + tailEnv * tailRise * clamp(hitTailLevel, 0, 1) * balance) * 1.8;
+
+// TPT bandpass plus adjustable high-frequency noise supplies the clap's tone.
+let g = tan(3.141592653589793 * clamp(hitFilterHz, 100, sr * 0.45) / sr);
+let k = 1 / maximum(0.5, hitFilterQ);
+let a1 = 1 / (1 + g * (g + k));
+let a2 = g * a1;
+let a3 = g * a2;
+let v3 = excitation - svfIc2;
+let band = a1 * svfIc1 + a2 * v3;
+let low = svfIc2 + a2 * svfIc1 + a3 * v3;
+svfIc1 = 2 * band - svfIc1;
+svfIc2 = 2 * low - svfIc2;
+let high = excitation - k * band - low;
+let brightness = clamp(hitBrightness, 0, 1);
+let raw = band * k * (1 - brightness * 0.4) + high * brightness * 0.65;
+let drive = maximum(0.25, hitDrive);
+out1 = tanh(raw * drive) / tanh(drive) * clamp(hitLevel, 0, 1);

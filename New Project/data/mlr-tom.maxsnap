@@ -1,0 +1,52 @@
+{
+    "filetype": "C74Snapshot",
+    "version": 2,
+    "minorversion": 0,
+    "name": "mlr-tom",
+    "origin": "mlr-tom",
+    "type": "rnbo",
+    "subtype": "",
+    "embed": 0,
+    "snapshot": {
+        "level": {
+            "value": 0.5
+        },
+        "modeLevel": {
+            "value": 0.25
+        },
+        "modeRatio": {
+            "value": 1.59
+        },
+        "drive": {
+            "value": 1.3
+        },
+        "__presetid": "mlr-tom",
+        "noiseLevel": {
+            "value": 0.08
+        },
+        "fmRatio": {
+            "value": 1.5
+        },
+        "bendHz": {
+            "value": 160.0
+        },
+        "decayMs": {
+            "value": 450.0
+        },
+        "fmAmount": {
+            "value": 0.5
+        },
+        "noiseDecayMs": {
+            "value": 12.0
+        },
+        "bendDecayMs": {
+            "value": 35.0
+        },
+        "__sps": {
+            "p_rnbo-voice": {            }
+        },
+        "pitchHz": {
+            "value": 140.0
+        }
+    }
+}

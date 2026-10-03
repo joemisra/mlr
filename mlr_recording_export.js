@@ -15,14 +15,24 @@ function atoms(args) {
 }
 
 function anything() {
-	if (inlet !== 0 || messagename !== "export") return;
+	if (inlet !== 0 || (messagename !== "export" && messagename !== "capture")) return;
 	var args = atoms(arguments);
 	if (args.length < 3) return;
-	queue.push({
+	var request = {
+		kind: messagename,
 		requestId: String(args[0]),
 		bufferName: String(args[1]),
 		path: args.slice(2).join(" ")
-	});
+	};
+	if (messagename === "capture") {
+		if (args.length < 7) return;
+		request.path = String(args[2]);
+		request.track = parseInt(args[3], 10) || 0;
+		request.bufferIndex = parseInt(args[4], 10) || 0;
+		request.durationMs = parseFloat(args[5]) || 0;
+		request.source = String(args[6] || "input");
+	}
+	queue.push(request);
 	startNext();
 }
 
@@ -43,7 +53,10 @@ function beginWrite() {
 
 function bang() {
 	if (inlet !== 1 || !active) return;
-	outlet(1, "recording_exported", active.requestId, active.bufferName);
+	if (active.kind === "capture") {
+		messnamed("sample_bank", "captureCommitted", active.requestId, active.path,
+			active.track, active.bufferIndex, active.durationMs, active.source);
+	} else outlet(1, "recording_exported", active.requestId, active.bufferName);
 	active = null;
 	startNext();
 }

@@ -1,0 +1,52 @@
+{
+    "filetype": "C74Snapshot",
+    "version": 2,
+    "minorversion": 0,
+    "name": "mlr-bell",
+    "origin": "mlr-bell",
+    "type": "rnbo",
+    "subtype": "",
+    "embed": 0,
+    "snapshot": {
+        "modeDecayMs": {
+            "value": 900.0
+        },
+        "modeLevel": {
+            "value": 0.3
+        },
+        "drive": {
+            "value": 1.0
+        },
+        "brightness": {
+            "value": 0.65
+        },
+        "strike": {
+            "value": 0.2
+        },
+        "inharmonicity": {
+            "value": 0.4
+        },
+        "fmRatio": {
+            "value": 2.71
+        },
+        "decayMs": {
+            "value": 1600.0
+        },
+        "fmIndex": {
+            "value": 3.0
+        },
+        "level": {
+            "value": 0.35
+        },
+        "fmDecayMs": {
+            "value": 700.0
+        },
+        "__sps": {
+            "p_rnbo-voice": {            }
+        },
+        "pitchHz": {
+            "value": 440.0
+        },
+        "__presetid": "mlr-bell"
+    }
+}

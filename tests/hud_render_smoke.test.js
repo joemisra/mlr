@@ -10,17 +10,23 @@ const Model = require('../hud_model.js');
 function createHarness() {
 	const commands = [];
 	const tasks = [];
+	const metrics = { redraws: 0, schedules: [] };
 	function Task(callback, owner) {
 		this.callback = callback;
 		this.owner = owner;
 		tasks.push(this);
 	}
-	Task.prototype.schedule = function () {};
-	Task.prototype.cancel = function () {};
+	Task.prototype.schedule = function (delay) {
+		metrics.schedules.push({ task: this, delay });
+	};
+	Task.prototype.cancel = function () {
+		metrics.schedules = metrics.schedules.filter(({ task }) => task !== this);
+	};
 	const mgraphics = { size: [720, 480] };
 	for (const method of ['init', 'redraw', 'set_source_rgba', 'rectangle', 'fill',
 		'set_line_width', 'stroke', 'move_to', 'line_to', 'select_font_face',
 		'set_font_size', 'show_text']) mgraphics[method] = function () {};
+	mgraphics.redraw = function () { metrics.redraws++; };
 	const context = vm.createContext({
 		autowatch: 0, inlets: 0, outlets: 0, mgraphics, Task,
 		require(name) {
@@ -30,8 +36,47 @@ function createHarness() {
 		outlet(...args) { commands.push(args); }
 	});
 	vm.runInContext(SOURCE, context, { filename: 'hud.js' });
-	return { context, commands, mgraphics };
+	return {
+		context, commands, mgraphics, metrics,
+		runScheduled() {
+			const pending = metrics.schedules.splice(0);
+			for (const { task } of pending) task.callback.call(task.owner);
+		}
+	};
 }
+
+test('off-page and non-selected telemetry updates state without repainting the HUD', () => {
+	const harness = createHarness();
+	harness.context.page('session');
+	harness.metrics.schedules.length = 0;
+	harness.context.channel_strip_meter(0, -9, -14, 3);
+	assert.equal(harness.context.state.channelStrips[0].inputDb, -9);
+	assert.equal(harness.metrics.schedules.length, 0);
+
+	harness.context.page('strip');
+	harness.metrics.schedules.length = 0;
+	harness.context.channel_strip_meter(2, -8, -12, 2);
+	assert.equal(harness.context.state.channelStrips[2].inputDb, -8);
+	assert.equal(harness.metrics.schedules.length, 0);
+
+	harness.context.channel_strip_meter(0, -10, -15, 4);
+	assert.equal(harness.metrics.schedules.length, 1);
+	assert.equal(harness.metrics.schedules[0].delay, 33);
+	harness.runScheduled();
+	const redraws = harness.metrics.redraws;
+	harness.context.channel_strip_meter(0, -10, -15, 4);
+	assert.equal(harness.metrics.schedules.length, 0);
+	assert.equal(harness.metrics.redraws, redraws);
+});
+
+test('capture messages have concrete V8UI receivers and update without console errors', () => {
+	const harness = createHarness();
+	assert.doesNotThrow(() => harness.context.capture_source('mix'));
+	assert.doesNotThrow(() => harness.context.track_capture(
+		2, 'recording', 19, 1500, 'capture-test'));
+	assert.equal(harness.context.state.capture.source, 'mix');
+	assert.equal(harness.context.state.capture.tracks[2].state, 'recording');
+});
 
 test('all HUD pages paint and expose bounded hit regions from 480x320 upward', () => {
 	const harness = createHarness();
@@ -250,4 +295,16 @@ test('color lab edits one runtime role and exposes non-persistent reset controls
 	harness.context.activateRegion(reset, false);
 	assert.equal(harness.commands.some((command) =>
 		command[1] === 'color_reset' && command[2] === 'rta.trigger'), true);
+});
+
+test('parameter banner reserves space, shows name value and layer, and clears without changing the page',()=>{
+ const h=createHarness(),drawn=[];h.mgraphics.show_text=t=>drawn.push(t);
+ h.context.parameter_focus(JSON.stringify({active:true,name:'Sweep decay',value:32,unit:'ms',track:15,bar:1,step:9,layer:'Group override'}));
+ for(const size of [[720,480],[480,320]]){
+  h.mgraphics.size=size;h.context.paint();
+  assert.ok(h.context.pageLayout().contentY>=110);
+ }
+ assert.ok(drawn.includes('SWEEP DECAY'));assert.ok(drawn.includes('32 ms'));
+ assert.ok(drawn.some(t=>String(t).includes('Group override')));
+ h.context.parameter_focus('{"active":false}');assert.equal(h.context.pageLayout().contentY,60);
 });

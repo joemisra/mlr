@@ -1,0 +1,4 @@
+generated/
+build/
+# Stray compiler dependency output from an earlier build invocation.
+/-g1

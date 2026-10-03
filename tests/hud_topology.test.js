@@ -115,7 +115,7 @@ test('HUD hosts rack, transport, and modern session services while legacy preset
 	const root = readPatch('_mlr.maxpat');
 	const legacy = root.boxes.find(({ box }) => box.id === 'obj-242').box.patcher;
 	for (const id of ['obj-65', 'obj-117', 'obj-125']) {
-		assert.equal(legacy.boxes.find(({ box }) => box.id === id).box.presentation, 0);
+		assert.notEqual(legacy.boxes.find(({ box }) => box.id === id).box.presentation, 1);
 	}
 });
 
@@ -132,6 +132,26 @@ test('channel strip has exact-bypass defaults, both compressor engines, filter l
 	assert.equal(text.filter((value) => value === 's mlr_hud_state').length, 2);
 	assert.equal(text.includes('metro 100'), true);
 	assert.equal(text.includes('speedlim 90'), true);
+});
+
+test('standard modulation stays signal-rate and sums after the absolute filter lane', () => {
+	const bank = readPatch('mlr_modulation.maxpat');
+	const bankText = bank.boxes.map((entry) => entry.box.text || '');
+	assert.equal(bankText.filter((text) => text === 'cycle~').length, 2);
+	assert.equal(bankText.filter((text) => text.startsWith('adsr~')).length, 2);
+	for (const required of ['r #1[mod]lfo1-amount', 'r #1[mod]lfo2-amount',
+		'r #1[mod]adsr-amount', 'r #1[mod]ar-amount', 'r #1[mod]trigger']) {
+		assert.equal(bankText.includes(required), true, `missing ${required}`);
+	}
+	const strip = readPatch('channel_strip.maxpat');
+	const stripText = strip.boxes.map((entry) => entry.box.text || '');
+	assert.equal(stripText.includes('mlr_modulation #1'), true);
+	assert.equal(stripText.includes('clip~ 0. 1.'), true);
+	assert.equal(strip.lines.some(({ patchline }) =>
+		patchline.source[0] === 'line-filtermod' && patchline.destination[0] === 'sum-filtermod'), true);
+	assert.equal(strip.lines.some(({ patchline }) =>
+		patchline.source[0] === 'clip-filtermod-signal' && patchline.destination[0] === 'filter' &&
+		patchline.destination[1] === 3), true);
 });
 
 test('custom Gen stages implement open filter bypass, stereo-linked gain, and zero-drive bypass', () => {

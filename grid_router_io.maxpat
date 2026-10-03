@@ -86,6 +86,78 @@
       },
       {
         "box": {
+          "id": "obj-r-global-start",
+          "maxclass": "newobj",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            270.5,
+            175.0,
+            75.0,
+            22.0
+          ],
+          "text": "r [mlr]start"
+        }
+      },
+      {
+        "box": {
+          "id": "obj-global-start-state",
+          "maxclass": "message",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            355.5,
+            175.0,
+            110.0,
+            22.0
+          ],
+          "text": "globalTransport 1"
+        }
+      },
+      {
+        "box": {
+          "id": "obj-r-global-stop",
+          "maxclass": "newobj",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            270.5,
+            205.0,
+            75.0,
+            22.0
+          ],
+          "text": "r [mlr]stop"
+        }
+      },
+      {
+        "box": {
+          "id": "obj-global-stop-state",
+          "maxclass": "message",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            355.5,
+            205.0,
+            110.0,
+            22.0
+          ],
+          "text": "globalTransport 0"
+        }
+      },
+      {
+        "box": {
           "id": "obj-rpulse",
           "maxclass": "newobj",
           "numinlets": 0,
@@ -312,6 +384,76 @@
       },
       {
         "box": {
+          "id": "obj-console-gate",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            350.6666666666667,
+            354.0,
+            45.0,
+            22.0
+          ],
+          "text": "gate 1"
+        }
+      },
+      {
+        "box": {
+          "id": "obj-console-debug-receive",
+          "maxclass": "newobj",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            350.6666666666667,
+            283.0,
+            126.0,
+            22.0
+          ],
+          "text": "r mlr_debug_console"
+        }
+      },
+      {
+        "box": {
+          "id": "obj-console-debug-default",
+          "maxclass": "newobj",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            350.6666666666667,
+            318.0,
+            72.0,
+            22.0
+          ],
+          "text": "loadmess 0"
+        }
+      },
+      {
+        "box": {
+          "id": "obj-console-debug-comment",
+          "linecount": 2,
+          "maxclass": "comment",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            488.0,
+            283.0,
+            274.0,
+            33.0
+          ],
+          "text": "Routine Console status is off by default.\nSend 0/1 to mlr_debug_console to toggle it."
+        }
+      },
+      {
+        "box": {
           "id": "obj-rtimems",
           "maxclass": "newobj",
           "numinlets": 0,
@@ -374,6 +516,54 @@
       },
       {
         "patchline": {
+          "source": [
+            "obj-r-global-start",
+            0
+          ],
+          "destination": [
+            "obj-global-start-state",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-global-start-state",
+            0
+          ],
+          "destination": [
+            "obj-router",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-r-global-stop",
+            0
+          ],
+          "destination": [
+            "obj-global-stop-state",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-global-stop-state",
+            0
+          ],
+          "destination": [
+            "obj-router",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
           "destination": [
             "obj-1",
             0
@@ -412,13 +602,49 @@
       {
         "patchline": {
           "destination": [
-            "obj-print",
-            0
+            "obj-console-gate",
+            1
           ],
           "order": 1,
           "source": [
             "obj-router",
             2
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
+            "obj-print",
+            0
+          ],
+          "source": [
+            "obj-console-gate",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
+            "obj-console-gate",
+            0
+          ],
+          "source": [
+            "obj-console-debug-receive",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
+            "obj-console-gate",
+            0
+          ],
+          "source": [
+            "obj-console-debug-default",
+            0
           ]
         }
       },

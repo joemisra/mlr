@@ -21,18 +21,24 @@ var serverHost = "127.0.0.1";
 var replyHost = "127.0.0.1";
 var deviceIndex = 0;
 var seenPorts = {};
+var queryPorts = [];
+var publishedPorts = [0, 0];
 var deviceSettleTask = new Task(announceDevicesReady, this);
 
 function postln(s) {
 	post("[serialosc_list_devices] " + s + "\n");
 }
 
-function resetDisplays() {
-	outlet(1, 0);
-	outlet(2, 0);
-}
-
 function announceDevicesReady() {
+	// Keep the last-known destination live while a refresh is in flight. Only
+	// clear a slot after the complete reply window proves that it disappeared.
+	for (var index = 0; index < 2; index++) {
+		var nextPort = queryPorts[index] || 0;
+		if (publishedPorts[index] !== nextPort) {
+			publishedPorts[index] = nextPort;
+			outlet(index + 1, nextPort);
+		}
+	}
 	// The parent patch waits for this before restoring the complete hardware
 	// frame. By now grid_composite_2x128 has reapplied /sys host/port/prefix.
 	outlet(3, "bang");
@@ -50,10 +56,12 @@ function processDevice(id, typ, port) {
 	}
 	seenPorts[port] = 1;
 	postln(String(typ) + "  id=" + String(id) + "  UDP port=" + port);
-	if (deviceIndex === 0) {
-		outlet(1, port);
-	} else if (deviceIndex === 1) {
-		outlet(2, port);
+	if (deviceIndex < 2) {
+		queryPorts[deviceIndex] = port;
+		if (publishedPorts[deviceIndex] !== port) {
+			publishedPorts[deviceIndex] = port;
+			outlet(deviceIndex + 1, port);
+		}
 	}
 	deviceIndex++;
 	scheduleDevicesReady();
@@ -62,8 +70,10 @@ function processDevice(id, typ, port) {
 function startQuery() {
 	deviceIndex = 0;
 	seenPorts = {};
+	queryPorts = [];
 	deviceSettleTask.cancel();
-	resetDisplays();
+	// Also settle an empty reply so a removed final device clears cleanly.
+	deviceSettleTask.schedule(200);
 	// /serialosc/notify is one-shot. Re-registering on every notification keeps
 	// hot-plug detection alive; older serialosc versions may safely ignore it.
 	outlet(0, "/serialosc/notify", replyHost, replyPort);

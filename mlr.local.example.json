@@ -1,5 +1,7 @@
 {
   "mechatrellis": true,
-  "editorColors": true
+  "mechatrellisProtocol": 1,
+  "editorColors": true,
+  "cvPulseEnabled": false,
+  "cvPulseLevel": 0.5
 }
-

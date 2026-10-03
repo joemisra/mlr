@@ -95,6 +95,12 @@ function sample_grid(enabled, trackIndex, sampleIndex) {
 	} else messnamed("sample_bank", "browserClose");
 }
 
+function sample_folder(folderIndex, trackIndex) {
+	var folder = parseInt(folderIndex, 10);
+	if (!isFinite(folder) || folder < 0) return;
+	messnamed("sample_bank", "activateFolder", folder);
+}
+
 function color_role(name, red, green, blue) {
 	var role = String(name || "");
 	if (!role) return;

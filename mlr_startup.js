@@ -3,7 +3,7 @@
  *
  * Copy mlr.local.example.json to mlr.local.json beside _mlr.maxpat and change
  * only the hardware available on this workstation.  The local file is ignored
- * by Git, so a MechaTrellis preference cannot surprise an ordinary monome.
+ * by Git, so color-grid or CV-output preferences cannot surprise other rigs.
  */
 
 autowatch = 1;
@@ -12,7 +12,10 @@ outlets = 1;
 
 var DEFAULTS = {
 	mechatrellis: false,
-	editorColors: false
+	mechatrellisProtocol: 1,
+	editorColors: false,
+	cvPulseEnabled: false,
+	cvPulseLevel: 0.5
 };
 
 function projectDirectory() {
@@ -41,13 +44,22 @@ function readJson(path) {
 }
 
 function emitSettings(settings) {
-	var mechatrellis = settings.mechatrellis ? 1 : 0;
+	var requestedProtocol = parseInt(settings.mechatrellisProtocol, 10);
+	var mechatrellis = settings.mechatrellis ?
+		Math.min(2, Math.max(1, isFinite(requestedProtocol) ? requestedProtocol : 1)) : 0;
 	var editorColors = settings.editorColors === undefined ?
-		mechatrellis : (settings.editorColors ? 1 : 0);
+		(mechatrellis ? 1 : 0) : (settings.editorColors ? 1 : 0);
+	var requestedCvLevel = parseFloat(settings.cvPulseLevel);
+	var cvPulseLevel = isFinite(requestedCvLevel) ?
+		Math.min(1, Math.max(0, requestedCvLevel)) : DEFAULTS.cvPulseLevel;
+	var cvPulseEnabled = settings.cvPulseEnabled ? 1 : 0;
 	outlet(0, "mechatrellis", mechatrellis);
 	outlet(0, "editorColors", editorColors);
+	messnamed("mlr_cv_pulse_config", "config", cvPulseEnabled, cvPulseLevel);
 	post("[mlr startup] MechaTrellis=" + mechatrellis +
-		" editorColors=" + editorColors + "\n");
+		" editorColors=" + editorColors +
+		" cvPulse=" + cvPulseEnabled +
+		" cvLevel=" + cvPulseLevel + "\n");
 }
 
 function reload() {
@@ -56,8 +68,14 @@ function reload() {
 	var settings = {
 		mechatrellis: local && local.mechatrellis !== undefined ?
 			!!local.mechatrellis : DEFAULTS.mechatrellis,
+		mechatrellisProtocol: local && local.mechatrellisProtocol !== undefined ?
+			local.mechatrellisProtocol : DEFAULTS.mechatrellisProtocol,
 		editorColors: local && local.editorColors !== undefined ?
-			!!local.editorColors : DEFAULTS.editorColors
+			!!local.editorColors : DEFAULTS.editorColors,
+		cvPulseEnabled: local && local.cvPulseEnabled !== undefined ?
+			!!local.cvPulseEnabled : DEFAULTS.cvPulseEnabled,
+		cvPulseLevel: local && local.cvPulseLevel !== undefined ?
+			local.cvPulseLevel : DEFAULTS.cvPulseLevel
 	};
 	emitSettings(settings);
 }

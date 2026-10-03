@@ -3493,6 +3493,23 @@
         "box": {
           "fontname": "Arial",
           "fontsize": 9.0,
+          "id": "obj-cv-trigger-send",
+          "maxclass": "newobj",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            95.0,
+            -11.0,
+            111.0,
+            19.0
+          ],
+          "text": "s #1[mlr]cv-trigger"
+        }
+      },
+      {
+        "box": {
+          "fontname": "Arial",
+          "fontsize": 9.0,
           "id": "obj-69",
           "maxclass": "newobj",
           "numinlets": 1,
@@ -3886,6 +3903,26 @@
             19.0
           ],
           "text": "r #1[mlr]pl-loop"
+        }
+      },
+      {
+        "box": {
+          "fontname": "Arial",
+          "fontsize": 9.0,
+          "id": "obj-playback-loop-recv",
+          "maxclass": "newobj",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            410.0,
+            326.0,
+            132.0,
+            19.0
+          ],
+          "text": "r #1[mlr]pl-playback-loop"
         }
       },
       {
@@ -5737,6 +5774,18 @@
       {
         "patchline": {
           "destination": [
+            "obj-98",
+            0
+          ],
+          "source": [
+            "obj-playback-loop-recv",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "destination": [
             "obj-7",
             0
           ],
@@ -6902,6 +6951,19 @@
             "obj-34",
             0
           ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-68",
+            1
+          ],
+          "destination": [
+            "obj-cv-trigger-send",
+            0
+          ],
+          "order": 3
         }
       }
     ]

@@ -1,0 +1,90 @@
+// All controls latch at the hit: later edits do not reshape the ringing tail.
+@state hitPitch = 700;
+@state hitInharmonicity = 0.65;
+@state hitNoiseDecay = 85;
+@state hitDecay = 120;
+@state hitSpread = 1;
+@state hitFilterHz = 6500;
+@state hitMetalLevel = 0.7;
+@state hitNoiseLevel = 0.55;
+@state hitFilterQ = 0.8;
+@state hitAttack = 0.4;
+@state hitDrive = 1.4;
+@state hitLevel = 0.4;
+@state metalEnv = 0;
+@state noiseEnv = 0;
+@state attackEnv = 0;
+@state phase1 = 0;
+@state phase2 = 0;
+@state phase3 = 0;
+@state phase4 = 0;
+@state phase5 = 0;
+@state phase6 = 0;
+@state noiseState = 12344;
+@state svfIc1 = 0;
+@state svfIc2 = 0;
+
+let trig = in1;
+let sr = samplerate();
+if (trig > 0) {
+    hitPitch = in2;
+    hitInharmonicity = in3;
+    hitNoiseDecay = in4;
+    hitDecay = in5;
+    hitSpread = in6;
+    hitFilterHz = in7;
+    hitMetalLevel = in8;
+    hitNoiseLevel = in9;
+    hitFilterQ = in10;
+    hitAttack = in11;
+    hitDrive = in12;
+    hitLevel = in13;
+    metalEnv = 1;
+    noiseEnv = 1;
+    attackEnv = 1;
+    svfIc1 = 0;
+    svfIc2 = 0;
+}
+metalEnv *= exp(-6.907755 / (maximum(5, hitDecay) * 0.001 * sr));
+noiseEnv *= exp(-6.907755 / (maximum(5, hitNoiseDecay) * 0.001 * sr));
+attackEnv *= exp(-6.907755 / (0.008 * sr));
+
+// Six free-running sine modes, paired ring modulation and a small direct mix.
+// Each mode stays below 0.22 sr so pairwise sum frequencies remain below Nyquist.
+let pitch = maximum(100, hitPitch);
+let spread = clamp(hitSpread, 0.1, 4);
+let inh = clamp(hitInharmonicity, 0, 1);
+phase1 = wrap(phase1 + minimum(pitch, sr * 0.22) / sr, 0, 1);
+phase2 = wrap(phase2 + minimum(pitch * (1 + spread * (1 - 0.658 * inh)), sr * 0.22) / sr, 0, 1);
+phase3 = wrap(phase3 + minimum(pitch * (1 + spread * (2 - 1.231 * inh)), sr * 0.22) / sr, 0, 1);
+phase4 = wrap(phase4 + minimum(pitch * (1 + spread * (3 - 1.587 * inh)), sr * 0.22) / sr, 0, 1);
+phase5 = wrap(phase5 + minimum(pitch * (1 + spread * (4 - 1.858 * inh)), sr * 0.22) / sr, 0, 1);
+phase6 = wrap(phase6 + minimum(pitch * (1 + spread * (5 - 1.827 * inh)), sr * 0.22) / sr, 0, 1);
+let m1 = sin(phase1 * 6.283185307179586);
+let m2 = sin(phase2 * 6.283185307179586);
+let m3 = sin(phase3 * 6.283185307179586);
+let m4 = sin(phase4 * 6.283185307179586);
+let m5 = sin(phase5 * 6.283185307179586);
+let m6 = sin(phase6 * 6.283185307179586);
+let metal = (m1 * m4 + m2 * m5 + m3 * m6) * 0.55 + (m2 + m4 + m6) * 0.12;
+
+// Multiplicative congruential generator: integer arithmetic stays exact in doubles.
+noiseState = wrap((noiseState + 1) * 16807, 0, 2147483647) - 1;
+let white = (noiseState + 1) / 1073741823.5 - 1;
+let excitation = metal * metalEnv * clamp(hitMetalLevel, 0, 1) +
+    white * (noiseEnv + attackEnv * clamp(hitAttack, 0, 1)) * clamp(hitNoiseLevel, 0, 1);
+// TPT state-variable filter: band and high outputs keep the source bright.
+let g = tan(3.141592653589793 * clamp(hitFilterHz, 100, sr * 0.45) / sr);
+let k = 1 / maximum(0.5, hitFilterQ);
+let a1 = 1 / (1 + g * (g + k));
+let a2 = g * a1;
+let a3 = g * a2;
+let v3 = excitation - svfIc2;
+let band = a1 * svfIc1 + a2 * v3;
+let low = svfIc2 + a2 * svfIc1 + a3 * v3;
+svfIc1 = 2 * band - svfIc1;
+svfIc2 = 2 * low - svfIc2;
+let high = excitation - k * band - low;
+let raw = high * 0.7 + band * k * 0.8;
+let drive = maximum(0.25, hitDrive);
+out1 = tanh(raw * drive) / tanh(drive) * clamp(hitLevel, 0, 1);

@@ -10,28 +10,50 @@ let maxAPI = null;
 try { maxAPI = require("max-api"); } catch (error) { /* Node unit tests */ }
 
 const transactions = new Map();
+const TRANSFER_DICT_NAME = "mlr_session_manager_transfer";
 let currentBundle = "";
 let currentDocument = null;
+
+function filesystemPath(input) {
+	const value = String(input || "").trim();
+	if (!value) return "";
+	// Max on macOS may emit legacy volume paths such as
+	// "Macintosh HD:/Users/name/Jam" from file dialogs. Node treats that as a
+	// relative path, silently placing the session under the patch directory.
+	// Prefer the POSIX suffix when it names an existing root/parent; otherwise
+	// treat the prefix as an external volume name.
+	if (process.platform === "darwin" && !/^[A-Za-z]:[\\/]/.test(value)) {
+		const match = /^([^:]+):(\/.*)$/.exec(value);
+		if (match) {
+			const suffix = path.normalize(match[2]);
+			let probe = suffix;
+			while (probe !== path.dirname(probe) && !fs.existsSync(probe)) probe = path.dirname(probe);
+			if (fs.existsSync(probe) && probe !== "/") return suffix;
+			return path.join("/Volumes", match[1], match[2]);
+		}
+	}
+	return path.resolve(value);
+}
 
 function transactionId(prefix) {
 	return `${prefix}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
 }
 
 function sessionJsonPath(input) {
-	const requested = path.resolve(String(input || ""));
+	const requested = filesystemPath(input);
 	if (path.basename(requested).toLowerCase() === "session.json") return requested;
 	return path.join(requested, "session.json");
 }
 
 function bundlePath(input) {
-	const requested = path.resolve(String(input || ""));
+	const requested = filesystemPath(input);
 	if (path.basename(requested).toLowerCase() === "session.json") return path.dirname(requested);
 	return Core.withBundleExtension(requested);
 }
 
 function readDocument(input) {
 	const jsonPath = sessionJsonPath(input);
-	const document = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+	const document = Core.migrateDocument(JSON.parse(fs.readFileSync(jsonPath, "utf8")));
 	const validation = Core.validateDocument(document);
 	if (!validation.valid) throw new Error(validation.errors.join(" · "));
 	return { document, bundle: path.dirname(jsonPath) };
@@ -73,7 +95,8 @@ function missingSamples(document) {
 	const samples = document.bank && Array.isArray(document.bank.samples) ? document.bank.samples : [];
 	for (let index = 0; index < samples.length; index++) {
 		const value = typeof samples[index] === "string" ? samples[index] : samples[index] && samples[index].path;
-		if (value && !fs.existsSync(value)) missing.push({ index, path: String(value), type: "sample" });
+		const resolved = value ? filesystemPath(value) : "";
+		if (resolved && !fs.existsSync(resolved)) missing.push({ index, path: String(value), type: "sample" });
 	}
 	for (const recording of document.recordings || []) {
 		if (recording.resolvedPath && !fs.existsSync(recording.resolvedPath)) {
@@ -161,7 +184,10 @@ async function finalizeSave(id) {
 	if (!transaction) throw new Error("Unknown save transaction");
 	try {
 		copyRetainedPluginStates(transaction);
-		await waitForAssets(transaction.staging, relativeAssetPaths(transaction.document));
+		// Third-party plug-ins can take several seconds to serialize a snapshot.
+		// Keep the atomic staging transaction open instead of failing a healthy
+		// export on the old short deadline.
+		await waitForAssets(transaction.staging, relativeAssetPaths(transaction.document), 12000);
 		fs.writeFileSync(path.join(transaction.staging, "session.json"),
 			`${JSON.stringify(transaction.document, null, 2)}\n`, "utf8");
 		readDocument(transaction.staging);
@@ -183,10 +209,9 @@ async function openBundle(input) {
 	const loaded = readDocument(input);
 	const resolved = resolveBundleAssets(loaded.document, loaded.bundle);
 	const missing = missingSamples(resolved);
-	const dictName = `mlr_session_load_${Date.now()}`;
 	if (maxAPI) {
-		await maxAPI.setDict(dictName, resolved);
-		await maxAPI.outlet("open_ready", dictName, loaded.bundle,
+		await maxAPI.setDict(TRANSFER_DICT_NAME, resolved);
+		await maxAPI.outlet("open_ready", TRANSFER_DICT_NAME, loaded.bundle,
 			path.basename(loaded.bundle, ".mlr-session"), JSON.stringify(missing));
 	}
 	currentBundle = loaded.bundle;
@@ -219,10 +244,9 @@ async function relinkBundle(folder) {
 	const result = Core.relinkSamples(currentDocument, files, fs.existsSync);
 	currentDocument = result.document;
 	const resolved = resolveBundleAssets(currentDocument, currentBundle);
-	const dictName = `mlr_session_relink_${Date.now()}`;
 	if (maxAPI) {
-		await maxAPI.setDict(dictName, resolved);
-		await maxAPI.outlet("relink_ready", dictName, currentBundle,
+		await maxAPI.setDict(TRANSFER_DICT_NAME, resolved);
+		await maxAPI.outlet("relink_ready", TRANSFER_DICT_NAME, currentBundle,
 			JSON.stringify(result.unresolved), result.relinked.length);
 	}
 	return result;
@@ -249,6 +273,9 @@ async function rackMove(group, from, to, fromPayload, toPayload) {
 
 function reportError(operation, error) {
 	const message = error && error.message ? error.message : String(error);
+	if (maxAPI && typeof maxAPI.post === "function") {
+		maxAPI.post(`[mlr session] ${operation} failed: ${message}`);
+	}
 	if (maxAPI) maxAPI.outlet("session_error", String(operation), message);
 }
 
@@ -267,6 +294,8 @@ if (maxAPI) {
 }
 
 module.exports = {
+	TRANSFER_DICT_NAME,
+	filesystemPath,
 	sessionJsonPath,
 	bundlePath,
 	readDocument,

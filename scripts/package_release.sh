@@ -75,6 +75,27 @@ See README.md for the dual-grid, Sequence64, MechaTrellis color, and serialosc
 setup notes.
 EOF
 
+cat > "${bundle_dir}/BRIGHTNESS-TEST.txt" <<'EOF'
+MLR brightness-only smoke test
+==============================
+
+This checkpoint deliberately uses ordinary 0-15 grid brightness without the
+private MechaTrellis color extension.
+
+1. Do not copy mlr.local.example.json to mlr.local.json for this test.
+2. Open _mlr.maxpat and confirm Main, Mod, and Groups are legible.
+3. Open a group and a track in rta; try Sequence, Setup, Scene, and the sample browser.
+   In Scene, store Scene 2 and confirm two group-pattern changes queue together.
+4. Open the HUD and confirm its visible state agrees with the physical grid.
+5. Save As to a name/path containing spaces. Confirm Name.mlr-session contains
+   session.json, then change BPM, one sample assignment, one strip value, and
+   one rta step. Reopen the saved session and confirm it restores stopped.
+6. Report any ambiguous, invisible, stuck, or unexpectedly colored grid cell,
+   plus the page and exact gesture that produced it.
+
+Optional color testing comes later with mechatrellis 1 and editorColors 1.
+EOF
+
 (
   cd "${bundle_dir}"
   find . -type f ! -name SHA256SUMS.txt -print0 |

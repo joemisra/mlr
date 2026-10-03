@@ -48,6 +48,31 @@ test('pattern snapshot and playhead events preserve zero-based protocol fields',
 	assert.equal(state.pattern.decisionOutcome, '');
 });
 
+test('track playback-loop and collapsed-editor state remain backward-compatible HUD fields', () => {
+	const state = Model.createState();
+	assert.equal(state.tracks[0].playbackLoop, 1);
+	Model.applyEvent(state, 'track', [0, 0, 8, 16, 0, 0, 0, 0,
+		0, 16, 8, 0, 0, 0]);
+	assert.equal(state.tracks[0].playbackLoop, 0);
+	Model.applyEvent(state, 'editor', [1, 0, 'track', 0, 'setup', 0, 'slice', 0, 1]);
+	assert.equal(state.editor.collapsed, 1);
+});
+
+test('capture source and per-track progress are retained as HUD state', () => {
+	const state = Model.createState();
+	Model.applyEvent(state, 'capture_source', ['mix']);
+	Model.applyEvent(state, 'track_capture', [2, 'recording', 19, 1500,
+		'capture-test']);
+	assert.equal(state.capture.source, 'mix');
+	assert.deepEqual(state.capture.tracks[2], {
+		track: 2,
+		state: 'recording',
+		bufferIndex: 19,
+		durationMs: 1500,
+		recordingId: 'capture-test'
+	});
+});
+
 test('sample selection pages banks and assignment state without committing audio', () => {
 	const state = Model.createState();
 	Model.applyEvent(state, 'bank', ['ready', '/bank.json', '/samples', 20]);
@@ -74,6 +99,32 @@ test('sample selection pages banks and assignment state without committing audio
 	assert.equal(state.selectedSample, 7);
 	Model.applyEvent(state, 'browser_selection', [-1, 11]);
 	assert.equal(state.selectedSample, 11);
+});
+
+test('sample folders filter HUD pages while preserving global assignment indices', () => {
+	const state = Model.createState();
+	Model.applyEvent(state, 'bank', ['ready', 'folder-library', '', 3, 'folder-library']);
+	Model.applyEvent(state, 'sample_folders', [JSON.stringify({
+		activeFolder: 1,
+		activeFolderId: 'folder:1',
+		folders: [
+			{ id: 'folder:0', name: 'Drums', count: 2 },
+			{ id: 'folder:1', name: 'Textures', count: 1 }
+		]
+	})]);
+	Model.applyEvent(state, 'sample', [0, 8, 'Kick', '/drums/kick.wav', 'WAVE',
+		1, 100, 48000, 'kick', 'kick', 255, 0, 0, 'folder:0']);
+	Model.applyEvent(state, 'sample', [1, 9, 'Snare', '/drums/snare.wav', 'WAVE',
+		1, 100, 48000, 'snare-clap', 'snare', 255, 80, 0, 'folder:0']);
+	Model.applyEvent(state, 'sample', [2, 10, 'Air', '/textures/air.wav', 'WAVE',
+		1, 100, 48000, 'fx-texture', 'air', 0, 180, 255, 'folder:1']);
+
+	assert.deepEqual(Model.activeFolderSampleIndices(state), [2]);
+	assert.equal(Model.pageSamples(state)[0].id, 2);
+	Model.applyEvent(state, 'assignment', [4, 2, 10]);
+	Model.selectTrack(state, 4);
+	assert.equal(state.bank.activeFolder, 1);
+	assert.equal(state.selectedSample, 2);
 });
 
 test('portable hit regions, page navigation, help mappings, and malformed events are safe', () => {
@@ -129,6 +180,45 @@ test('channel-strip state, selected group, and selected meter stream remain port
 	Model.applyEvent(state, 'channel_strip', [5, 0, 1, 1, 0, -18, 4, 10, 120, 6, 0, 1, 0, 0]);
 	Model.applyEvent(state, 'channel_strip_meter', [5, -9, -14, 0]);
 	assert.equal(state.channelStrips[5].reduction, 0);
+});
+
+test('modulation snapshots remain portable HUD state', () => {
+	const state = Model.createState();
+	Model.applyEvent(state, 'modulation_state', [JSON.stringify({
+		sources: { 'group:2:lfo1': { type: 'lfo', rate: [1, 4] } },
+		routes: [{ scope: 'group', targetId: 2, parameterId: 'filter',
+			sourceId: 'lfo1', amount: -0.4, enabled: true }]
+	})]);
+	assert.deepEqual(state.modulation.sources['group:2:lfo1'].rate, [1, 4]);
+	assert.equal(state.modulation.routes[0].amount, -0.4);
+	Model.applyEvent(state, 'modulation_state', ['broken json']);
+	assert.equal(state.modulation.routes.length, 1);
+});
+
+test('scene snapshots expose active, selected, queued, and Track Slot state to the HUD', () => {
+	const state = Model.createState();
+	Model.applyEvent(state, 'scene_state', [JSON.stringify({
+		activeScene: 1,
+		selectedScene: 3,
+		pending: { type: 'scene', sceneIndex: 3, dueClock: 64 },
+		performanceGroupPatternRefs: ['group-pattern:0:2'],
+		runningGroups: [1, 0, 1],
+		scenes: [{ id: 'scene:0', trackSlotRef: 'trackslot:0' },
+			{ id: 'scene:1', trackSlotRef: 'trackslot:0' }]
+	})]);
+	assert.equal(state.scenes.activeScene, 1);
+	assert.equal(state.scenes.selectedScene, 3);
+	assert.equal(state.scenes.diverged, 0);
+	assert.equal(state.scenes.pending.dueClock, 64);
+	assert.equal(state.scenes.performanceGroupPatternRefs[0], 'group-pattern:0:2');
+	assert.equal(state.scenes.items[1].trackSlotRef, 'trackslot:0');
+	assert.equal(Model.modeName(2, { active: 1, view: 'scene' }), 'SCENES');
+	const sceneCell = Model.describeCell(2, 2, 0,
+		{ active: 1, view: 'scene' }, 'follow');
+	assert.match(sceneCell.detail, /Scene 3/);
+	assert.match(sceneCell.state, /15 active/);
+	assert.match(Model.describeCell(2, 0, 2,
+		{ active: 1, view: 'scene' }, 'follow').gesture, /cancel/);
 });
 
 test('plugin rack inventory, slot state, latency, and strip sub-tabs remain portable', () => {
@@ -191,4 +281,12 @@ test('session state and missing resource notices are normalized for the HUD', ()
 	assert.equal(state.session.missing.length, 2);
 	assert.equal(state.session.missing[1].ambiguous, 1);
 	assert.equal(Model.setPage(state, 'session'), 'session');
+});
+
+test('parameter focus remains explicit until replaced or cleared and tolerates malformed events',()=>{
+ const s=Model.createState();const focus={active:true,name:'Sweep decay',value:32,unit:'ms',track:15,step:9,layer:'Group override'};
+ Model.applyEvent(s,'parameter_focus',[JSON.stringify(focus)]);Model.applyEvent(s,'clock',[120,16]);
+ assert.deepEqual(s.parameterFocus,focus);
+ Model.applyEvent(s,'parameter_focus',['{"active":false}']);assert.equal(s.parameterFocus.active,false);
+ Model.applyEvent(s,'parameter_focus',['broken']);assert.equal(s.parameterFocus.active,false);
 });

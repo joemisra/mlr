@@ -8,6 +8,10 @@ outlets = 2;
 
 var Core = require("mlr_session_core.js");
 var Model = require("hud_model.js");
+var MANAGER_TRANSFER_DICT = "mlr_session_manager_transfer";
+// Node for Max can update an existing named Dict, but setDict does not create
+// one. Keep this instance alive so open/relink payloads always have a target.
+var managerTransferDict = new Dict(MANAGER_TRANSFER_DICT);
 var observed = Model.createState();
 var racks = { groups: [] };
 var status = {
@@ -31,6 +35,7 @@ var exportedRecordings = {};
 var startupSettling = 1;
 var mutationSerial = 0;
 var activeSaveRevision = 0;
+var SNAPSHOT_TIMEOUT_MS = 4000;
 
 function argsArray(args) {
 	return Array.prototype.slice.call(args || []);
@@ -112,15 +117,18 @@ function beginSnapshot(operation, path) {
 		return false;
 	}
 	var id = transactionId();
-	pendingTransactions[id] = { id: id, operation: operation, path: path || "", fragments: {} };
+	var timeoutTask = new Task(function () { snapshotTimeout(id); }, this);
+	pendingTransactions[id] = {
+		id: id, operation: operation, path: path || "", fragments: {}, task: timeoutTask
+	};
+	timeoutTask.schedule(SNAPSHOT_TIMEOUT_MS);
 	setBusy(operation, operation === "save" ? "Collecting session state…" : "Collecting session state…");
 	messnamed("gridrouter", "sessionSnapshot", id);
 	messnamed("sample_bank", "sessionSnapshot", id);
 	messnamed("mlr_rack_session", "sessionSnapshot", id);
 	messnamed("channel_strip_snapshot", "bang");
 	messnamed("gridrouter", "hudSnapshot");
-	var task = new Task(function () { finishSnapshot(id); }, this);
-	task.schedule(220);
+	finishSnapshot(id);
 	return true;
 }
 
@@ -130,33 +138,57 @@ function parseFragment(payload) {
 }
 
 function router(requestId, payload) {
-	var transaction = pendingTransactions[String(requestId || "")];
-	if (transaction) transaction.fragments.router = parseFragment(payload);
+	var id = String(requestId || "");
+	var transaction = pendingTransactions[id];
+	if (transaction) {
+		transaction.fragments.router = parseFragment(payload);
+		finishSnapshot(id);
+	}
 }
 
 function router_dict(requestId, dictName) {
-	var transaction = pendingTransactions[String(requestId || "")];
-	if (transaction) transaction.fragments.router = dictObject(dictName);
+	var id = String(requestId || "");
+	var transaction = pendingTransactions[id];
+	if (transaction) {
+		transaction.fragments.router = dictObject(dictName);
+		finishSnapshot(id);
+	}
 }
 
 function bank(requestId, payload) {
-	var transaction = pendingTransactions[String(requestId || "")];
-	if (transaction) transaction.fragments.bank = parseFragment(payload);
+	var id = String(requestId || "");
+	var transaction = pendingTransactions[id];
+	if (transaction) {
+		transaction.fragments.bank = parseFragment(payload);
+		finishSnapshot(id);
+	}
 }
 
 function bank_dict(requestId, dictName) {
-	var transaction = pendingTransactions[String(requestId || "")];
-	if (transaction) transaction.fragments.bank = dictObject(dictName);
+	var id = String(requestId || "");
+	var transaction = pendingTransactions[id];
+	if (transaction) {
+		transaction.fragments.bank = dictObject(dictName);
+		finishSnapshot(id);
+	}
 }
 
 function rack(requestId, payload) {
-	var transaction = pendingTransactions[String(requestId || "")];
-	if (transaction) transaction.fragments.rack = parseFragment(payload);
+	var id = String(requestId || "");
+	var transaction = pendingTransactions[id];
+	if (transaction) {
+		transaction.fragments.rack = parseFragment(payload);
+		finishSnapshot(id);
+	}
 }
 
 function rack_dict(requestId, dictName) {
-	var transaction = pendingTransactions[String(requestId || "")];
-	if (transaction) transaction.fragments.rack = dictObject(dictName);
+	var id = String(requestId || "");
+	var transaction = pendingTransactions[id];
+	if (transaction) {
+		transaction.fragments.rack = dictObject(dictName);
+		finishSnapshot(id);
+	}
 }
 
 function channelStripSnapshot() {
@@ -184,13 +216,10 @@ function colorSnapshot(routerFragment) {
 
 function finishSnapshot(id) {
 	var transaction = pendingTransactions[id];
-	if (!transaction) return;
+	if (!transaction) return false;
+	if (!transaction.fragments.router || !transaction.fragments.bank || !transaction.fragments.rack) return false;
+	transaction.task.cancel();
 	delete pendingTransactions[id];
-	if (!transaction.fragments.router || !transaction.fragments.bank || !transaction.fragments.rack) {
-		setBusy("", "Session snapshot timed out");
-		publish("notice", "error", "Session snapshot timed out");
-		return;
-	}
 	var fragments = {
 		router: transaction.fragments.router,
 		bank: transaction.fragments.bank,
@@ -210,6 +239,32 @@ function finishSnapshot(id) {
 		currentDocument = document;
 		setBusy("", status.message);
 	}
+	return true;
+}
+
+function snapshotTimeout(id) {
+	var transaction = pendingTransactions[id];
+	if (!transaction) return;
+	var missing = [];
+	if (!transaction.fragments.router) missing.push("router");
+	if (!transaction.fragments.bank) missing.push("sample bank");
+	if (!transaction.fragments.rack) missing.push("plug-in rack");
+	transaction.task.cancel();
+	delete pendingTransactions[id];
+	var timeoutMessage = "Session snapshot timed out · missing " + missing.join(", ");
+	setBusy("", timeoutMessage);
+	if (typeof post === "function") post("[mlr session] " + timeoutMessage + "\n");
+	publish("notice", "error", timeoutMessage);
+}
+
+function cancel_snapshot(reason) {
+	for (var id in pendingTransactions) {
+		var transaction = pendingTransactions[id];
+		if (transaction && transaction.task) transaction.task.cancel();
+	}
+	pendingTransactions = {};
+	activeSaveDocument = null;
+	setBusy("", String(reason || "Session snapshot cancelled"));
 }
 
 function requestDialog(kind) {
@@ -330,10 +385,10 @@ function save_assets(requestId, stagingPath) {
 			exportable[recording].bufferName,
 			stagingPath + "/" + exportable[recording].bundlePath);
 	}
-	if (!exportable.length) {
-		var finalizeTask = new Task(function () { outlet(0, "finalize_save", requestId); }, this);
-		finalizeTask.schedule(180);
-	}
+	// The Node manager already waits for every expected plug-in snapshot before
+	// installing the bundle. Finalize immediately when there are no recording
+	// writes; a function-local Task can be collected before its callback runs.
+	if (!exportable.length) outlet(0, "finalize_save", requestId);
 }
 
 function recording_exported(requestId) {
@@ -435,6 +490,7 @@ function session_error(operation) {
 	var message = argsArray(arguments).slice(1).join(" ");
 	activeSaveDocument = null;
 	setBusy("", String(operation || "Session") + " failed: " + message);
+	if (typeof post === "function") post("[mlr session] " + status.message + "\n");
 	publish("notice", "error", status.message);
 }
 

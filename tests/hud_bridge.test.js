@@ -55,6 +55,7 @@ test('HUD commands route through existing buses and use zero-based IDs', () => {
 	harness.context.sample_preview_stop();
 	harness.context.sample_grid(1, 7, 19);
 	harness.context.sample_grid(0, 7, 19);
+	harness.context.sample_folder(2, 7);
 	harness.context.color_role('rta.trigger', 12, 34, 56);
 	harness.context.color_reset('rta.trigger');
 	harness.context.strip_snapshot();
@@ -86,6 +87,9 @@ test('HUD commands route through existing buses and use zero-based IDs', () => {
 		message[2] === 7 && message[3] === 19), true);
 	assert.equal(harness.named.some((message) =>
 		message[0] === 'sample_bank' && message[1] === 'browserClose'), true);
+	assert.equal(harness.named.some((message) =>
+		message[0] === 'sample_bank' && message[1] === 'activateFolder' &&
+		message[2] === 2), true);
 	assert.equal(harness.named.some((message) =>
 		message[0] === 'gridrouter' && message[1] === 'hudColorRole' &&
 		message[2] === 'rta.trigger' && message[3] === 12 && message[5] === 56), true);

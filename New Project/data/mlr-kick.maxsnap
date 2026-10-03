@@ -1,0 +1,52 @@
+{
+    "filetype": "C74Snapshot",
+    "version": 2,
+    "minorversion": 0,
+    "name": "mlr-kick",
+    "origin": "mlr-kick",
+    "type": "rnbo",
+    "subtype": "",
+    "embed": 0,
+    "snapshot": {
+        "level": {
+            "value": 0.5
+        },
+        "drive": {
+            "value": 1.8
+        },
+        "pitchAmount": {
+            "value": 150.0
+        },
+        "resonMix": {
+            "value": 0.22
+        },
+        "fmRatio": {
+            "value": 1.5
+        },
+        "fmIndex": {
+            "value": 3.0044444444444447
+        },
+        "ampDecayMs": {
+            "value": 2000.0
+        },
+        "clickLevel": {
+            "value": 0.08
+        },
+        "resonQ": {
+            "value": 8.0
+        },
+        "__presetid": "mlr-kick",
+        "pitchDecayMs": {
+            "value": 32.0
+        },
+        "__sps": {
+            "p_rnbo-voice": {            }
+        },
+        "baseHz": {
+            "value": 40.95345022158439
+        },
+        "resonHz": {
+            "value": 58.0
+        }
+    }
+}

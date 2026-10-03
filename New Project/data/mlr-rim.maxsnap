@@ -1,0 +1,52 @@
+{
+    "filetype": "C74Snapshot",
+    "version": 2,
+    "minorversion": 0,
+    "name": "mlr-rim",
+    "origin": "mlr-rim",
+    "type": "rnbo",
+    "subtype": "",
+    "embed": 0,
+    "snapshot": {
+        "level": {
+            "value": 0.45
+        },
+        "filterHz": {
+            "value": 4200.0
+        },
+        "drive": {
+            "value": 1.8
+        },
+        "fmRatio": {
+            "value": 2.0
+        },
+        "fmAmount": {
+            "value": 0.2
+        },
+        "noiseDecayMs": {
+            "value": 4.0
+        },
+        "decayMs": {
+            "value": 65.0
+        },
+        "modeRatio": {
+            "value": 2.73
+        },
+        "modeLevel": {
+            "value": 0.65
+        },
+        "clickLevel": {
+            "value": 0.6
+        },
+        "__sps": {
+            "p_rnbo-voice": {            }
+        },
+        "filterQ": {
+            "value": 1.2
+        },
+        "pitchHz": {
+            "value": 850.0
+        },
+        "__presetid": "mlr-rim"
+    }
+}

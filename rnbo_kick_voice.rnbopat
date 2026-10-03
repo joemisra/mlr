@@ -1,0 +1,1041 @@
+{
+    "patcher": {
+        "fileversion": 1,
+        "appversion": {
+            "major": 9,
+            "minor": 1,
+            "revision": 4,
+            "architecture": "x64",
+            "modernui": 1
+        },
+        "classnamespace": "rnbo",
+        "rect": [
+            80.0,
+            80.0,
+            980.0,
+            620.0
+        ],
+        "default_fontname": "Lato",
+        "default_fontsize": 12.0,
+        "title": "MLR RNBO Kick Voice",
+        "boxes": [
+{
+                "box": {
+                    "id": "obj-title",
+                    "maxclass": "comment",
+                    "text": "MLR kick core \u2014 pitch sweep + FM body + impulse-excited resonant bandpass",
+                    "patching_rect": [
+                        30.0,
+                        20.0,
+                        520.0,
+                        23.0
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-in",
+                    "maxclass": "newobj",
+                    "text": "in 1",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        30.0,
+                        70.0,
+                        40.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-in",
+                    "rnbo_extra_attributes": {
+                        "comment": "trigger",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-click",
+                    "maxclass": "newobj",
+                    "text": "click~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        30.0,
+                        115.0,
+                        48.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "click~",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "click~_obj-click"
+                }
+            },
+{
+                "box": {
+                    "id": "obj-base",
+                    "maxclass": "newobj",
+                    "text": "in 2",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        70.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-base",
+                    "rnbo_extra_attributes": {
+                        "comment": "base frequency",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-pitchamount",
+                    "maxclass": "newobj",
+                    "text": "in 3",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        105.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-pitchamount",
+                    "rnbo_extra_attributes": {
+                        "comment": "pitch sweep amount",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-pitchdecay",
+                    "maxclass": "newobj",
+                    "text": "in 4",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        140.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-pitchdecay",
+                    "rnbo_extra_attributes": {
+                        "comment": "pitch sweep decay",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-ampdecay",
+                    "maxclass": "newobj",
+                    "text": "in 5",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        175.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-ampdecay",
+                    "rnbo_extra_attributes": {
+                        "comment": "amplitude decay",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-fmindex",
+                    "maxclass": "newobj",
+                    "text": "in 6",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        210.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-fmindex",
+                    "rnbo_extra_attributes": {
+                        "comment": "FM index",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-fmratio",
+                    "maxclass": "newobj",
+                    "text": "in 7",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        245.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-fmratio",
+                    "rnbo_extra_attributes": {
+                        "comment": "FM ratio",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-resmix",
+                    "maxclass": "newobj",
+                    "text": "in 8",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        280.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-resmix",
+                    "rnbo_extra_attributes": {
+                        "comment": "resonator mix",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-reshz",
+                    "maxclass": "newobj",
+                    "text": "in 9",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        315.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-reshz",
+                    "rnbo_extra_attributes": {
+                        "comment": "resonator frequency",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-resq",
+                    "maxclass": "newobj",
+                    "text": "in 10",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        350.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-resq",
+                    "rnbo_extra_attributes": {
+                        "comment": "resonator Q",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-clicklevel",
+                    "maxclass": "newobj",
+                    "text": "in 11",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        385.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-clicklevel",
+                    "rnbo_extra_attributes": {
+                        "comment": "click level",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-drive",
+                    "maxclass": "newobj",
+                    "text": "in 12",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        420.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-drive",
+                    "rnbo_extra_attributes": {
+                        "comment": "drive",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-level",
+                    "maxclass": "newobj",
+                    "text": "in 13",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        ""
+                    ],
+                    "patching_rect": [
+                        120.0,
+                        455.0,
+                        45.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "in",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "in_obj-level",
+                    "rnbo_extra_attributes": {
+                        "comment": "output level",
+                        "meta": ""
+                    }
+                }
+            },
+{
+    "box": {
+        "id": "obj-dsp",
+        "maxclass": "codebox~",
+        "numinlets": 13,
+        "numoutlets": 1,
+        "outlettype": [
+            "signal"
+        ],
+        "patching_rect": [
+            460.0,
+            70.0,
+            480.0,
+            410.0
+        ],
+        "rnbo_classname": "codebox~",
+        "rnbo_serial": 1,
+        "rnbo_uniqueid": "codebox~_obj-dsp",
+        "rnbo_extra_attributes": {
+            "safemath": 1,
+            "nocache": 0,
+            "expr": "",
+            "code": "@state hitSweep = 150;\r\n@state hitSweepDecay = 32;\r\n@state hitFMRatio = 1.5;\r\n@state hitResMix = 0.22;\r\n@state hitResHz = 58;\r\n@state hitResQ = 8;\r\n@state hitClick = 0.08;\r\n@state hitDrive = 1.8;\r\n@state hitLevel = 0.5;\r\n@state hitBase = 48;\r\n@state hitDecay = 620;\r\n@state hitFM = 0.15;\r\n@state carrierPhase = 0;\r\n@state modPhase = 0;\r\n@state ampEnv = 0;\r\n@state pitchEnv = 0;\r\n@state svfLow = 0;\r\n@state svfBand = 0;\r\n\r\nlet trig = in1;\r\nlet sr = samplerate();\r\n\r\nif (trig > 0) {\r\n    hitBase = in2;\r\n    hitDecay = in5;\r\n    hitFM = in6;\r\n    hitSweep = in3;\r\n    hitSweepDecay = in4;\r\n    hitFMRatio = in7;\r\n    hitResMix = in8;\r\n    hitResHz = in9;\r\n    hitResQ = in10;\r\n    hitClick = in11;\r\n    hitDrive = in12;\r\n    hitLevel = in13;\r\n    ampEnv = 1;\r\n    pitchEnv = 1;\r\n    carrierPhase = 0;\r\n    modPhase = 0;\r\n    svfLow = 0;\r\n    svfBand = 0;\r\n}\r\n\r\nlet ampCoef = exp(-6.907755 / (maximum(1, hitDecay) * 0.001 * sr));\r\nlet pitchCoef = exp(-6.907755 / (maximum(1, hitSweepDecay) * 0.001 * sr));\r\nampEnv *= ampCoef;\r\npitchEnv *= pitchCoef;\r\n\r\nlet base = maximum(10, hitBase);\r\nlet swept = base + maximum(0, hitSweep) * pitchEnv;\r\nlet modFreq = swept * maximum(0.125, hitFMRatio);\r\nmodPhase = wrap(modPhase + modFreq / sr, 0, 1);\r\nlet fm = sin(modPhase * 6.283185307179586) * swept * maximum(0, hitFM) * pitchEnv;\r\nlet carrierFreq = clamp(swept + fm, 5, sr * 0.45);\r\ncarrierPhase = wrap(carrierPhase + carrierFreq / sr, 0, 1);\r\nlet body = sin(carrierPhase * 6.283185307179586) * ampEnv;\r\n\r\nlet resonHz = clamp(hitResHz, 20, sr * 0.2);\r\nlet f = 2 * sin(3.141592653589793 * resonHz / sr);\r\nlet damping = 1 / maximum(0.5, hitResQ);\r\nlet resonInput = trig * 0.25 / maximum(f, 0.000001);\r\nlet high = resonInput - svfLow - damping * svfBand;\r\nsvfBand += f * high;\r\nsvfLow += f * svfBand;\r\n\r\nlet mix = clamp(hitResMix, 0, 1);\r\nlet click = trig * clamp(hitClick, 0, 1);\r\nlet raw = body * (1 - mix) + svfBand * mix * 4 + click;\r\nlet drive = maximum(0.01, hitDrive);\r\nout1 = tanh(raw * drive) / tanh(drive) * clamp(hitLevel, 0, 1);"
+        },
+        "code": "@state hitSweep = 150;\r\n@state hitSweepDecay = 32;\r\n@state hitFMRatio = 1.5;\r\n@state hitResMix = 0.22;\r\n@state hitResHz = 58;\r\n@state hitResQ = 8;\r\n@state hitClick = 0.08;\r\n@state hitDrive = 1.8;\r\n@state hitLevel = 0.5;\r\n@state hitBase = 48;\r\n@state hitDecay = 620;\r\n@state hitFM = 0.15;\r\n@state carrierPhase = 0;\r\n@state modPhase = 0;\r\n@state ampEnv = 0;\r\n@state pitchEnv = 0;\r\n@state svfLow = 0;\r\n@state svfBand = 0;\r\n\r\nlet trig = in1;\r\nlet sr = samplerate();\r\n\r\nif (trig > 0) {\r\n    hitBase = in2;\r\n    hitDecay = in5;\r\n    hitFM = in6;\r\n    hitSweep = in3;\r\n    hitSweepDecay = in4;\r\n    hitFMRatio = in7;\r\n    hitResMix = in8;\r\n    hitResHz = in9;\r\n    hitResQ = in10;\r\n    hitClick = in11;\r\n    hitDrive = in12;\r\n    hitLevel = in13;\r\n    ampEnv = 1;\r\n    pitchEnv = 1;\r\n    carrierPhase = 0;\r\n    modPhase = 0;\r\n    svfLow = 0;\r\n    svfBand = 0;\r\n}\r\n\r\nlet ampCoef = exp(-6.907755 / (maximum(1, hitDecay) * 0.001 * sr));\r\nlet pitchCoef = exp(-6.907755 / (maximum(1, hitSweepDecay) * 0.001 * sr));\r\nampEnv *= ampCoef;\r\npitchEnv *= pitchCoef;\r\n\r\nlet base = maximum(10, hitBase);\r\nlet swept = base + maximum(0, hitSweep) * pitchEnv;\r\nlet modFreq = swept * maximum(0.125, hitFMRatio);\r\nmodPhase = wrap(modPhase + modFreq / sr, 0, 1);\r\nlet fm = sin(modPhase * 6.283185307179586) * swept * maximum(0, hitFM) * pitchEnv;\r\nlet carrierFreq = clamp(swept + fm, 5, sr * 0.45);\r\ncarrierPhase = wrap(carrierPhase + carrierFreq / sr, 0, 1);\r\nlet body = sin(carrierPhase * 6.283185307179586) * ampEnv;\r\n\r\nlet resonHz = clamp(hitResHz, 20, sr * 0.2);\r\nlet f = 2 * sin(3.141592653589793 * resonHz / sr);\r\nlet damping = 1 / maximum(0.5, hitResQ);\r\nlet resonInput = trig * 0.25 / maximum(f, 0.000001);\r\nlet high = resonInput - svfLow - damping * svfBand;\r\nsvfBand += f * high;\r\nsvfLow += f * svfBand;\r\n\r\nlet mix = clamp(hitResMix, 0, 1);\r\nlet click = trig * clamp(hitClick, 0, 1);\r\nlet raw = body * (1 - mix) + svfBand * mix * 4 + click;\r\nlet drive = maximum(0.01, hitDrive);\r\nout1 = tanh(raw * drive) / tanh(drive) * clamp(hitLevel, 0, 1);"
+    }
+},
+{
+    "box": {
+        "id": "obj-gain",
+        "maxclass": "newobj",
+        "text": "*~ 1",
+        "numinlets": 2,
+        "numoutlets": 1,
+        "outlettype": [
+            "signal"
+        ],
+        "patching_rect": [
+            575.0,
+            505.0,
+            38.0,
+            23.0
+        ],
+        "rnbo_classname": "*~",
+        "rnbo_serial": 1,
+        "rnbo_uniqueid": "*~_obj-gain"
+    }
+},
+{
+                "box": {
+                    "id": "obj-out1",
+                    "maxclass": "newobj",
+                    "text": "out~ 1",
+                    "numinlets": 1,
+                    "numoutlets": 0,
+                    "patching_rect": [
+                        540.0,
+                        555.0,
+                        48.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "out~",
+                    "rnbo_serial": 1,
+                    "rnbo_uniqueid": "out~_obj-out1",
+                    "rnbo_extra_attributes": {
+                        "comment": "left",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-out2",
+                    "maxclass": "newobj",
+                    "text": "out~ 2",
+                    "numinlets": 1,
+                    "numoutlets": 0,
+                    "patching_rect": [
+                        630.0,
+                        555.0,
+                        48.0,
+                        23.0
+                    ],
+                    "rnbo_classname": "out~",
+                    "rnbo_serial": 2,
+                    "rnbo_uniqueid": "out~_obj-out2",
+                    "rnbo_extra_attributes": {
+                        "comment": "right",
+                        "meta": ""
+                    }
+                }
+            },
+{
+                "box": {
+                    "id": "obj-base-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        602,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-pitchamount-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        630,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-pitchdecay-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        658,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-ampdecay-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        686,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-fmindex-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        714,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-fmratio-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        742,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-resmix-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        770,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-reshz-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        798,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-resq-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        826,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-clicklevel-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        854,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-drive-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        882,
+                        45,
+                        23
+                    ]
+                }
+            },
+{
+                "box": {
+                    "id": "obj-level-signal",
+                    "maxclass": "newobj",
+                    "text": "sig~",
+                    "numinlets": 1,
+                    "numoutlets": 1,
+                    "outlettype": [
+                        "signal"
+                    ],
+                    "patching_rect": [
+                        200,
+                        910,
+                        45,
+                        23
+                    ]
+                }
+            }
+        ],
+        "lines": [
+{
+                "patchline": {
+                    "source": [
+                        "obj-in",
+                        0
+                    ],
+                    "destination": [
+                        "obj-click",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-click",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-base-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        1
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-pitchamount-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        2
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-pitchdecay-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        3
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-ampdecay-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        4
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-fmindex-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        5
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-fmratio-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        6
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-resmix-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        7
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-reshz-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        8
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-resq-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        9
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-clicklevel-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        10
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-drive-signal",
+                        0
+                    ],
+                    "destination": [
+                        "obj-dsp",
+                        11
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-dsp",
+                        0
+                    ],
+                    "destination": [
+                        "obj-gain",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-gain",
+                        0
+                    ],
+                    "destination": [
+                        "obj-out1",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-gain",
+                        0
+                    ],
+                    "destination": [
+                        "obj-out2",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-base",
+                        0
+                    ],
+                    "destination": [
+                        "obj-base-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-pitchamount",
+                        0
+                    ],
+                    "destination": [
+                        "obj-pitchamount-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-pitchdecay",
+                        0
+                    ],
+                    "destination": [
+                        "obj-pitchdecay-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-ampdecay",
+                        0
+                    ],
+                    "destination": [
+                        "obj-ampdecay-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-fmindex",
+                        0
+                    ],
+                    "destination": [
+                        "obj-fmindex-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-fmratio",
+                        0
+                    ],
+                    "destination": [
+                        "obj-fmratio-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-resmix",
+                        0
+                    ],
+                    "destination": [
+                        "obj-resmix-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-reshz",
+                        0
+                    ],
+                    "destination": [
+                        "obj-reshz-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-resq",
+                        0
+                    ],
+                    "destination": [
+                        "obj-resq-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-clicklevel",
+                        0
+                    ],
+                    "destination": [
+                        "obj-clicklevel-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-drive",
+                        0
+                    ],
+                    "destination": [
+                        "obj-drive-signal",
+                        0
+                    ]
+                }
+            },
+{
+                "patchline": {
+                    "source": [
+                        "obj-level",
+                        0
+                    ],
+                    "destination": [
+                        "obj-level-signal",
+                        0
+                    ]
+                }
+            },
+{
+    "patchline": {
+        "source": [
+            "obj-level-signal",
+            0
+        ],
+        "destination": [
+            "obj-dsp",
+            12
+        ]
+    }
+}
+        ]
+    }
+}

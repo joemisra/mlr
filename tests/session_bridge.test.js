@@ -20,7 +20,8 @@ function createHarness() {
 		tasks.push(this);
 	}
 	Task.prototype.schedule = function (delay) { this.delay = delay; };
-	Task.prototype.cancel = function () { this.delay = -1; };
+	Task.prototype.repeat = function () { this.repeating = true; };
+	Task.prototype.cancel = function () { this.delay = -1; this.repeating = false; };
 	function Dict(name) { this.name = String(name); }
 	Dict.prototype.parse = function (json) { dictionaries.set(this.name, JSON.parse(json)); };
 	Dict.prototype.stringify = function () { return JSON.stringify(dictionaries.get(this.name) || {}); };
@@ -50,6 +51,12 @@ function fragments() {
 			slots: Array.from({ length: 4 }, () => ({ name: 'Empty', loaded: 0 })) })) }
 	};
 }
+
+test('session bridge pre-creates the Node transfer dictionary used by open and relink', () => {
+	const harness = createHarness();
+	assert.equal(harness.context.MANAGER_TRANSFER_DICT, 'mlr_session_manager_transfer');
+	assert.equal(harness.context.managerTransferDict.name, harness.context.MANAGER_TRANSFER_DICT);
+});
 
 test('session bridge collects large fragments through named Dicts and emits one validated save', () => {
 	const harness = createHarness();
@@ -87,6 +94,14 @@ test('session bridge refuses save while recording and uses a Dict for stopped re
 	}
 });
 
+test('session save without recording exports finalizes without a disposable local Task', () => {
+	const harness = createHarness();
+	harness.context.activeSaveDocument = Core.buildDocument(fragments());
+	harness.context.save_assets('save-empty', '/tmp/staging');
+	assert.equal(harness.outlets.some((message) =>
+		message[1] === 'finalize_save' && message[2] === 'save-empty'), true);
+});
+
 test('dirty New/Open commands require explicit save, discard, or cancel', () => {
 	const harness = createHarness();
 	harness.context.startupSettling = 0;
@@ -96,4 +111,50 @@ test('dirty New/Open commands require explicit save, discard, or cancel', () => 
 	harness.context.confirm('cancel');
 	assert.equal(harness.context.status.confirmation, '');
 	assert.equal(harness.context.status.dirty, 1);
+});
+
+test('session snapshot waits for late fragments instead of failing on a fixed delay', () => {
+	const harness = createHarness();
+	assert.equal(harness.context.beginSnapshot('save', '/tmp/Jam'), true);
+	const id = Object.keys(harness.context.pendingTransactions)[0];
+	const task = harness.context.pendingTransactions[id].task;
+	assert.equal(task.delay, 4000);
+	assert.equal(harness.context.pendingTransactions[id] !== undefined, true);
+	assert.equal(harness.outlets.some((message) => message[1] === 'save_bundle'), false);
+
+	const data = fragments();
+	for (const kind of ['router', 'bank']) {
+		const name = `late_fragment_${kind}`;
+		harness.dictionaries.set(name, data[kind]);
+		harness.context[`${kind}_dict`](id, name);
+	}
+	assert.equal(harness.context.pendingTransactions[id] !== undefined, true);
+	harness.dictionaries.set('late_fragment_rack', data.rack);
+	harness.context.rack_dict(id, 'late_fragment_rack');
+	assert.equal(harness.context.pendingTransactions[id], undefined);
+	assert.equal(task.delay, -1);
+	assert.equal(harness.outlets.some((message) => message[1] === 'save_bundle'), true);
+});
+
+test('session snapshot timeout cancels polling and identifies missing fragments', () => {
+	const harness = createHarness();
+	assert.equal(harness.context.beginSnapshot('save', '/tmp/Jam'), true);
+	const id = Object.keys(harness.context.pendingTransactions)[0];
+	const transaction = harness.context.pendingTransactions[id];
+	harness.context.snapshotTimeout(id);
+	assert.equal(transaction.task.delay, -1);
+	assert.equal(harness.context.pendingTransactions[id], undefined);
+	assert.match(harness.context.status.message, /missing router, sample bank, plug-in rack/);
+});
+
+test('session snapshot can be cancelled without leaving a busy transaction', () => {
+	const harness = createHarness();
+	assert.equal(harness.context.beginSnapshot('save', '/tmp/Jam'), true);
+	const id = Object.keys(harness.context.pendingTransactions)[0];
+	const task = harness.context.pendingTransactions[id].task;
+	harness.context.cancel_snapshot('Cancelled for test');
+	assert.equal(task.delay, -1);
+	assert.deepEqual(Object.keys(harness.context.pendingTransactions), []);
+	assert.equal(harness.context.status.busy, 0);
+	assert.equal(harness.context.status.message, 'Cancelled for test');
 });

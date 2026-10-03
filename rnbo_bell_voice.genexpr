@@ -1,0 +1,74 @@
+// Per-hit controls and coefficients are latched in the audio thread.
+@state hitPitchHz = 440;
+@state hitDecayMs = 1600;
+@state hitFmRatio = 2.71;
+@state hitFmIndex = 3;
+@state hitFmDecayMs = 700;
+@state hitInharmonicity = 0.4;
+@state hitModeLevel = 0.3;
+@state hitModeDecayMs = 900;
+@state hitStrike = 0.2;
+@state hitBrightness = 0.65;
+@state hitDrive = 1;
+@state hitLevel = 0.35;
+@state active = 0;
+@state env = 0;
+@state fmEnv = 0;
+@state modeEnv = 0;
+@state strikeEnv = 0;
+@state envCoef = 0;
+@state fmCoef = 0;
+@state modeCoef = 0;
+@state strikeCoef = 0;
+@state phase = 0;
+@state modPhase = 0;
+@state mode1 = 0;
+@state mode2 = 0;
+@state noiseState = 34566;
+@state low = 0;
+@state lowCoef = 0;
+let trig = in1;
+let sr = samplerate();
+if (trig > 0) {
+    hitPitchHz = in2;
+    hitDecayMs = in3;
+    hitFmRatio = in4;
+    hitFmIndex = in5;
+    hitFmDecayMs = in6;
+    hitInharmonicity = in7;
+    hitModeLevel = in8;
+    hitModeDecayMs = in9;
+    hitStrike = in10;
+    hitBrightness = in11;
+    hitDrive = in12;
+    hitLevel = in13;
+}
+if (trig > 0) {
+    active = 1;
+    env = 1; fmEnv = 1; modeEnv = 1; strikeEnv = 1;
+    phase = 0; modPhase = 0; mode1 = 0; mode2 = 0; low = 0;
+    envCoef = exp(-6.907755 / (maximum(20, hitDecayMs) * 0.001 * sr));
+    fmCoef = exp(-6.907755 / (maximum(5, hitFmDecayMs) * 0.001 * sr));
+    modeCoef = exp(-6.907755 / (maximum(10, hitModeDecayMs) * 0.001 * sr));
+    strikeCoef = exp(-6.907755 / (0.006 * sr));
+    lowCoef = exp(-6.283185307179586 * minimum(500 + 17500 * hitBrightness * hitBrightness, sr * 0.45) / sr);
+}
+out1 = 0;
+if (active > 0) {
+env *= envCoef; fmEnv *= fmCoef; modeEnv *= modeCoef; strikeEnv *= strikeCoef;
+let hz = clamp(hitPitchHz, 40, sr * 0.18);
+phase = wrap(phase + hz / sr, 0, 1);
+modPhase = wrap(modPhase + minimum(hz * hitFmRatio, sr * 0.45) / sr, 0, 1);
+mode1 = wrap(mode1 + minimum(hz * (2 + hitInharmonicity * 0.756), sr * 0.45) / sr, 0, 1);
+mode2 = wrap(mode2 + minimum(hz * (4 + hitInharmonicity * 1.404), sr * 0.45) / sr, 0, 1);
+let bell = sin(phase * 6.283185307179586 + sin(modPhase * 6.283185307179586) * hitFmIndex * fmEnv);
+let modes = sin(mode1 * 6.283185307179586) + sin(mode2 * 6.283185307179586) * 0.55;
+noiseState = wrap((noiseState + 1) * 16807, 0, 2147483647) - 1;
+let white = (noiseState + 1) / 1073741823.5 - 1;
+let source = bell * env * 0.7 + modes * modeEnv * hitModeLevel * 0.4 + white * strikeEnv * hitStrike * 0.5;
+low = source * (1 - lowCoef) + low * lowCoef;
+let raw = low;
+let drive = maximum(0.25, hitDrive);
+out1 = tanh(raw * drive) / tanh(drive) * clamp(hitLevel, 0, 1);
+if (env < 0.0000001 && modeEnv < 0.0000001 && abs(low) < 0.0000001) active = 0;
+}

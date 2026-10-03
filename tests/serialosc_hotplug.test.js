@@ -54,16 +54,22 @@ test('serialosc discovery registers hot-plug notification and settles into one r
 test('serialosc add and remove notifications re-register and refresh device ports', () => {
 	const harness = createHarness();
 	const serialosc = harness.context;
+	serialosc.startQuery();
+	serialosc.list('/serialosc/device', 'm-test', 'monome grid', 12345);
+	serialosc.deviceSettleTask.callback.call(serialosc.deviceSettleTask.owner);
 	harness.outlets.length = 0;
 
 	serialosc.messagename = '/serialosc/add';
 	serialosc.anything('m-test');
-	assert.deepEqual(harness.outlets.slice(0, 4), [
-		[1, 0],
-		[2, 0],
+	assert.deepEqual(harness.outlets.slice(0, 2), [
 		[0, '/serialosc/notify', '127.0.0.1', 57888],
 		[0, '/serialosc/list', '127.0.0.1', 57888]
 	]);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 0), false);
+	serialosc.list('/serialosc/device', 'm-test', 'monome grid', 12345);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 12345), false);
 
 	harness.outlets.length = 0;
 	serialosc.messagename = '/serialosc/remove';
@@ -72,6 +78,9 @@ test('serialosc add and remove notifications re-register and refresh device port
 		message[0] === 0 && message[1] === '/serialosc/notify'), true);
 	assert.equal(harness.outlets.some((message) =>
 		message[0] === 0 && message[1] === '/serialosc/list'), true);
+	serialosc.deviceSettleTask.callback.call(serialosc.deviceSettleTask.owner);
+	assert.equal(harness.outlets.some((message) =>
+		message[0] === 1 && message[1] === 0), true);
 });
 
 test('hot-plug settle outlet is wired to the root hardware-resync command', () => {

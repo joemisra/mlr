@@ -1,0 +1,94 @@
+// Twelve controls are sampled only when trig is positive. A parameter change
+// between hits therefore cannot reshape either the body or noise tail.
+@state hitBodyHz = 180;
+@state hitBodyDecay = 180;
+@state hitBodyBend = 90;
+@state hitBodyFM = 0.35;
+@state hitNoiseDecay = 260;
+@state hitNoiseHz = 3500;
+@state hitNoiseQ = 1.1;
+@state hitSnap = 0.45;
+@state hitBodyLevel = 0.65;
+@state hitNoiseLevel = 0.72;
+@state hitDrive = 1.7;
+@state hitLevel = 0.45;
+
+@state bodyEnv = 0;
+@state noiseEnv = 0;
+@state bendEnv = 0;
+@state snapEnv = 0;
+@state bodyPhase = 0;
+@state modePhase = 0;
+@state modPhase = 0;
+@state noiseState = 0.17320508;
+@state svfIc1 = 0;
+@state svfIc2 = 0;
+
+let trig = in1;
+let sr = samplerate();
+
+if (trig > 0) {
+    hitBodyHz = in2;
+    hitBodyBend = in3;
+    hitNoiseDecay = in4;
+    hitBodyDecay = in5;
+    hitBodyFM = in6;
+    hitNoiseHz = in7;
+    hitBodyLevel = in8;
+    hitNoiseLevel = in9;
+    hitNoiseQ = in10;
+    hitSnap = in11;
+    hitDrive = in12;
+    hitLevel = in13;
+    bodyEnv = 1;
+    noiseEnv = 1;
+    bendEnv = 1;
+    snapEnv = 1;
+    bodyPhase = 0;
+    modePhase = 0;
+    modPhase = 0;
+    svfIc1 = 0;
+    svfIc2 = 0;
+}
+
+let bodyCoef = exp(-6.907755 / (maximum(5, hitBodyDecay) * 0.001 * sr));
+let noiseCoef = exp(-6.907755 / (maximum(5, hitNoiseDecay) * 0.001 * sr));
+let bendCoef = exp(-6.907755 / (0.022 * sr));
+let snapCoef = exp(-6.907755 / (0.014 * sr));
+bodyEnv *= bodyCoef;
+noiseEnv *= noiseCoef;
+bendEnv *= bendCoef;
+snapEnv *= snapCoef;
+
+let bodyHz = maximum(20, hitBodyHz) + maximum(0, hitBodyBend) * bendEnv;
+modPhase = wrap(modPhase + bodyHz * 1.61803399 / sr, 0, 1);
+let bodyFM = sin(modPhase * 6.283185307179586) * bodyHz * maximum(0, hitBodyFM) * bodyEnv;
+let bodyFreq = clamp(bodyHz + bodyFM, 10, sr * 0.45);
+bodyPhase = wrap(bodyPhase + bodyFreq / sr, 0, 1);
+modePhase = wrap(modePhase + bodyFreq * 1.472 / sr, 0, 1);
+let body = (sin(bodyPhase * 6.283185307179586) + 0.32 * sin(modePhase * 6.283185307179586)) * bodyEnv;
+
+// A bounded irrational recurrence supplies a lightweight noise source without
+// relying on a host-specific random operator.
+noiseState = wrap(noiseState * 1.324717957 + 0.1234567, 0, 1);
+let white = noiseState * 2 - 1;
+let filterHz = clamp(hitNoiseHz, 40, sr * 0.45);
+let g = tan(3.141592653589793 * filterHz / sr);
+let k = 1 / maximum(0.5, hitNoiseQ);
+let a1 = 1 / (1 + g * (g + k));
+let a2 = g * a1;
+let a3 = g * a2;
+let v3 = white - svfIc2;
+let band = a1 * svfIc1 + a2 * v3;
+let low = svfIc2 + a2 * svfIc1 + a3 * v3;
+svfIc1 = 2 * band - svfIc1;
+svfIc2 = 2 * low - svfIc2;
+let high = white - k * band - low;
+let snap = clamp(hitSnap, 0, 1);
+let wires = band * 2.4 * noiseEnv;
+let attack = high * 0.9 * snapEnv + trig * 0.12;
+
+let raw = body * clamp(hitBodyLevel, 0, 1) +
+    (wires * (1 - snap * 0.25) + attack * snap) * clamp(hitNoiseLevel, 0, 1);
+let drive = maximum(0.01, hitDrive);
+out1 = tanh(raw * drive) / tanh(drive) * clamp(hitLevel, 0, 1);

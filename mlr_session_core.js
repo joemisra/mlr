@@ -1,7 +1,13 @@
 "use strict";
 
 var FORMAT = "mlr-session";
-var VERSION = 1;
+var VERSION = 4;
+var Modulation;
+try { Modulation = require("modulation_model.js"); }
+catch (error) { Modulation = require("./modulation_model.js"); }
+var Scenes;
+try { Scenes = require("scene_model.js"); }
+catch (error) { Scenes = require("./scene_model.js"); }
 
 function deepClone(value) {
 	return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -97,6 +103,23 @@ function sanitizePatterns(patterns) {
 	return result;
 }
 
+function sanitizeSceneState(sceneState, tracks, legacyPatterns, modulation) {
+	var result = Scenes.sanitizeState(sceneState, tracks, legacyPatterns, modulation);
+	var library = {};
+	Object.keys(result.patternLibrary || {}).forEach(function (key) {
+		var targetType = key.indexOf("group-pattern:") === 0 ? "group" :
+			(key.indexOf(":track-pattern:") >= 0 ? "track" : "");
+		if (!targetType) return;
+		library[key] = sanitizePattern(result.patternLibrary[key], targetType);
+	});
+	result.patternLibrary = library;
+	Object.keys(result.trackSlots || {}).forEach(function (key) {
+		result.trackSlots[key].modulation =
+			Modulation.sanitizeState(result.trackSlots[key].modulation);
+	});
+	return result;
+}
+
 function sanitizeAutomation(source) {
 	var automation = isObject(source) ? deepClone(source) : {};
 	automation.armed = false;
@@ -106,6 +129,31 @@ function sanitizeAutomation(source) {
 	automation.startTick = 0;
 	automation.playHead = 0;
 	return automation;
+}
+
+function migrateDocument(value) {
+	if (!isObject(value)) return value;
+	var result = deepClone(value);
+	var version = parseInt(result.version, 10) || 0;
+	if (version === 1) {
+		result.modulation = Modulation.sanitizeState(result.modulation);
+		result.version = 2;
+		version = 2;
+	}
+	if (version === 2) {
+		if (!isObject(result.rta)) result.rta = {};
+		result.rta.sceneState = sanitizeSceneState(null, result.tracks,
+			result.rta.patterns, result.modulation);
+		result.version = 3;
+		version = 3;
+	}
+	if (version === 3) {
+		if (!isObject(result.rta)) result.rta = {};
+		result.rta.sceneState = sanitizeSceneState(result.rta.sceneState, result.tracks,
+			result.rta.patterns, result.modulation);
+		result.version = 4;
+	}
+	return result;
 }
 
 function buildDocument(fragments, existing) {
@@ -125,9 +173,13 @@ function buildDocument(fragments, existing) {
 		groups: ensureArray(router.groups).slice(0, 8).map(deepClone),
 		channelStrips: ensureArray(source.channelStrips).slice(0, 8).map(deepClone),
 		racks: ensureArray(rack.groups).slice(0, 8).map(deepClone),
+		modulation: Modulation.sanitizeState(router.modulation || source.modulation),
+		instrumentPresets: deepClone(router.instrumentPresets || {}),
 		rta: {
 			patterns: sanitizePatterns(router.patterns),
-			targetAutomation: deepClone(router.targetAutomation || {})
+			targetAutomation: deepClone(router.targetAutomation || {}),
+			sceneState: sanitizeSceneState(router.sceneState, router.tracks,
+				router.patterns, router.modulation || source.modulation)
 		},
 		automation: sanitizeAutomation(router.automation),
 		colors: deepClone(source.colors || {}),
@@ -161,7 +213,57 @@ function validateDocument(source) {
 	}
 	if (!Array.isArray(source.racks) || source.racks.length !== 8) errors.push("Session must contain 8 plugin racks");
 	if (!isObject(source.bank)) errors.push("Session sample bank is missing");
+	else if (source.bank.folders !== undefined) {
+		if (!Array.isArray(source.bank.folders) || source.bank.folders.length > 8) {
+			errors.push("Session sample folders are invalid");
+		} else {
+			var folderIds = {};
+			for (var folderIndex = 0; folderIndex < source.bank.folders.length; folderIndex++) {
+				var folder = source.bank.folders[folderIndex];
+				if (!isObject(folder) || !folder.id || folderIds[folder.id]) {
+					errors.push("Invalid sample folder " + (folderIndex + 1));
+				} else folderIds[folder.id] = 1;
+			}
+			var bankSamples = ensureArray(source.bank.samples);
+			for (var bankSampleIndex = 0; bankSampleIndex < bankSamples.length; bankSampleIndex++) {
+				var bankSample = bankSamples[bankSampleIndex];
+				if (isObject(bankSample) && bankSample.folderId && !folderIds[bankSample.folderId]) {
+					errors.push("Sample " + (bankSampleIndex + 1) + " uses an unknown folder");
+				}
+			}
+		}
+	}
 	if (!isObject(source.rta) || !isObject(source.rta.patterns)) errors.push("Session ṛta data is missing");
+	if (source.version >= 2) {
+		if (!isObject(source.modulation) || !isObject(source.modulation.sources) ||
+			!Array.isArray(source.modulation.routes)) {
+			errors.push("Session modulation data is missing");
+		}
+	}
+	if (source.version >= 3) {
+		var sceneState = source.rta && source.rta.sceneState;
+		var slots = source.version >= 4 ? sceneState && sceneState.trackSlots :
+			sceneState && sceneState.trackSets;
+		if (!isObject(sceneState) || !Array.isArray(sceneState.scenes) ||
+			!sceneState.scenes.length || sceneState.scenes.length > Scenes.MAX_SCENES ||
+			!isObject(slots) || !isObject(sceneState.patternLibrary)) {
+			errors.push("Session scene data is missing");
+		} else {
+			for (var sceneIndex = 0; sceneIndex < sceneState.scenes.length; sceneIndex++) {
+				var scene = sceneState.scenes[sceneIndex];
+				if (sceneIndex > 0 && scene === null) continue;
+				var slotRef = source.version >= 4 ? scene && scene.trackSlotRef :
+					scene && scene.trackSetRef;
+				if (!isObject(scene) || !Array.isArray(scene.groupPatternRefs) ||
+					scene.groupPatternRefs.length !== Scenes.GROUP_COUNT ||
+					!Array.isArray(scene.groupLaunch) ||
+					scene.groupLaunch.length !== Scenes.GROUP_COUNT ||
+					!slotRef || !slots[slotRef]) {
+					errors.push("Invalid scene " + (sceneIndex + 1));
+				}
+			}
+		}
+	}
 	if (Array.isArray(source.racks)) {
 		for (var rackIndex = 0; rackIndex < source.racks.length; rackIndex++) {
 			var rack = source.racks[rackIndex];
@@ -196,8 +298,14 @@ function validateDocument(source) {
 			errors.push("Invalid recording path");
 		}
 		var bufferName = String(recording.bufferName || "");
-		if (!/^[1-7]file$/.test(bufferName) || recordingBuffers[bufferName]) {
+		var bufferMatch = /^([1-9]\d{0,2})file$/.exec(bufferName);
+		var bufferIndex = bufferMatch ? parseInt(bufferMatch[1], 10) : 0;
+		if (!bufferMatch || bufferIndex > 250 || recordingBuffers[bufferName]) {
 			errors.push("Invalid or duplicate recording buffer");
+		}
+		if (recording.bufferIndex !== undefined &&
+			parseInt(recording.bufferIndex, 10) !== bufferIndex) {
+			errors.push("Recording buffer index does not match its name");
 		}
 		recordingBuffers[bufferName] = 1;
 	}
@@ -241,11 +349,18 @@ function relinkSamples(document, folderFiles, exists) {
 	var unresolved = [];
 	var samples = ensureArray(result.bank.samples);
 	var root = result.bank.root || "";
+	var folderRoots = {};
+	ensureArray(result.bank.folders).forEach(function (folder) {
+		if (folder && folder.id) folderRoots[String(folder.id)] = folder.path || folder.root || "";
+	});
 	for (var sampleIndex = 0; sampleIndex < samples.length; sampleIndex++) {
 		var sample = samples[sampleIndex];
 		var path = typeof sample === "string" ? sample : String(sample.path || "");
 		if (!path || (exists && exists(path))) continue;
-		var suffix = relativeSuffix(path, root).toLowerCase();
+		var sampleRoot = sample && typeof sample === "object" && sample.folderId &&
+			folderRoots[String(sample.folderId)] !== undefined ?
+			folderRoots[String(sample.folderId)] : root;
+		var suffix = relativeSuffix(path, sampleRoot).toLowerCase();
 		var suffixMatches = files.filter(function (candidate) {
 			return candidate.toLowerCase().slice(-(suffix.length + 1)) === "/" + suffix ||
 				candidate.toLowerCase() === suffix;
@@ -285,7 +400,9 @@ module.exports = {
 	withBundleExtension: withBundleExtension,
 	sanitizePattern: sanitizePattern,
 	sanitizePatterns: sanitizePatterns,
+	sanitizeSceneState: sanitizeSceneState,
 	sanitizeAutomation: sanitizeAutomation,
+	migrateDocument: migrateDocument,
 	buildDocument: buildDocument,
 	validateDocument: validateDocument,
 	relinkSamples: relinkSamples,

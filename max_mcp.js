@@ -142,6 +142,20 @@ function anything() {
                 send_bang_to_object(data.varname);
             }
             break;
+        case "send_named_message":
+            if (data.name && data.selector) {
+                send_named_message(data.name, data.selector, data.args || []);
+            } else {
+                outlet(0, "error", "Missing name or selector for send_named_message");
+            }
+            break;
+        case "send_message_to_text_object":
+            if (data.text && data.selector) {
+                send_message_to_text_object(data.text, data.selector, data.args || []);
+            } else {
+                outlet(0, "error", "Missing text or selector for send_message_to_text_object");
+            }
+            break;
         case "set_number":
             if (data.varname && data.num) {
                 set_number(data.varname, data.num);
@@ -234,6 +248,25 @@ function send_bang_to_object(varname) {
     } else {
         post("Object not found: " + varname);
     }
+}
+
+function send_named_message(name, selector, args) {
+    var atoms = args && args.slice ? args.slice() : [];
+    messnamed.apply(this, [String(name), String(selector)].concat(atoms));
+}
+
+function send_message_to_text_object(text, selector, args) {
+    var requested = String(text);
+    var atoms = args && args.slice ? args.slice() : [];
+    var sent = 0;
+    p.applydeep(function (obj) {
+        var boxtext = "";
+        try { boxtext = String(obj.boxtext || ""); } catch (e) { boxtext = ""; }
+        if (boxtext !== requested) return;
+        obj.message.apply(obj, [String(selector)].concat(atoms));
+        sent++;
+    });
+    outlet(0, "message_to_text_object", requested, sent);
 }
 
 function set_text_in_comment(varname, text) {

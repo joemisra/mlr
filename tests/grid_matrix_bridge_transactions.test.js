@@ -24,7 +24,13 @@ function createHarness() {
 
 	const context = vm.createContext({
 		JitterMatrix,
+		Task: function(fn) { this.callback=fn; this.cancel=function(){}; this.schedule=function(){}; },
 		Uint8Array,
+		require(request) {
+			if (request === 'grid_color_math.js') return require('../grid_color_math.js');
+			if (request === 'grid_label.js') return require('../grid_label.js');
+			return require(request);
+		},
 		arrayfromargs(args) {
 			return Array.prototype.slice.call(args);
 		},
@@ -307,6 +313,78 @@ test('MechaTrellis private OSC is blocked by default and standard levels remain 
 		[0, '/box/grid/led/color/set', 1, 2, 3, 4, 5]);
 });
 
+test('MechaTrellis v2 emits one staged combined frame for a complete page', () => {
+	const harness = createHarness();
+	const bridge = harness.context;
+	const levels = new Array(256).fill(5);
+	const background = new Array(256).fill(0);
+	const colors = new Array(48).fill(0);
+	for (let cell = 0; cell < 16; cell++) {
+		colors[cell * 3] = 20 + cell;
+		colors[cell * 3 + 1] = 80;
+		colors[cell * 3 + 2] = 160;
+	}
+	bridge.mechatrellis(2);
+	harness.clearOutlets();
+
+	harness.message('beginupdate');
+	bridge.colormap.apply(bridge, [4, 8].concat(colors));
+	bridge.replaceframe.apply(bridge, [16, 16].concat(levels, background));
+	harness.message('endupdate');
+
+	assert.equal(harness.outlets.length, 18);
+	assert.deepEqual(harness.outlets[0],
+		[0, '/box/grid/led/frame/begin', 1, 16, 16]);
+	assert.equal(harness.outlets.filter((message) =>
+		message[1] === '/box/grid/led/frame/map').length, 16);
+	assert.deepEqual(harness.outlets.at(-1),
+		[0, '/box/grid/led/frame/commit', 1]);
+	assert.equal(harness.outlets.some((message) =>
+		message[1] === '/box/grid/led/level/map' ||
+		message[1] === '/box/grid/led/color/map'), false);
+	const map = harness.outlets.find((message) =>
+		message[1] === '/box/grid/led/frame/map' && message[3] === 4 && message[4] === 8);
+	assert.deepEqual(map.slice(5, 9), [5, 20, 80, 160]);
+});
+
+test('MechaTrellis v2 sparse transactions combine level and color per cell', () => {
+	const harness = createHarness();
+	const bridge = harness.context;
+	bridge.mechatrellis(2);
+	bridge.flush();
+	harness.clearOutlets();
+
+	harness.message('beginupdate');
+	bridge.setcell(2, 3, 11);
+	bridge.colorcell(2, 3, 9, 80, 210);
+	assert.deepEqual(harness.outlets, []);
+	harness.message('endupdate');
+
+	assert.deepEqual(harness.outlets, [
+		[0, '/box/grid/led/state/set', 2, 3, 11, 9, 80, 210]
+	]);
+});
+
+test('MechaTrellis v2 full frames split cleanly across dual 128 devices', () => {
+	const harness = createHarness();
+	const bridge = harness.context;
+	bridge.dual128Mode = 1;
+	bridge.mechatrellis(2);
+	harness.clearOutlets();
+	bridge.replaceframe.apply(bridge,
+		[16, 16].concat(new Array(256).fill(6), new Array(256).fill(0)));
+
+	assert.equal(harness.outlets.length, 20);
+	assert.deepEqual(harness.outlets.filter((message) =>
+		message[1] === '/box/grid/led/frame/begin'), [
+		[0, '/box/grid/led/frame/begin', 1, 16, 8],
+		[1, '/box/grid/led/frame/begin', 1, 16, 8]
+	]);
+	assert.equal(harness.outlets.filter((message) =>
+		message[1] === '/box/grid/led/frame/map' && message[0] === 1)
+		.every((message) => message[4] === 0 || message[4] === 4), true);
+});
+
 test('HUD receives composed brightness and semantic color before hardware filtering', () => {
 	const harness = createHarness();
 	const bridge = harness.context;
@@ -323,6 +401,66 @@ test('HUD receives composed brightness and semantic color before hardware filter
 		message[0] === 'grid_color_cell'), ['grid_color_cell', 2, 3, 9, 80, 210]);
 	assert.equal(harness.outlets.some((message) =>
 		message[1] === '/box/grid/led/color/set'), false);
+});
+
+test('bridge composes Role then State then Motion without changing canonical levels', () => {
+	const harness = createHarness();
+	const bridge = harness.context;
+	bridge.mechatrellis(1);
+	bridge.setcell(2, 3, 9);
+	bridge.colorcell(2, 3, 200, 50, 20);
+	harness.clearOutlets();
+
+	harness.message('beginupdate');
+	bridge.colorstatecell(2, 3, 'mul', 128, 128, 128, 255);
+	bridge.colormotioncell(2, 3, 'half_add', 255, 255, 255, 255);
+	assert.deepEqual(harness.outlets, []);
+	harness.message('endupdate');
+
+	const color = harness.hudMessages.find((message) =>
+		message[0] === 'grid_color_cell' && message[1] === 2 && message[2] === 3);
+	assert.deepEqual(color, ['grid_color_cell', 2, 3, 177, 140, 132]);
+	assert.equal(harness.outlets.some((message) =>
+		message[1] === '/box/grid/led/color/set' && message[2] === 2 &&
+		message[3] === 3 && message[4] === 177), true);
+	const levelMap = harness.hudMessages.find((message) =>
+		message[0] === 'grid_level_map' && message[1] === 0 && message[2] === 0);
+	assert.equal(levelMap[3 + 3 * 8 + 2], 9);
+});
+
+test('classic serialosc level packets are identical with layered color on or off', () => {
+	const plain = createHarness();
+	const layered = createHarness();
+	for (const harness of [plain, layered]) {
+		harness.context.setcell(2, 3, 9);
+		harness.context.setcell_bg(4, 5, 12);
+		harness.clearOutlets();
+	}
+	layered.context.colorcell(2, 3, 200, 50, 20);
+	layered.context.colorstatecell(2, 3, 'mul', 128, 128, 128, 255);
+	layered.context.colormotioncell(2, 3, 'half_add', 255, 255, 255, 255);
+	plain.clearOutlets();
+	layered.clearOutlets();
+	plain.context.flush();
+	layered.context.flush();
+	assert.deepEqual(layered.outlets, plain.outlets);
+});
+
+test('animation brightness supplies a transient Motion modifier and restores Role color', () => {
+	const harness = createHarness();
+	const bridge = harness.context;
+	bridge.colorcell(1, 1, 40, 80, 160);
+	harness.clearOutlets();
+	bridge.animcell(1, 1, 15, 1);
+	bridge.flush();
+	assert.deepEqual(harness.hudMessages.find((message) =>
+		message[0] === 'grid_color_cell'), ['grid_color_cell', 1, 1, 134, 156, 201]);
+
+	harness.clearOutlets();
+	bridge.animcell(1, 1, 0, 0);
+	bridge.flush();
+	assert.deepEqual(harness.hudMessages.find((message) =>
+		message[0] === 'grid_color_cell'), ['grid_color_cell', 1, 1, 40, 80, 160]);
 });
 
 test('diagnostic snapshot reports Max-side levels, colors, presets, and packet counters', () => {
@@ -351,9 +489,11 @@ test('diagnostic snapshot reports Max-side levels, colors, presets, and packet c
 	assert.equal(snapshot.composite[3 * 16 + 2], 4);
 	assert.equal(snapshot.animationMaskHash !== snapshot.backgroundHash, true);
 	assert.deepEqual(snapshot.colors.slice((3 * 16 + 2) * 3, (3 * 16 + 2) * 3 + 3),
-		[9, 80, 210]);
+		[38, 100, 215]);
+	assert.deepEqual(snapshot.roleColors.slice((3 * 16 + 2) * 3,
+		(3 * 16 + 2) * 3 + 3), [9, 80, 210]);
 	assert.equal(snapshot.presetHashes[2] !== null, true);
-	assert.equal(snapshot.packetStats.colorSetPackets, 1);
+	assert.equal(snapshot.packetStats.colorSetPackets, 2);
 	assert.equal(snapshot.packetStats.presetStorePackets, 1);
 	assert.equal(snapshot.packetStats.levelFrames >= 1, true);
 });
@@ -369,6 +509,35 @@ test('main MLR patch loads workstation-local hardware settings with safe default
 	assert.equal(startup.text, 'js mlr_startup.js');
 	assert.match(startupSource, /mechatrellis:\s*false/);
 	assert.match(startupSource, /editorColors:\s*false/);
+	assert.match(startupSource, /cvPulseEnabled:\s*false/);
+	assert.match(startupSource,
+		/messnamed\("mlr_cv_pulse_config", "config", cvPulseEnabled, cvPulseLevel\)/);
 	assert.match(startupSource, /var startupApplyTask = new Task\(reload, this\)/);
 	assert.match(startupSource, /startupApplyTask\.schedule\(250\)/);
+});
+
+test('parameter labels restore current base, animation and color after fading; lower rows are untouched',()=>{
+ const h=createHarness(),b=h.context;
+ b.fill(7);b.setcell(3,12,11);b.parameterLabel('PCH');
+ const mask=Array.from(b.labelMask),glyph=mask.findIndex(Boolean),x=glyph%16,y=Math.floor(glyph/16);
+ assert.equal(b.composedLevels()[glyph],15);assert.equal(b.composedLevels()[12*16+3],11);
+ b.setcell(x,y,4);b.colorcell(x,y,40,80,120);b.animcell(x,y,9,1);
+ const baselineColor=b.roleColorAt(glyph);
+ b.labelStarted=Date.now()-1100;b.parameterLabelTick();
+ assert.equal(b.composedLevels()[glyph],9);
+ b.animcell(x,y,0,0);b.flush();
+ assert.equal(b.composedLevels()[glyph],4);
+ assert.deepEqual(Array.from(b.composedColorAt(glyph)),Array.from(baselineColor));
+ assert.equal(b.foreground[glyph],4);assert.equal(b.bg[glyph],0);
+ assert.equal(h.outlets.some(m=>String(m[1]).includes('/color/')),false,'classic grid needs no color extension');
+});
+
+test('replacement labels and cancellation preserve transactions and current animation ownership',()=>{
+ const h=createHarness(),b=h.context;b.fill(6);b.animcell(2,2,12,1);
+ b.parameterLabel('FM');const first=Array.from(b.labelMask);
+ b.parameterLabel('DRV');assert.notDeepEqual(Array.from(b.labelMask),first);
+ b.beginupdate();h.outlets.length=0;b.parameterLabel('RQ');assert.equal(h.outlets.length,0);
+ b.parameterLabelClear();assert.equal(h.outlets.length,0);
+ b.endframe();assert.equal(b.composedLevels()[34],12);
+ b.parameterLabel('PCH');b.set_edition(128);assert.equal(b.labelMask,null);
 });
