@@ -36,6 +36,9 @@ function transformPatch(file, document, edition) {
   removeBoxes(p,b => /max_mcp|p MaxMSP-Agent|p debug-tool/.test(b.text || ''));
   if (base) removeBoxes(p,b => /^(sequence64_audio_bridge|mlr_modulation|mlr_cv_outputs)( |$)/.test(b.text || '') || b.id==='obj-rseqpulse');
   for (const {box:b} of p.boxes) {
+   // RNBO occupies visible tracks 8–15 (native ch buses 9–16).
+   // Keep sample-track arguments intact and give each instrument its own group.
+   if (!base && b.name==='ch.maxpat' && b.args && b.args[0]>=9 && b.args[0]<=16) b.args[1]=17-b.args[0];
    // Legacy recorder bpatchers still name the old .pat extension.
    if (b.maxclass==='bpatcher' && /\.pat$/.test(b.name||'')) {
     const modern=b.name.replace(/\.pat$/,'.maxpat');

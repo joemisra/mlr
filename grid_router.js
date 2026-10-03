@@ -240,7 +240,10 @@ function knobMlrCC(c, index, raw, options) {
 		else if (id === "gateLength" || id === "track" || id === "slice") {
 			if (!destination.cut) destination.cut = sequence64DefaultCutForStep(pos.step);
 			if (id === "gateLength") destination.cut.gateLength = value;
-			else if (id === "track") destination.cut.track = value;
+			else if (id === "track") {
+				destination.cut.track = value;
+				rememberSequence64EditTrack(c.pattern, w.targetType, w.targetId, value);
+			}
 			else destination.locks.slice = {value:value,behavior:"set"};
 		} else if (id === "transpose") destination.locks.transpose = normalizeSequence64TransposeLock({value:value,behavior:"set"});
 		else if (destination.locks[id]) destination.locks[id].value = value;
@@ -2454,6 +2457,7 @@ function createSequence64Pattern(targetType) {
 		lastSequencedFlat: -1,
 		legacyMigrated: 0,
 		defaultTrack: -1,
+		lastUsedTrack: -1,
 		phaseOrigin: 0,
 		rateNumerator: 1,
 		rateDenominator: 1,
@@ -3278,6 +3282,17 @@ function resolveSequence64GroupDefaultTrack(groupIdx, pattern) {
 	return -1;
 }
 
+// This is the editor's insertion track, separate from the inherited playback
+// default. Remember explicit edits/recording, never the sequencer playhead.
+function rememberSequence64EditTrack(pattern, targetType, targetId, trackIdx) {
+	if (!pattern || targetType !== "group" ||
+		!sequence64TrackBelongsToGroup(trackIdx, targetId)) return false;
+	if (pattern.lastUsedTrack === trackIdx) return false;
+	pattern.lastUsedTrack = trackIdx;
+	markSessionDirty("ṛta track choice");
+	return true;
+}
+
 function normalizeSequence64TransposeLock(lock) {
 	if (!lock || typeof lock !== "object") {
 		lock = { value: 0, behavior: "set" };
@@ -3468,6 +3483,9 @@ function ensureSequence64Pattern(targetType, targetId) {
 		pattern.lastSequencedAbsolute = -1;
 	} else pattern.lastSequencedAbsolute = parseInt(pattern.lastSequencedAbsolute, 10);
 	if (pattern.restartArmed === undefined) pattern.restartArmed = 0;
+	var lastUsedTrack = parseInt(pattern.lastUsedTrack, 10);
+	pattern.lastUsedTrack = isFinite(lastUsedTrack) && lastUsedTrack >= 0 &&
+		lastUsedTrack < s.NUM_TRACKS ? lastUsedTrack : -1;
 	if (targetType === "group") resolveSequence64GroupDefaultTrack(targetId, pattern);
 	else pattern.defaultTrack = targetId;
 	pattern = migrateLegacyTargetToSequence64(pattern, targetType, targetId);
@@ -3621,6 +3639,8 @@ function selectSequence64EditStep(stepIndex) {
 	if (!bar) return false;
 	var selected = clamp(parseInt(stepIndex, 10) || 0, 0, Math.max(0, bar.length - 1));
 	sequence64SelectedStep = selected;
+	if (bar.steps[selected].cut) rememberSequence64EditTrack(pattern, workspace.targetType,
+		workspace.targetId, sequence64TargetTrackIndex(workspace.targetType, workspace.targetId, bar.steps[selected]));
 	sequence64HeldStep = -1;
 	var key = editorTargetKey(workspace.targetType, workspace.targetId);
 	if (key) workspace.editCursors64[key] = selected;
@@ -7089,8 +7109,11 @@ function handleEditorFxPageKey(col, row) {
 
 function sequence64DefaultCutForStep(stepIndex) {
 	var workspace = ensureEditorWorkspaceDefaults();
+	var pattern = currentSequence64Pattern();
+	var remembered = pattern ? pattern.lastUsedTrack : -1;
 	return {
-		track: workspace.targetType === "track" ? workspace.targetId : -1,
+		track: workspace.targetType === "track" ? workspace.targetId :
+			sequence64TrackBelongsToGroup(remembered, workspace.targetId) ? remembered : -1,
 		// A manually added trigger should be immediately useful in the compact
 		// Scene editor, where the Slice lane is not visible. Live-recorded and
 		// explicitly locked cuts still retain their captured/chosen slice.
@@ -7473,6 +7496,7 @@ function sequence64SetLockValue(parameter, column) {
 			!sequence64TrackBelongsToGroup(column, workspace.targetId)) return;
 		if (!step.cut) step.cut = sequence64DefaultCutForStep(editStepIndex);
 		step.cut.track = column;
+		rememberSequence64EditTrack(pattern, workspace.targetType, workspace.targetId, column);
 	} else {
 		var value = column;
 		if (parameter === "slice" && !step.cut) {
@@ -10545,6 +10569,7 @@ function captureSequence64RowPosition(trackIdx, pos) {
 	var existingGateLength = step.cut ? step.cut.gateLength : 1;
 	delete step.locks.slice;
 	step.cut = { track: trackIdx, slice: position, gateLength: existingGateLength };
+	rememberSequence64EditTrack(pattern, workspace.targetType, workspace.targetId, trackIdx);
 	sequence64PendingLiveCut = null;
 	outlet(2, "editor_live_cut", workspace.targetType, workspace.targetId + 1,
 		playback.bar + 1, stepIndex + 1, trackIdx + 1, position + 1);
@@ -11440,6 +11465,7 @@ function finishSequence64LiveRecording() {
 		var location = sequence64PatternLocationAtFlat(pattern, flatStep);
 		var step = pattern.bars[location.bar].steps[location.step];
 		delete step.locks.slice;
+		rememberSequence64EditTrack(pattern, take.targetType, take.targetId, event.track);
 		step.cut = {
 			track: event.track,
 			slice: event.slice,

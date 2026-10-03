@@ -8,6 +8,11 @@ search path. Use a current Max 9 installation with V8, Node for Max, and RNBO.
 
 The top panel provides the existing tempo/transport controls, an Audio toggle,
 a master fader, and access to the instrument controls. Audio starts off.
+The eight instrument tracks (visible tracks 8–15) default to groups 8–1:
+Bass, Bell, Rim, Tom, Clap, Hat, Snare, Kick. Sample-track defaults are retained.
+Saved sessions restore their own assignments. Group patterns remember the last
+track you chose for newly inserted steps, including after save/open.
+
 Raise the appropriate group levels from HUD → Strip (Group Volume) before
 expecting playback. The HUD pages expose patterns, strips/racks, samples,
 sessions, grid monitoring, and help. Close the entry window only after saving;

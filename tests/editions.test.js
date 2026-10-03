@@ -54,6 +54,15 @@ test('edition manifests are explicit and complete; MLR has no sequencer or instr
  assert.deepEqual(JSON.parse(read('mlr','mlr.local.example.json')),{mechatrellis:false,editorColors:false,cvPulseEnabled:false});
 });
 
+test('rta assigns its eight RNBO tracks to groups 8–1 without changing sample or MLR defaults',()=>{
+ const tracks=(edition,file)=>boxes(patch(edition,file)).filter(b=>b.name==='ch.maxpat')
+  .sort((a,b)=>a.args[0]-b.args[0]).map(b=>Array.from(b.args));
+ const mlr=tracks('mlr','_mlr.maxpat'),rta=tracks('rta','rta_engine.maxpat');
+ assert.deepEqual(mlr.map(t=>t[1]),[8,8,8,7,7,7,6,6,6,5,5,5,4,4,4]);
+ assert.deepEqual(rta.slice(0,7),mlr.slice(0,7));
+ assert.deepEqual(rta.slice(7),Array.from({length:8},(_,i)=>[i+9,8-i]));
+});
+
 test('rta entry owns one HUD, clock, engine and lab with explicit audio and teardown',()=>{
  const entry=patch('rta','_rta.maxpat'),engine=patch('rta','rta_engine.maxpat');
  assert.equal(boxes(entry).filter(b=>b.name==='hud.maxpat').length,1);

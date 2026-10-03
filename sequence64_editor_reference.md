@@ -119,7 +119,11 @@ step = {
 Tapping an empty step creates a cut on slice 1 by default (stored as `slice: 0`).
 This keeps the compact four-row editor useful without exposing its Slice lane;
 live recording and explicit Slice edits continue to retain their captured or
-chosen values.
+chosen values. Group patterns remember their last chosen track for new cuts.
+Selecting an existing cut, choosing Track with the grid or a knob, and live
+recording update this choice; sequencer playback does not. New cuts store that
+track explicitly when it still belongs to the group. The choice is per pattern
+and survives save/open. Earlier inherited cuts keep their original default.
 
 New group targets start with one 64-step bar. New track phrases start empty with
 one 16-step bar, matching the tracker-style instrument-phrase role. Either can

@@ -85,6 +85,8 @@ function sanitizePattern(pattern, targetType) {
 		version: Math.max(1, parseInt(source.version, 10) || 1),
 		defaultTrack: Number.isFinite(Number(source.defaultTrack)) ?
 			parseInt(source.defaultTrack, 10) : -1,
+		lastUsedTrack: Number.isInteger(source.lastUsedTrack) &&
+			source.lastUsedTrack >= 0 && source.lastUsedTrack < 16 ? source.lastUsedTrack : -1,
 		rateNumerator: Math.max(1, parseInt(source.rateNumerator, 10) || 1),
 		rateDenominator: Math.max(1, parseInt(source.rateDenominator, 10) || 1),
 		bars: bars,

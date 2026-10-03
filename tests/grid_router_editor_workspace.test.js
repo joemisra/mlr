@@ -307,6 +307,8 @@ test('MLR step controls use valid discrete values and group assignment stays in 
  r.knobCC(9,0);r.knobCC(9,127);
  const groupStep=r.currentSequence64EditStep();
  assert.equal(r.sequence64TrackBelongsToGroup(groupStep.cut.track,0),true);
+ assert.equal(r.currentSequence64Pattern().lastUsedTrack,groupStep.cut.track);
+ r.toggleSequence64Step(1);assert.equal(r.currentSequence64Pattern().steps[1].cut.track,groupStep.cut.track);
  r.knobCC(10,0);r.knobCC(10,127);assert.equal(groupStep.condition,-9);
 });
 
@@ -5290,4 +5292,70 @@ test('base MLR routes every grid cell on Main, Mod and Groups without creating s
  assert.equal(r.s.editorWorkspace.active,false);
  assert.equal(r.s.editorWorkspace.sceneRuntimeReady,0);
  assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_audio_arm'),false);
+});
+
+
+test('new group steps remember the last explicit track without retargeting earlier inherited cuts',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ r.s.tracks[2].channel=1;r.s.tracks[14].channel=1;
+ selectGroup(h,0);
+ const p=r.currentSequence64Pattern();
+ r.toggleSequence64Step(0);
+ assert.equal(p.steps[0].cut.track,-1);
+ assert.equal(p.defaultTrack,2);
+ r.selectSequence64EditStep(1);
+ r.sequence64SetLockValue('track',14);
+ r.toggleSequence64Step(2);
+ assert.equal(p.steps[2].cut.track,14);
+ assert.equal(p.lastUsedTrack,14);
+ assert.equal(p.steps[0].cut.track,-1);
+ assert.equal(p.defaultTrack,2);
+ // Playback of a different track must not change the editor's insertion choice.
+ p.running=1;r.runSequence64StepForTarget('group',0,p,0,0);
+ r.toggleSequence64Step(3);
+ assert.equal(p.steps[3].cut.track,14);
+ // Selecting an existing explicit cut makes that track the next insertion choice.
+ p.steps[4].cut={track:2,slice:0,gateLength:1};r.selectSequence64EditStep(4);
+ r.toggleSequence64Step(5);
+ assert.equal(p.steps[5].cut.track,2);
+});
+
+test('remembered insertion track stays per pattern, persists through normalization and validates group membership',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ r.s.tracks[2].channel=1;r.s.tracks[14].channel=1;r.s.tracks[13].channel=2;
+ selectGroup(h,0);const p=r.currentSequence64Pattern();
+ r.selectSequence64EditStep(0);r.sequence64SetLockValue('track',14);
+ selectGroup(h,1);const other=r.currentSequence64Pattern();
+ assert.equal(other.lastUsedTrack,-1);
+ r.toggleSequence64Step(0);assert.equal(other.steps[0].cut.track,-1);
+ selectGroup(h,0);assert.equal(p.lastUsedTrack,14);
+ r.s.tracks[14].channel=2;r.toggleSequence64Step(1);
+ assert.equal(p.steps[1].cut.track,-1);
+ assert.equal(r.sequence64TargetTrackIndex('group',0,p.steps[1]),2);
+ selectTrack(h,13);r.toggleSequence64Step(0);
+ assert.equal(r.currentSequence64Pattern().steps[0].cut.track,13);
+});
+
+test('group live capture remembers its exact track for subsequent manual steps',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ r.s.tracks[2].channel=1;r.s.tracks[14].channel=1;
+ selectGroup(h,0);const p=r.currentSequence64Pattern();
+ r.s.kmod=1;r.sequence64PendingLiveCut={track:14,expiresTick:10};
+ assert.equal(r.captureSequence64RowPosition(14,5),true);
+ assert.equal(p.lastUsedTrack,14);
+ r.toggleSequence64Step(6);
+ assert.equal(p.steps[6].cut.track,14);
+});
+
+
+test('the last used group track survives a session restore with transport stopped',()=>{
+ const h=createSequence64Harness(),r=h.context;
+ r.s.tracks[2].channel=1;r.s.tracks[14].channel=1;
+ selectGroup(h,0);r.selectSequence64EditStep(0);r.sequence64SetLockValue('track',14);
+ const snapshot=r.sessionRouterSnapshotObject();
+ assert.equal(r.sessionApply(JSON.stringify(snapshot)),true);
+ selectGroup(h,0);r.toggleSequence64Step(1);
+ assert.equal(r.currentSequence64Pattern().steps[1].cut.track,14);
+ assert.equal(r.currentSequence64Pattern().running,0);
+ assert.equal(r.s.globalTransportRunning,0);
 });

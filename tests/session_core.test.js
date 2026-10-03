@@ -24,7 +24,7 @@ function fixture() {
 
 test('current document sanitizes runtime transport state without losing programming', () => {
 	const fragments = fixture();
-	fragments.router.patterns['group:0'] = { running: 1, defaultTrack: 2, steps: [{
+	fragments.router.patterns['group:0'] = { running: 1, defaultTrack: 2, lastUsedTrack: 14, steps: [{
 		cut: { track: -1, slice: 4, gateLength: 3 }, locks: { filter: { value: 8 } }
 	}] };
 	fragments.router.automation = { armed: true, recording: true, playing: true, events: [{ x: 1 }] };
@@ -34,6 +34,8 @@ test('current document sanitizes runtime transport state without losing programm
 	assert.deepEqual(Core.validateDocument(document), { valid: true, errors: [] });
 	assert.equal(document.rta.patterns['group:0'].running, 0);
 	assert.equal(document.rta.patterns['group:0'].defaultTrack, 2);
+	assert.equal(document.rta.patterns['group:0'].lastUsedTrack, 14);
+	assert.equal(document.rta.sceneState.patternLibrary['group-pattern:0:0'].lastUsedTrack, 14);
 	assert.equal(document.rta.patterns['group:0'].bars[0].steps[0].cut.slice, 4);
 	assert.equal(document.rta.patterns['group:0'].bars[0].steps[1].probability, 15);
 	assert.equal(document.automation.recording, false);
