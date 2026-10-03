@@ -1,13 +1,17 @@
 "use strict";
 
-var FORMAT = "mlr-session";
-var VERSION = 4;
-var Modulation;
-try { Modulation = require("modulation_model.js"); }
-catch (error) { Modulation = require("./modulation_model.js"); }
-var Scenes;
-try { Scenes = require("scene_model.js"); }
-catch (error) { Scenes = require("./scene_model.js"); }
+var Product;
+try { Product = require("mlr_product.js"); }
+catch (error) { Product = require("./mlr_product.js"); }
+var FORMAT = Product.rta ? "mlr-session" : "mlr-base-session";
+var VERSION = Product.rta ? 4 : 1;
+var Modulation, Scenes;
+if (Product.rta) {
+	try { Modulation = require("modulation_model.js"); }
+	catch (error) { Modulation = require("./modulation_model.js"); }
+	try { Scenes = require("scene_model.js"); }
+	catch (error) { Scenes = require("./scene_model.js"); }
+}
 
 function deepClone(value) {
 	return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -132,8 +136,14 @@ function sanitizeAutomation(source) {
 }
 
 function migrateDocument(value) {
-	if (!isObject(value)) return value;
+	if (!isObject(value) || !Product.rta) return value;
 	var result = deepClone(value);
+	if (result.format === "mlr-base-session") {
+		// Validate before converting: never downgrade unknown future formats.
+		if (!validateDocument(result).valid) return result;
+		result.format = "mlr-session";
+		result.rta = { patterns: {}, targetAutomation: {} };
+	}
 	var version = parseInt(result.version, 10) || 0;
 	if (version === 1) {
 		result.modulation = Modulation.sanitizeState(result.modulation);
@@ -173,18 +183,24 @@ function buildDocument(fragments, existing) {
 		groups: ensureArray(router.groups).slice(0, 8).map(deepClone),
 		channelStrips: ensureArray(source.channelStrips).slice(0, 8).map(deepClone),
 		racks: ensureArray(rack.groups).slice(0, 8).map(deepClone),
-		modulation: Modulation.sanitizeState(router.modulation || source.modulation),
-		instrumentPresets: deepClone(router.instrumentPresets || {}),
-		rta: {
+		modulation: Product.rta ? Modulation.sanitizeState(router.modulation || source.modulation) : undefined,
+		instrumentPresets: Product.rta ? deepClone(router.instrumentPresets || {}) : undefined,
+		rta: Product.rta ? {
 			patterns: sanitizePatterns(router.patterns),
 			targetAutomation: deepClone(router.targetAutomation || {}),
 			sceneState: sanitizeSceneState(router.sceneState, router.tracks,
 				router.patterns, router.modulation || source.modulation)
-		},
+		} : undefined,
 		automation: sanitizeAutomation(router.automation),
 		colors: deepClone(source.colors || {}),
 		recordings: ensureArray(router.recordings).map(deepClone)
 	};
+	if (!Product.rta) {
+		delete result.rta;
+		delete result.modulation;
+		delete result.instrumentPresets;
+		result.tracks.forEach(function (track) { delete track.instrumentParameters; });
+	}
 	for (var group = 0; group < result.racks.length; group++) {
 		var slots = ensureArray(result.racks[group].slots);
 		for (var slot = 0; slot < slots.length; slot++) {
@@ -202,9 +218,17 @@ function buildDocument(fragments, existing) {
 function validateDocument(source) {
 	var errors = [];
 	if (!isObject(source)) return { valid: false, errors: ["Session root must be an object"] };
-	if (source.format !== FORMAT) errors.push("Not an MLR session bundle");
+	var base = source.format === "mlr-base-session";
+	if (source.format !== FORMAT && !(Product.rta && base)) {
+		errors.push(!Product.rta && source.format === "mlr-session" ?
+			"Open this sequencer session in rta; MLR cannot discard its programming" : "Not an MLR session bundle");
+		return { valid: false, errors: errors };
+	}
+	if (base && (source.rta !== undefined || source.modulation !== undefined || source.instrumentPresets !== undefined)) {
+		errors.push("Base MLR sessions cannot contain sequencer, modulation, or instrument programming");
+	}
 	if (!Number.isInteger(source.version)) errors.push("Session version is missing");
-	else if (source.version > VERSION) errors.push("Session requires a newer MLR version");
+	else if (source.version > (base ? 1 : VERSION)) errors.push("Session requires a newer MLR version");
 	else if (source.version < 1) errors.push("Unsupported session version");
 	if (!Array.isArray(source.tracks) || source.tracks.length !== 16) errors.push("Session must contain 16 tracks");
 	if (!Array.isArray(source.groups) || source.groups.length !== 8) errors.push("Session must contain 8 groups");
@@ -233,14 +257,14 @@ function validateDocument(source) {
 			}
 		}
 	}
-	if (!isObject(source.rta) || !isObject(source.rta.patterns)) errors.push("Session ṛta data is missing");
-	if (source.version >= 2) {
+	if (!base && (!isObject(source.rta) || !isObject(source.rta.patterns))) errors.push("Session ṛta data is missing");
+	if (!base && source.version >= 2) {
 		if (!isObject(source.modulation) || !isObject(source.modulation.sources) ||
 			!Array.isArray(source.modulation.routes)) {
 			errors.push("Session modulation data is missing");
 		}
 	}
-	if (source.version >= 3) {
+	if (!base && source.version >= 3) {
 		var sceneState = source.rta && source.rta.sceneState;
 		var slots = source.version >= 4 ? sceneState && sceneState.trackSlots :
 			sceneState && sceneState.trackSets;

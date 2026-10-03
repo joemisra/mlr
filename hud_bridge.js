@@ -114,6 +114,14 @@ function color_reset(name) {
 	messnamed("gridrouter", "hudColorReset", String(name || "all"));
 }
 
+function group_volume(group, value) {
+	messnamed("gridrouter", "hudGroupVolume", group, value);
+}
+
+function group_mute(group, value) {
+	messnamed("gridrouter", "hudGroupMute", group, value);
+}
+
 function strip_select(channelIndex) {
 	var channel = parseInt(channelIndex, 10);
 	if (!isFinite(channel) || channel < 0 || channel >= 8) return;

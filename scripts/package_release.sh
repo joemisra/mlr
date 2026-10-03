@@ -2,115 +2,55 @@
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+edition="${1:-mlr}"
+case "${edition}" in
+  mlr|rta) editions=("${edition}") ;;
+  all) editions=(mlr rta) ;;
+  *) echo "Usage: $0 [mlr|rta|all]" >&2; exit 1 ;;
+esac
 release_date="${RELEASE_DATE:-$(date +%Y%m%d)}"
 commit="$(git -C "${project_dir}" rev-parse --short=12 HEAD)"
-bundle_name="mlr-${release_date}-${commit}"
 release_dir="${project_dir}/release"
-archive_path="${release_dir}/${bundle_name}.zip"
-stage_root="$(mktemp -d "${TMPDIR:-/tmp}/mlr-release.XXXXXX")"
-bundle_dir="${stage_root}/${bundle_name}"
-
-cleanup() {
-  case "${stage_root}" in
-    "${TMPDIR:-/tmp}"/mlr-release.*) rm -rf "${stage_root}" ;;
-  esac
-}
-trap cleanup EXIT
 
 if [[ -n "$(git -C "${project_dir}" status --porcelain --untracked-files=no)" ]]; then
   echo "Tracked files have uncommitted changes; commit them before packaging." >&2
   exit 1
 fi
+# An untracked source dependency must never sneak into a release bearing HEAD.
+node - "${project_dir}" <<'JS'
+const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
+const root=process.argv[2];
+for(const id of ['mlr','rta'])for(const file of JSON.parse(fs.readFileSync(path.join(root,'editions',id+'.json'))).files) {
+ cp.execFileSync('git',['ls-files','--error-unmatch','--',file],{cwd:root,stdio:'pipe'});
+}
+JS
 
-echo "Running MLR tests..."
-node --test "${project_dir}"/tests/*.test.js
-
-echo "Validating Max patch JSON..."
-for patch in "${project_dir}"/*.maxpat; do
-  jq empty "${patch}"
-done
-
-mkdir -p "${bundle_dir}"
-git -C "${project_dir}" archive --format=tar HEAD | tar -xf - -C "${bundle_dir}"
-
-# Sample audio stays out of Git, but a populated portable bank belongs in the
-# handoff beside sample-bank.json.
-if [[ -d "${project_dir}/samples" ]]; then
-  cp -R "${project_dir}/samples" "${bundle_dir}/samples"
-fi
-
-# Development-only content is useful in Git, but not needed to run MLR in Max.
-rm -rf \
-  "${bundle_dir}/.cursor" \
-  "${bundle_dir}/.vscode" \
-  "${bundle_dir}/MaxMSP_Agent" \
-  "${bundle_dir}/maxpat-jsonschema" \
-  "${bundle_dir}/node_modules" \
-  "${bundle_dir}/scripts" \
-  "${bundle_dir}/tests"
-rm -f \
-  "${bundle_dir}/.gitignore" \
-  "${bundle_dir}/max_mcp.js" \
-  "${bundle_dir}/max_mcp_node.js" \
-  "${bundle_dir}/max_mcp_v8_add_on.js" \
-  "${bundle_dir}/package.json" \
-  "${bundle_dir}/package-lock.json" \
-  "${bundle_dir}"/summary*.md
-
-cat > "${bundle_dir}/START-HERE.txt" <<EOF
-MLR Max/MSP handoff
-===================
-
-Release date: ${release_date}
-Git commit:   ${commit}
-
-Open _mlr.maxpat in Max/MSP.
-
-This bundle contains the runtime patchers, abstractions, JavaScript, presets,
-images, user documentation, and the portable samples/ bank when present.
-Development-only tests, MCP helpers, node_modules, editor settings, local
-workstation hardware preferences, and Git metadata are intentionally omitted.
-
-See README.md for the dual-grid, Sequence64, MechaTrellis color, and serialosc
-setup notes.
-EOF
-
-cat > "${bundle_dir}/BRIGHTNESS-TEST.txt" <<'EOF'
-MLR brightness-only smoke test
-==============================
-
-This checkpoint deliberately uses ordinary 0-15 grid brightness without the
-private MechaTrellis color extension.
-
-1. Do not copy mlr.local.example.json to mlr.local.json for this test.
-2. Open _mlr.maxpat and confirm Main, Mod, and Groups are legible.
-3. Open a group and a track in rta; try Sequence, Setup, Scene, and the sample browser.
-   In Scene, store Scene 2 and confirm two group-pattern changes queue together.
-4. Open the HUD and confirm its visible state agrees with the physical grid.
-5. Save As to a name/path containing spaces. Confirm Name.mlr-session contains
-   session.json, then change BPM, one sample assignment, one strip value, and
-   one rta step. Reopen the saved session and confirm it restores stopped.
-6. Report any ambiguous, invisible, stuck, or unexpectedly colored grid cell,
-   plus the page and exact gesture that produced it.
-
-Optional color testing comes later with mechatrellis 1 and editorColors 1.
-EOF
-
-(
-  cd "${bundle_dir}"
-  find . -type f ! -name SHA256SUMS.txt -print0 |
-    sort -z |
-    xargs -0 shasum -a 256 > SHA256SUMS.txt
-)
-
+npm --prefix "${project_dir}" test
 mkdir -p "${release_dir}"
-rm -f "${archive_path}"
-(
-  cd "${stage_root}"
-  zip -q -r -X "${archive_path}" "${bundle_name}"
-)
-
-shasum -a 256 "${archive_path}" > "${archive_path}.sha256"
-echo "MLR release created:"
-echo "  ${archive_path}"
-echo "  ${archive_path}.sha256"
+for edition in "${editions[@]}"; do
+  bundle_name="${edition}-${release_date}-${commit}"
+  bundle_dir="${release_dir}/${bundle_name}"
+  archive_path="${bundle_dir}.zip"
+  if [[ -e "${bundle_dir}" || -e "${archive_path}" ]]; then
+    echo "Release already exists: ${bundle_dir}; keep it or choose another RELEASE_DATE." >&2
+    exit 1
+  fi
+  node "${project_dir}/scripts/build_editions.js" "${edition}" "${bundle_dir}"
+  for patch in "${bundle_dir}"/*.maxpat; do jq empty "${patch}"; done
+  if [[ -d "${project_dir}/samples" ]]; then
+    cp -R "${project_dir}/samples" "${bundle_dir}/samples"
+  fi
+  git -C "${project_dir}" rev-parse HEAD > "${bundle_dir}/SOURCE-COMMIT.txt"
+  (
+    cd "${bundle_dir}"
+    find . -type f ! -name SHA256SUMS.txt -print0 |
+      sort -z | xargs -0 shasum -a 256 > SHA256SUMS.txt
+  )
+  (
+    cd "${release_dir}"
+    zip -q -r -X "${archive_path}" "${bundle_name}"
+  )
+  shasum -a 256 "${archive_path}" > "${archive_path}.sha256"
+  echo "Created ${bundle_dir}"
+  echo "Created ${archive_path} and SHA-256 checksum"
+done

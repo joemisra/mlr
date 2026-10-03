@@ -190,3 +190,9 @@ test('missing named buffers produce a safe empty result and notice', () => {
 	assert.equal(harness.named.some((candidate) =>
 		candidate[0] === 'mlr_hud_state' && candidate[1] === 'waveform'), false);
 });
+
+test('HUD mixer commands use the router state owner', () => {
+ const h=createHarness();
+ h.context.group_volume(2,110);h.context.group_mute(2,1);
+ assert.deepEqual(h.named,[['gridrouter','hudGroupVolume',2,110],['gridrouter','hudGroupMute',2,1]]);
+});

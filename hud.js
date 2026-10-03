@@ -92,8 +92,9 @@ function eventAffectsVisiblePage(topic, args) {
 		return false;
 	}
 	if (topic === "channel") {
-		return page === "live" && state.editor.targetType === "group" &&
-			parseInt(args[0], 10) === state.editor.targetId;
+		return (page === "strip" && parseInt(args[0], 10) === state.selectedChannelStrip) ||
+			(page === "live" && (!Model.Product.rta || (state.editor.targetType === "group" &&
+			parseInt(args[0], 10) === state.editor.targetId)));
 	}
 	if (topic === "pattern_playhead") return page === "live" || page === "pattern";
 	if (topic === "pattern_summary") return false;
@@ -227,8 +228,8 @@ function pageLayout() {
 function drawHeader(layout) {
 	fillRect(0, 0, layout.width, layout.header, Model.COLORS.panel);
 	line(0, layout.header - 1, layout.width, layout.header - 1, Model.COLORS.line, 1);
-	mono("MLR", 14, 20, 14, Model.COLORS.white, true);
-	mono("ṛta · ऋत", 14, 37, 9, Model.COLORS.cyan, true);
+	mono(Model.Product.rta ? "ṛta" : "MLR", 14, 20, 14, Model.COLORS.white, true);
+	mono(Model.Product.rta ? "ऋत" : "SAMPLES", 14, 37, 9, Model.COLORS.cyan, true);
 	var tabX = layout.compact ? 50 : 68;
 	var tabGap = 3;
 	var statusReserve = layout.width >= 650 ? 160 : (layout.width >= 540 ? 76 : 0);
@@ -308,10 +309,15 @@ function drawLivePage(layout) {
 	label("Live context", sideX + 12, sideY + 19, Model.COLORS.cyan);
 	var activeGroup = state.editor.targetType === "group" ? state.editor.targetId : -1;
 	var activeTrack = state.editor.targetType === "track" ? state.editor.targetId : -1;
+	if (!Model.Product.rta) {
+		for (var channelIndex = 0; channelIndex < state.channels.length; channelIndex++) {
+			if (state.channels[channelIndex].activeTrack >= 0) { activeTrack = state.channels[channelIndex].activeTrack; break; }
+		}
+	}
 	if (activeTrack < 0 && activeGroup >= 0 && state.channels[activeGroup]) {
 		activeTrack = state.channels[activeGroup].activeTrack;
 	}
-	mono(Model.targetLabel(state.editor.targetType, state.editor.targetId), sideX + 12, sideY + 43,
+	mono(Model.Product.rta ? Model.targetLabel(state.editor.targetType, state.editor.targetId) : "MLR LIVE", sideX + 12, sideY + 43,
 		15, Model.COLORS.white, true);
 	if (sideH < 250) {
 		mono(activeTrack >= 0 ? "TRACK " + (activeTrack + 1) : "NO ACTIVE TRACK",sideX+12,sideY+74,11,Model.COLORS.text,true);
@@ -330,6 +336,7 @@ function drawLivePage(layout) {
 		mono("SLICE " + (track.position + 1) + " / " + track.length, sideX + 12, sideY + 158,
 			10, Model.COLORS.dimText);
 	}
+	if (Model.Product.rta) {
 	label("ṛta pattern / phrase", sideX + 12, sideY + 184);
 	mono((state.pattern.running ? "RUNNING" : "STOPPED") + "  " +
 		Model.rateLabel(state.pattern.rateNumerator, state.pattern.rateDenominator),
@@ -338,6 +345,7 @@ function drawLivePage(layout) {
 	mono(state.pattern.playheadStep >= 0 ?
 		("BAR " + (state.pattern.playheadBar + 1) + "  STEP " + (state.pattern.playheadStep + 1)) :
 		"NO PLAYHEAD", sideX + 12, sideY + 222, 9, Model.COLORS.dimText);
+	}
 	if (!layout.compact && sideH >= 360) {
 		var context = state.hover && state.hover.action === "grid_hover" ?
 			Model.describeCell(state.mode, state.hover.x, state.hover.y, state.editor, "follow") :
@@ -692,6 +700,16 @@ function drawStripPage(layout) {
 			groupButtonWidth, 26, state.selectedChannelStrip === group,
 			Model.GROUP_COLORS[group], { action: "strip_select", channel: group });
 	}
+	var channel = state.channels[state.selectedChannelStrip];
+	var volume = channel ? channel.volume : 0;
+	label("GROUP " + (state.selectedChannelStrip + 1) + "  VOL " + volume, x + 8, y + 59);
+	button("group_down", "−", x + 155, y + 43, 30, 24, false, Model.COLORS.cyan,
+		{action:"group_volume", value:Math.max(0, volume - 5)});
+	button("group_up", "+", x + 189, y + 43, 30, 24, false, Model.COLORS.cyan,
+		{action:"group_volume", value:Math.min(158, volume + 5)});
+	button("group_mute", "MUTE", x + 227, y + 43, 58, 24, !!(channel && channel.muted), Model.COLORS.red,
+		{action:"group_mute", value:channel && channel.muted ? 0 : 1});
+	selectorHeight += 30;
 	if (state.stripView === "rack") {
 		drawRackBody(layout, x, y + selectorHeight + 2, width, height - selectorHeight - 2);
 		return;
@@ -748,8 +766,8 @@ function drawStripPage(layout) {
 	}
 	mono("FILTER " + normalizedCutoffLabel(effectiveCutoff) +
 		"  BASE " + normalizedCutoffLabel(strip.cutoff) +
-		"  ṚTA " + Math.round(strip.filterMod * 100) + "%" +
-		(modulationLabels.length ? "  MOD " + modulationLabels.join(" · ") : "  MOD —"),
+		(Model.Product.rta ? "  ṚTA " + Math.round(strip.filterMod * 100) + "%" +
+		(modulationLabels.length ? "  MOD " + modulationLabels.join(" · ") : "  MOD —") : ""),
 		rightX, controlsY + 3 + meterStep * 3 + 7, 8, Model.COLORS.dimText);
 
 	var rightControlsY = controlsY + 3 + meterStep * 3 + (layout.compact ? 10 : 16);
@@ -1115,7 +1133,7 @@ function drawHelpPage(layout) {
 	var x = layout.contentX;
 	var y = layout.contentY;
 	var topicW = layout.compact ? 96 : 150;
-	var topics = ["follow", "main", "mod", "groups", "sequence64", "locks", "samples"];
+	var topics = Model.Product.rta ? ["follow", "main", "mod", "groups", "sequence64", "locks", "samples"] : ["follow", "main", "mod", "groups", "samples"];
 	label("Reference", x, y + 12, Model.COLORS.amber);
 	for (var index = 0; index < topics.length; index++) {
 		var topicSpacing = layout.compact ? 30 : 38;
@@ -1222,6 +1240,8 @@ function activateRegion(region, doubleClick) {
 		sendCommand("bar", payload.id);
 	} else if (payload.action === "transport") {
 		sendCommand("transport", payload.command);
+	} else if (payload.action === "group_volume" || payload.action === "group_mute") {
+		sendCommand(payload.action, state.selectedChannelStrip, payload.value);
 	} else if (payload.action === "strip_select") {
 		Model.selectChannelStrip(state, payload.channel);
 		sendCommand("strip_select", state.selectedChannelStrip);

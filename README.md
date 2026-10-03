@@ -1,6 +1,6 @@
 # mlr
 
-A live sample-cutting platform for the Monome Grid 256, running in Max 8 with serialosc.
+A live sample-cutting platform for the Monome Grid 256, running in Max with serialosc. Current development requires Max 9 with V8 and Node for Max.
 
 Originally by Brian Crabtree (monome.org, 2006), with major modifications by Joseph Melnyk
 (8 channels, 4 pattern recorders, mod page, session slots, input buffers, and more — see
@@ -8,9 +8,26 @@ Originally by Brian Crabtree (monome.org, 2006), with major modifications by Jos
 
 Licensed under GPL v2 (see `license_mlr.txt`).
 
-## Quick Start
+## Separate product builds
 
-1. Open `_mlr.maxpat` in Max 8
+The root checkout remains the integrated development environment. Build the
+focused MLR or standalone ṛta project into a fresh directory:
+
+```sh
+node scripts/build_editions.js mlr /tmp/mlr-project
+node scripts/build_editions.js rta /tmp/rta-project
+```
+
+Open the generated `mlr.maxproj` or `rta.maxproj`. Run one edition at a time
+and close restored integrated windows before testing. MLR keeps the sample
+workflow; ṛta owns sequencing, locks, modulation and instruments. See
+[`docs/mlr-rta-split.md`](docs/mlr-rta-split.md) for session compatibility,
+validation limits and the remaining live smoke test. Release/test ZIPs are
+built with `scripts/package_release.sh all` from a clean committed worktree.
+
+## Integrated development quick start
+
+1. Open `_mlr.maxpat` in Max 9
 2. Connect your Monome Grid 256 via serialosc
 3. Drop audio files onto the file drop area
 4. Assign files to rows, push up group volume + master volume, turn on DAC

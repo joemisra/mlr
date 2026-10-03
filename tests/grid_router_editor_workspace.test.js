@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const ROUTER_PATH = path.join(__dirname, '..', 'grid_router.js');
 const ROUTER_SOURCE = fs.readFileSync(ROUTER_PATH, 'utf8');
 
-function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
+function createHarness(sharedGlobalStores, layoutMode = 'legacy', edition = 'rta', sourceRoot) {
 	const outlets = [];
 	const namedMessages = [];
 	const hudMessages = [];
@@ -68,6 +68,9 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 		Global,
 		Task,
 		require(name) {
+			if (sourceRoot) return require(path.join(sourceRoot, name));
+			if (name === 'mlr_product.js') return { id: edition, rta: edition === 'rta' };
+			if (edition === 'mlr' && /instrument|scene_model|modulation_model|sequence64_native/.test(name)) throw new Error('MLR loaded rta dependency: ' + name);
 			if (name === 'sequence64_native_compile.js') return require('../sequence64_native_compile.js');
 			if (name === 'modulation_model.js') return require('../modulation_model.js');
 			if (name === 'scene_model.js') return require('../scene_model.js');
@@ -122,7 +125,7 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy') {
 		}
 	});
 
-	vm.runInContext(ROUTER_SOURCE, context, { filename: ROUTER_PATH });
+	vm.runInContext(sourceRoot ? fs.readFileSync(path.join(sourceRoot, "grid_router.js"), "utf8") : ROUTER_SOURCE, context, { filename: ROUTER_PATH });
 	const startupMessages = namedMessages.slice();
 	// Keep FX/runtime restoration visible to reload tests; separate only the
 	// unconditional native safety controls from later gesture assertions.
@@ -5198,4 +5201,93 @@ test('native telemetry updates display ownership without arming audio; stale epo
  r.markSessionDirty('edit');h.clearLog();r.nativeSequence64Report('frame',7,1,16,9);
  assert.equal(r.s.tracks[14].playPos,8);
  assert.equal(r.s.globalTransportRunning,0);
+});
+
+test('base MLR cannot enable rta via HUD, grid shortcuts, clocks, native replies or session state', () => {
+ const h=createHarness(undefined,'sequence64','mlr'),r=h.context;
+ r.loadbang();
+ r.extendedEditors(1);
+ r.hudTarget('group',0); r.hudTransport('run');
+ r.setSequence64TargetRunning('group',0,1);
+ r.stageSceneLaunch(0,'test'); r.stageScenePattern(0,0); r.stageTrackSlotSwitch(0);
+ r.nativeSequence64Groups(0); r.nativeSequence64Report('ready',1,1);
+ r.handleSequence64RunShortcutKey('group',0,1);
+ r.handleSequence64RunShortcutKey('group',0,0);
+ r.globalTransport(1); // base transport remains usable
+ const clock=r.sequence64ClockPosition;
+ r.sequence64SubPulse();
+ assert.equal(r.sequence64ClockPosition,clock);
+ assert.equal(r.s.globalTransportRunning,1);
+ assert.equal(r.s.editorWorkspace.enabled,0);
+ assert.equal(r.s.editorWorkspace.active,false);
+ assert.equal(r.s.editorWorkspace.pendingSceneLaunch,null);
+ assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_audio_arm'),false);
+ for(const page of [1,2,3]) r.setKmod(page);
+ const before=JSON.stringify(r.sessionRouterSnapshotObject());
+ assert.equal(r.sessionApply(JSON.stringify({format:'mlr-session',rta:{patterns:{}}})),false);
+ assert.equal(JSON.stringify(r.sessionRouterSnapshotObject()),before);
+ assert.equal(r.sessionNew(),true);
+ assert.equal(r.s.globalTransportRunning,0);
+ assert.equal(r.s.editorWorkspace.sceneRuntimeReady,0);
+});
+
+test('disabling rta cancels queued launches and previews without stopping base transport or recorders', () => {
+ const h=createSequence64Harness(),r=h.context;
+ selectGroup(h,0);
+ const p=r.currentSequence64Pattern();p.steps[0].cut={track:0,slice:2,gateLength:1};
+ r.setSequence64TargetRunning('group',0,1);
+ r.s.editorWorkspace.pendingSceneLaunch={type:'patterns',dueClock:1,patternRefs:{0:'group-pattern:0:0'}};
+ r.s.sequencers[0].on=1;
+ r.extendedEditors(0);
+ assert.equal(p.running,0);
+ assert.equal(r.s.editorWorkspace.pendingSceneLaunch,null);
+ assert.equal(Object.keys(r.s.editorWorkspace.phraseInstances64).length,0);
+ assert.equal(Object.keys(r.s.editorWorkspace.propertyStacks64).length,0);
+ assert.equal(r.s.sequencers[0].on,1);
+ assert.equal(r.s.globalTransportRunning,1);
+ h.clearLog();
+ r.hudTarget('group',0);r.hudTransport('run');r.sequence64SubPulse();
+ assert.equal(r.s.editorWorkspace.active,false);
+ assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_audio_arm'),false);
+ const reload=createSequence64Harness(h.globalStores);
+ assert.equal(reload.context.s.editorWorkspace.enabled,0);
+ assert.equal(reload.context.s.editorWorkspace.pendingSceneLaunch,null);
+});
+
+test('built MLR runs without optional source modules and retains base cuts, latches, loop divisions and mixer control', () => {
+ const os=require('node:os');
+ const {build}=require('../scripts/build_editions');
+ const temp=fs.mkdtempSync(path.join(os.tmpdir(),'mlr-router-product-'));
+ try {
+  const dest=path.join(temp,'mlr');build('mlr',dest);
+  const h=createHarness(undefined,'sequence64','mlr',dest),r=h.context;
+  r.loadbang();r.sessionNew();r.setKmod(2);
+  const before=r.getChannelStateByIndex(0).gateLatch;
+  r.dispatch(0,4,1);r.dispatch(0,4,0);
+  assert.equal(r.getChannelStateByIndex(0).gateLatch,before?0:1);
+  const division=r.currentTrackSubLoopDiv(0);
+  r.dispatch(11,1,1);r.dispatch(11,1,0);
+  assert.notEqual(r.currentTrackSubLoopDiv(0),division);
+  r.hudGroupVolume(0,115);r.hudGroupMute(0,1);
+  assert.equal(r.getChannelStateByIndex(0).volume,115);
+  assert.equal(r.getChannelStateByIndex(0).muted,1);
+  assert.equal(r.hudGroupVolume(100,99),false);
+  r.setKmod(1);h.clearLog();r.dispatch(3,1,1);r.dispatch(3,1,0);
+  assert.ok(h.namedMessages.some(m=>m[0]==='2input'&&m[1]===3&&m[2]===1),'base cut goes to native MLR input');
+  assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_audio_arm'),false);
+ } finally {fs.rmSync(temp,{recursive:true,force:true});}
+});
+
+test('base MLR routes every grid cell on Main, Mod and Groups without creating scene runtime', () => {
+ const h=createHarness(undefined,'sequence64','mlr'),r=h.context;
+ r.loadbang();
+ for(const page of [1,2,3]) {
+  for(let y=0;y<16;y++)for(let x=0;x<16;x++) {
+   r.setKmod(page);r.dispatch(x,y,1);r.dispatch(x,y,0);
+  }
+ }
+ assert.equal(r.s.editorWorkspace.enabled,0);
+ assert.equal(r.s.editorWorkspace.active,false);
+ assert.equal(r.s.editorWorkspace.sceneRuntimeReady,0);
+ assert.equal(h.namedMessages.some(m=>m[0]==='sequence64_audio_arm'),false);
 });

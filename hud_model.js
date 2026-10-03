@@ -7,7 +7,11 @@
  * APIs.  hud.js uses it in v8ui and the Node tests use the same reducer.
  */
 
-var HUD_PAGES = ["live", "pattern", "strip", "samples", "colors", "session", "help"];
+var Product;
+try { Product = require("mlr_product.js"); }
+catch (error) { Product = require("./mlr_product.js"); }
+
+var HUD_PAGES = !Product.rta ? ["live", "strip", "samples", "session", "help"] : ["live", "pattern", "strip", "samples", "colors", "session", "help"];
 var GRID_SIZE = 16;
 var TRACK_COUNT = 16;
 var CHANNEL_COUNT = 8;
@@ -891,7 +895,7 @@ function describeCell(mode, x, y, editor, helpTopic) {
 	if (topic === "main") {
 		if (y === 0 && x < 8) detail = "Stop group " + (x + 1);
 		else if (y === 0 && x >= 8 && x <= 11) detail = "Legacy pattern recorder " + (x - 7);
-		else if (y === 0 && x === 13) {
+		else if (Product.rta && y === 0 && x === 13) {
 			detail = "Record live cuts into ṛta";
 			gesture = "Hold while playing";
 		}
@@ -900,12 +904,12 @@ function describeCell(mode, x, y, editor, helpTopic) {
 	} else if (topic === "mod") {
 		if (y === 0 && x < 8) detail = "Mute group " + (x + 1);
 		else if (y === 4 && x < 8) {
-			detail = "Run or open group pattern " + (x + 1);
-			gesture = "Tap Run · hold Open";
+			detail = Product.rta ? "Run or open group pattern " + (x + 1) : "Latch group " + (x + 1);
+			gesture = Product.rta ? "Tap Run · hold Open" : "Tap to toggle";
 			colorMeaning = "Red family identifies pattern transport";
 		} else if (x === 11 && y > 0) {
-			detail = "Preview or open track phrase " + y;
-			gesture = "Tap Preview · hold Open";
+			detail = Product.rta ? "Preview or open track phrase " + y : "Loop division for track " + y;
+			gesture = Product.rta ? "Tap Preview · hold Open" : "Tap to cycle";
 			colorMeaning = "Red family identifies phrase transport";
 		}
 		else if (x === 8) {
@@ -988,6 +992,7 @@ function describeCell(mode, x, y, editor, helpTopic) {
 
 module.exports = {
 	HUD_PAGES: HUD_PAGES,
+	Product: Product,
 	GRID_SIZE: GRID_SIZE,
 	TRACK_COUNT: TRACK_COUNT,
 	CHANNEL_COUNT: CHANNEL_COUNT,
