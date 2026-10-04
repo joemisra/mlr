@@ -23,9 +23,12 @@ Updated 2026-08-24. Grid coordinates in this document are one-based.
 
 Send `editorColors 1` for the MechaTrellis palette; send `editorColors 0` for
 monochrome hardware. The legacy `editorBrightnessColors` command is an alias.
-For permanent startup behavior, copy `mlr.local.example.json` to the ignored
-`mlr.local.json`; without that local file both MechaTrellis private OSC and
-semantic color start disabled.
+Use **GRID COLOR ON/OFF** on the HUD's Live or Colors page to switch hardware
+color and remember the choice in the ignored `mlr.local.json`. Turning color
+off neutralizes the retained hardware palette and keeps standard 0–15 levels.
+The local file can also select `mechatrellisProtocol` 1 or 2; the toggle preserves
+that selection and other workstation settings. Without a local file both
+MechaTrellis private OSC and semantic color start disabled.
 The Sequence view uses cyan for triggers, green for gated triggers, amber for
 locks, magenta for combined trigger+lock steps, blue-violet for gate tails,
 white for the playhead, and orange for the held step. Run/Add are green,

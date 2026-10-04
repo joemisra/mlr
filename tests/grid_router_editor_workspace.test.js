@@ -5359,3 +5359,24 @@ test('the last used group track survives a session restore with transport stoppe
  assert.equal(r.currentSequence64Pattern().running,0);
  assert.equal(r.s.globalTransportRunning,0);
 });
+
+test('disabling hardware color neutralizes the retained palette before blocking private packets and preserves pattern state',()=>{
+ for (const protocol of [1,2]) {
+  const h=createSequence64Harness(),r=h.context;
+  selectGroup(h,0);r.toggleSequence64Step(0);
+  const before=JSON.stringify(r.sessionRouterSnapshotObject());
+  r.mechatrellis(protocol);h.clearLog();r.mechatrellis(0);
+  const neutral=h.outlets.findIndex(m=>m[1]==='colorall');
+  const clear=h.outlets.findIndex(m=>m[1]==='colorlayersclear');
+  const disabled=h.outlets.findIndex(m=>m[1]==='mechatrellis' && m[2]===0);
+  assert.ok(neutral>=0 && disabled>neutral);
+  assert.ok(clear>=0 && clear<neutral);
+  assert.deepEqual(Array.from(h.outlets[neutral]),[1,'colorall',255,255,255]);
+  assert.equal(r.s.editorBrightnessColors,0);
+  assert.equal(r.pageColorQueue.length,0);
+  assert.equal(JSON.stringify(r.sessionRouterSnapshotObject()),before);
+  assert.ok(h.hudMessages.some(m=>m[0]==='hardware_colors' && m[1]===0));
+  h.clearLog();r.mechatrellis(0);
+  assert.equal(h.outlets.some(m=>m[1]==='colorall'),false,'ordinary-grid startup must not issue a private reset');
+ }
+});

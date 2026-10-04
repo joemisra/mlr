@@ -2069,6 +2069,7 @@ function publishHudAfterGridAction(state, col, row) {
 function hudSnapshot() {
 	var workspace = ensureEditorWorkspaceDefaults();
 	publishHud("mode", s.kmod);
+	publishHud("hardware_colors", s.mechaTrellisExtensions ? 1 : 0);
 	if (s.timeMs > 0) publishHud("clock", 60000 / s.timeMs, 16);
 	publishHudColorSnapshot();
 	publishSampleBrowserState();
@@ -8649,12 +8650,21 @@ function mechatrellis(enabled) {
 	var requested = parseInt(enabled, 10);
 	var protocol = isFinite(requested) ? clamp(requested, 0, 2) : 0;
 	var active = protocol ? 1 : 0;
+	// Firmware retains its last RGB palette after private output is disabled.
+	// Neutralize it while the extension is still enabled, preserving levels.
+	if (!active && s.mechaTrellisExtensions) {
+		resetPageColorQueue();
+		outlet(1, "colorlayersclear");
+		outlet(1, "colorall", 255, 255, 255);
+	}
 	s.mechaTrellisExtensions = protocol;
 	outlet(1, "mechatrellis", protocol);
 	editorBrightnessColors(active);
 	if (protocol === 2 && s.autoPageColors) renderCompletePage(s.kmod, false);
 	else if (active && s.autoPageColors) initializePageColorPresets();
 	else if (!active) resetPageColorQueue();
+	if (!active) renderCompletePage(s.kmod, false, true);
+	publishHud("hardware_colors", active);
 	diagnosticEvent("mechatrellis_mode", {
 		enabled: active,
 		protocol: protocol,

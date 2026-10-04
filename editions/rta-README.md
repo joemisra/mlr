@@ -13,6 +13,11 @@ Bass, Bell, Rim, Tom, Clap, Hat, Snare, Kick. Sample-track defaults are retained
 Saved sessions restore their own assignments. Group patterns remember the last
 track you chose for newly inserted steps, including after save/open.
 
+Use **GRID COLOR ON/OFF** on Live or Colors to enable MechaTrellis hardware
+colors. The choice is saved in `mlr.local.json` beside the patch and applies at
+next startup. Turning it off restores a neutral palette and standard brightness.
+New builds default to color off; this workstation preference is outside sessions.
+
 Raise the appropriate group levels from HUD → Strip (Group Volume) before
 expecting playback. The HUD pages expose patterns, strips/racks, samples,
 sessions, grid monitoring, and help. Close the entry window only after saving;

@@ -50,6 +50,10 @@ function display_recover() {
 	messnamed("gridrouter", "displayRecover");
 }
 
+function hardware_colors(enabled) {
+	messnamed("mlr_startup_cmd", "hardware_colors", parseInt(enabled, 10) ? 1 : 0);
+}
+
 function bank_open() {
 	outlet(0, "bank_open");
 }

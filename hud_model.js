@@ -167,6 +167,7 @@ function createState() {
 		mode: 1,
 		bpm: 120,
 		quantize: 16,
+		hardwareColors: 0,
 		grid: {
 			levels: levels,
 			colors: colors,
@@ -397,6 +398,9 @@ function applyEvent(state, topic, incomingArgs) {
 					clamp(integer(args[2], 0), 0, 255)
 				];
 			}
+			break;
+		case "hardware_colors":
+			state.hardwareColors = integer(args[0], 0) ? 1 : 0;
 			break;
 		case "color_role": {
 			var roleName = String(args[0] || "");

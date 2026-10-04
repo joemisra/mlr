@@ -29,7 +29,7 @@ function joinPath(base, name) {
 	return base + (base.charAt(base.length - 1) === "/" ? "" : "/") + name;
 }
 
-function readJson(path) {
+function readJson(path, strict) {
 	var file = new File(path, "read");
 	if (!file.isopen) return null;
 	var text = "";
@@ -39,8 +39,39 @@ function readJson(path) {
 		return JSON.parse(text);
 	} catch (error) {
 		post("[mlr startup] could not parse " + path + ": " + error + "\n");
+		if (strict) throw error;
 		return null;
 	}
+}
+
+// The HUD switch is a workstation preference, never session state. Retain CV,
+// protocol and any other local settings when persisting this one choice.
+function hardware_colors(enabled) {
+	var active = parseInt(enabled, 10) ? 1 : 0;
+	var path = joinPath(projectDirectory.call(this), "mlr.local.json");
+	var local = null;
+	var saved = false;
+	try {
+		local = readJson(path, true) || {};
+		if (typeof local !== "object" || local instanceof Array) throw new Error("Invalid local settings");
+		local.mechatrellis = !!active;
+		local.editorColors = !!active;
+		var file = new File(path, "write", "TEXT");
+		if (!file.isopen) throw new Error("Could not write local settings");
+		try {
+			file.writeline(JSON.stringify(local, null, 2));
+			file.eof = file.position;
+		} finally { file.close(); }
+		saved = true;
+	} catch (error) {
+		post("[mlr startup] color preference not saved: " + error + "\n");
+	}
+	var requested = parseInt(local && local.mechatrellisProtocol, 10);
+	var protocol = active ? Math.min(2, Math.max(1, isFinite(requested) ? requested : DEFAULTS.mechatrellisProtocol)) : 0;
+	outlet(0, "mechatrellis", protocol);
+	outlet(0, "editorColors", active);
+	messnamed("mlr_hud_state", "notice", saved ? "info" : "warn",
+		"Grid color " + (active ? "on" : "off") + (saved ? " · saved locally" : " · preference could not be saved"));
 }
 
 function emitSettings(settings) {

@@ -83,6 +83,7 @@ function eventAffectsVisiblePage(topic, args) {
 		return page === "live" || page === "samples";
 	}
 	if (topic === "grid_press") return page === "live" || page === "help";
+	if (topic === "hardware_colors") return page === "live" || page === "colors";
 	if (topic === "track") {
 		var trackId = parseInt(args[0], 10);
 		if (page === "live") return trackId === activeLiveTrack();
@@ -322,6 +323,7 @@ function drawLivePage(layout) {
 	if (sideH < 250) {
 		mono(activeTrack >= 0 ? "TRACK " + (activeTrack + 1) : "NO ACTIVE TRACK",sideX+12,sideY+74,11,Model.COLORS.text,true);
 		mono(state.pattern.running ? "RUNNING" : "STOPPED",sideX+12,sideY+98,10,Model.COLORS.dimText);
+		drawHardwareColorToggle(sideX + 10, sideY + sideH - 31, layout.width - sideX - 32);
 		return;
 	}
 	if (activeTrack >= 0 && state.tracks[activeTrack]) {
@@ -351,7 +353,7 @@ function drawLivePage(layout) {
 			Model.describeCell(state.mode, state.hover.x, state.hover.y, state.editor, "follow") :
 			(state.grid.lastPress ? Model.describeCell(state.mode, state.grid.lastPress.x,
 				state.grid.lastPress.y, state.editor, "follow") : null);
-		var helpY = Math.max(sideY + 196, sideY + sideH - 116);
+		var helpY = Math.max(sideY + 196, sideY + sideH - 145);
 		line(sideX + 12, helpY - 17, layout.width - 24, helpY - 17, Model.COLORS.line, 1);
 		label("Last / hovered control", sideX + 12, helpY);
 		mono(context ? context.title : "MOVE OVER THE GRID", sideX + 12, helpY + 24, 10,
@@ -361,9 +363,16 @@ function drawLivePage(layout) {
 		text(context ? ellipsis(context.detail.substring(39), 39) : "", sideX + 12,
 			helpY + 65, 11, Model.COLORS.dimText);
 	}
+	drawHardwareColorToggle(sideX + 10, sideY + sideH - 60, layout.width - sideX - 32);
 	button("display_recover", "CAPTURE + REINIT GRID", sideX + 10,
 		sideY + sideH - 31, layout.width - sideX - 32, 24, false,
 		Model.COLORS.red, { action: "command", command: "display_recover" });
+}
+
+function drawHardwareColorToggle(x, y, width) {
+	button("hardware_colors", "GRID COLOR " + (state.hardwareColors ? "ON" : "OFF"),
+		x, y, width, 24, !!state.hardwareColors, Model.COLORS.cyan,
+		{ action: "hardware_colors" });
 }
 
 function stepColor(step) {
@@ -995,7 +1004,7 @@ function drawColorsPage(layout) {
 	var selected = state.colorLab.roles[state.colorLab.selected];
 	var rightX = x + listWidth + 16;
 	var rightWidth = width - listWidth - 16;
-	label("Color lab · session only", rightX, y + 17, Model.COLORS.amber);
+	drawHardwareColorToggle(rightX, y, Math.min(190, rightWidth));
 	if (!selected) {
 		mono("WAITING FOR COLOR SNAPSHOT", rightX, y + 48, 12, Model.COLORS.dimText, true);
 		text("The snapshot is requested automatically when this page opens.",
@@ -1054,7 +1063,7 @@ function drawColorsPage(layout) {
 		Model.COLORS.amber, { action: "color_reset", name: selected.name });
 	button("color_reset_all", "RESET ALL", rightX + 108, resetY, 96, 27, false,
 		Model.COLORS.red, { action: "color_reset", name: "all" });
-	mono("Runtime only · no config files are written", rightX + 218, resetY + 18,
+	mono("Role edits: session only", rightX + 218, resetY + 18,
 		9, Model.COLORS.dimText);
 }
 
@@ -1318,6 +1327,8 @@ function activateRegion(region, doubleClick) {
 	} else if (payload.action === "sample_page") {
 		var pages = Math.max(1, Math.ceil(Model.activeFolderSampleIndices(state).length / 16));
 		state.samplePage = Model.clamp(state.samplePage + payload.delta, 0, pages - 1);
+	} else if (payload.action === "hardware_colors") {
+		sendCommand("hardware_colors", state.hardwareColors ? 0 : 1);
 	} else if (payload.action === "color_role_select") {
 		state.colorLab.selected = payload.name;
 	} else if (payload.action === "color_role_page") {
@@ -1430,6 +1441,7 @@ function track_capture() { receive("track_capture", arguments); }
 function waveform() { receive("waveform", arguments); }
 function notice() { receive("notice", arguments); }
 function color_role() { receive("color_role", arguments); }
+function hardware_colors() { receive("hardware_colors", arguments); }
 function channel_strip() { receive("channel_strip", arguments); }
 function channel_strip_meter() { receive("channel_strip_meter", arguments); }
 function rack_inventory() { receive("rack_inventory", arguments); }

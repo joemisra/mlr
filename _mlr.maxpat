@@ -15,6 +15,17 @@
         "boxes": [
             {
                 "box": {
+                    "id": "obj-startup-cmd",
+                    "maxclass": "newobj",
+                    "numinlets": 0,
+                    "numoutlets": 1,
+                    "outlettype": [ "" ],
+                    "patching_rect": [ 648.5, 854.0, 130.0, 22.0 ],
+                    "text": "r mlr_startup_cmd"
+                }
+            },
+            {
+                "box": {
                     "id": "obj-195",
                     "maxclass": "message",
                     "numinlets": 2,
@@ -68558,6 +68569,12 @@
                     "source": [ "obj-187", 0 ],
                     "watchpoint_flags": 1,
                     "watchpoint_id": 40
+                }
+            },
+            {
+                "patchline": {
+                    "destination": [ "obj-187", 0 ],
+                    "source": [ "obj-startup-cmd", 0 ]
                 }
             },
             {

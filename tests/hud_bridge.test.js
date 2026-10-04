@@ -50,6 +50,7 @@ test('HUD commands route through existing buses and use zero-based IDs', () => {
 	harness.context.bar(2);
 	harness.context.transport('restart');
 	harness.context.display_recover();
+	harness.context.hardware_colors(1);
 	harness.context.sample_assign(7, 19);
 	harness.context.sample_audition(19);
 	harness.context.sample_preview_stop();
@@ -76,6 +77,8 @@ test('HUD commands route through existing buses and use zero-based IDs', () => {
 		message[0] === 'gridrouter' && message[1] === 'hudTarget' && message[3] === 3), true);
 	assert.equal(harness.named.some((message) =>
 		message[0] === 'gridrouter' && message[1] === 'displayRecover'), true);
+	assert.equal(harness.named.some((message) =>
+		message[0] === 'mlr_startup_cmd' && message[1] === 'hardware_colors' && message[2] === 1), true);
 	assert.equal(harness.named.some((message) =>
 		message[0] === 'sample_bank' && message[1] === 'assign' && message[2] === 7 && message[3] === 19), true);
 	assert.equal(harness.named.some((message) =>

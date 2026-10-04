@@ -313,6 +313,27 @@ test('MechaTrellis private OSC is blocked by default and standard levels remain 
 		[0, '/box/grid/led/color/set', 1, 2, 3, 4, 5]);
 });
 
+test('color-off sequence neutralizes scene modifiers and animations without changing brightness', () => {
+ for (const protocol of [1,2]) {
+  const h=createHarness(),b=h.context;
+  b.set_edition(256);b.mechatrellis(protocol);
+  b.setcell(2,3,11);b.colorcell(2,3,0,100,200);
+  b.colorstatecell(2,3,'replace',255,0,0,255);
+  b.colormotioncell(2,3,'replace',0,255,0,255);
+  b.animcell(4,5,7,1);
+  const levels=Array.from(b.composedLevels());h.clearOutlets();
+  b.colorlayersclear();b.colorall(255,255,255);b.mechatrellis(0);
+  assert.deepEqual(Array.from(b.composedLevels()),levels);
+  for (let i=0;i<256;i++) {
+   const rgb=Array.from(b.composedColorAt(i));
+   assert.equal(rgb[0],rgb[1]);assert.equal(rgb[1],rgb[2]);
+  }
+  assert.ok(h.outlets.some(m=>/color|frame/.test(m[1])));
+  h.clearOutlets();b.colorcell(2,3,20,40,80);b.setcell(2,3,6);b.flush();
+  assert.equal(h.outlets.some(m=>/color|frame|state/.test(m[1])),false);
+ }
+});
+
 test('MechaTrellis v2 emits one staged combined frame for a complete page', () => {
 	const harness = createHarness();
 	const bridge = harness.context;

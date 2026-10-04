@@ -30,6 +30,9 @@ be relinked from Session. Plugin availability remains specific to your machine.
 Brightness 0–15 carries all grid state. This build defaults to
 `mechatrellis 0`, `editorColors 0`, and CV pulses off. The example local settings
 are also safe for ordinary monome hardware.
+HUD → Live → **GRID COLOR ON/OFF** enables optional MechaTrellis color and
+remembers the choice in `mlr.local.json`. Turning it off restores a neutral
+palette. This local preference stays outside session documents.
 
 Open one edition at a time in a Max process: the inherited named audio/control
 buses are shared. Save before closing an existing patch. Never open this

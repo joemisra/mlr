@@ -297,6 +297,25 @@ test('color lab edits one runtime role and exposes non-persistent reset controls
 		command[1] === 'color_reset' && command[2] === 'rta.trigger'), true);
 });
 
+test('hardware color toggle is available without a palette snapshot and follows acknowledged runtime state', () => {
+ const h = createHarness();
+ for (const size of [[480,320],[720,480],[1100,700]]) {
+  h.mgraphics.size = size;
+  for (const page of ['live','colors']) {
+   h.context.page(page); h.context.paint();
+   const toggle = h.context.hitRegions.find(r => r.id === 'hardware_colors');
+   assert.ok(toggle, `${page} at ${size}`);
+   assert.ok(toggle.x >= 0 && toggle.x + toggle.width <= size[0]);
+   assert.ok(toggle.y >= 0 && toggle.y + toggle.height <= size[1]);
+   h.context.hardware_colors(0); h.context.activateRegion(toggle,false);
+   assert.deepEqual(h.commands.at(-1), [0,'hardware_colors',1]);
+   assert.equal(h.context.state.hardwareColors,0);
+   h.context.hardware_colors(1); h.context.activateRegion(toggle,false);
+   assert.deepEqual(h.commands.at(-1), [0,'hardware_colors',0]);
+  }
+ }
+});
+
 test('parameter banner reserves space, shows name value and layer, and clears without changing the page',()=>{
  const h=createHarness(),drawn=[];h.mgraphics.show_text=t=>drawn.push(t);
  h.context.parameter_focus(JSON.stringify({active:true,name:'Sweep decay',value:32,unit:'ms',track:15,bar:1,step:9,layer:'Group override'}));
