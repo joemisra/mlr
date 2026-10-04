@@ -1,5 +1,8 @@
 # ṛta · ऋत
 
+Coming from MLR? Start with [ṛta: getting started from MLR](RTA-GETTING-STARTED.md),
+including a first kick/snare pattern and a brightness-only grid walkthrough.
+
 Open `rta.maxproj`, then `_rta.maxpat` if needed. The HUD is the main application
 window. This project owns its hidden `rta_engine.maxpat`, one clock, the sample
 bank, plugin/session services, grid routing, and the eight RNBO instruments.

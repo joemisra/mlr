@@ -133,7 +133,7 @@ function transformed(file, edition) {
 }
 function discover(edition) {
  const found=new Set(['_mlr.maxpat','mlr_product.js','license_mlr.txt','mlr_info.txt','mlr.local.example.json','sample-bank.json']);
- if(edition==='rta')for(const f of ['hud.maxpat','time.maxpat','rnbo_drum_lab.maxpat','sequence64_editor_reference.md','grid_routing_reference.md'])found.add(f);
+ if(edition==='rta')for(const f of ['hud.maxpat','time.maxpat','rnbo_drum_lab.maxpat','RTA-GETTING-STARTED.md','sequence64_editor_reference.md','grid_routing_reference.md'])found.add(f);
  for(const file of found) {
   for(const dep of references(file,transformed(file,edition).toString())) {
    if(edition==='mlr' && baseOptional(dep))continue;
