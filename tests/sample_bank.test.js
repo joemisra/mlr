@@ -460,3 +460,58 @@ test('session apply restores catalog recordings from resolved bundle sidecars', 
 		message[0] === '[samplebank]path' &&
 		message[1] === '/sessions/Test.mlr-session/recordings/recording-01.wav'), true);
 });
+
+test('dropping several audio files preserves assignments, deduplicates, and groups parent folders', () => {
+	const h = createHarness({}, { '/kit': [{ name: 'Kick.wav', type: 'WAVE' }] });
+	h.context.scanFolder('/kit'); runScheduledTasks(h);
+	h.context.assign(3, 0);
+	h.context.importFile('/New Sounds/Air.wav');
+	h.context.importFile('/New Sounds/Pad.aiff');
+	h.context.importFile('/New Sounds/Air.wav');
+	h.context.importFile('/kit/Kick.wav');
+	assert.equal(h.context.importFile('/bad.txt'), false);
+	runScheduledTasks(h);
+	assert.deepEqual(Array.from(h.context.pendingSamples), ['/kit/Kick.wav', '/New Sounds/Air.wav', '/New Sounds/Pad.aiff']);
+	assert.equal(h.context.sampleFolders.length, 2);
+	assert.equal(h.context.runtimeAssignments[3], 0);
+	assert.equal(h.context.sampleFolders[1].name, 'New Sounds');
+});
+
+test('removing all folders keeps catalog buffers and assignments through save/reopen and slot reuse', () => {
+	const h = createHarness({}, { '/kit': [{ name: 'Kick.wav', type: 'WAVE' }] });
+	h.context.scanFolder('/kit'); runScheduledTasks(h);
+	h.context.assign(3, 0);
+	h.namedMessages.length = 0;
+	assert.equal(h.context.removeFolder('folder:0'), true);
+	assert.equal(h.context.sampleFolders.length, 0);
+	assert.equal(h.context.sampleRecords[0].folderId, '');
+	assert.equal(h.context.runtimeAssignments[3], 0);
+	assert.equal(h.namedMessages.some(m => m[0] === '[samplebank]reset' || m[0] === '[mlr]stop'), false);
+	h.context.sessionSnapshot('removed');
+	const saved = h.dictionaries.mlr_session_bank_fragment;
+	assert.equal(saved.samples[0].folderId, '');
+	h.context.sessionApply(JSON.stringify(saved)); runScheduledTasks(h);
+	assert.equal(h.context.sampleFolders.length, 0);
+	assert.equal(h.context.sampleRecords[0].path, '/kit/Kick.wav');
+	assert.equal(h.context.runtimeAssignments[3], 0);
+	h.context.importFile('/other/Air.wav'); runScheduledTasks(h);
+	assert.equal(h.context.sampleFolders[0].id, 'folder:0');
+	assert.deepEqual(Array.from(h.context.sampleFolders[0].sampleIndices), [1]);
+	assert.equal(h.context.sampleRecords[0].folderId, '');
+	h.context.scanFolder('/kit'); runScheduledTasks(h);
+	assert.equal(h.context.sampleRecords.length, 2);
+	assert.equal(h.context.sampleRecords[0].folderId, 'folder:1');
+	assert.equal(h.context.runtimeAssignments[3], 0);
+});
+
+test('drops wait for an active load and removal refuses to mutate its catalog', () => {
+	const h = createHarness({ '/project/sample-bank.json': JSON.stringify({ samples: ['kick.wav'] }) });
+	h.context.reload();
+	assert.equal(h.context.removeFolder('folder:0'), false);
+	h.context.importFile('/other/Pad.wav');
+	h.context.importDroppedFiles();
+	assert.equal(h.context.droppedPaths.length, 1);
+	runScheduledTasks(h);
+	assert.equal(h.context.sampleRecords.length, 2);
+	assert.equal(h.context.runtimeAssignments[0], 0);
+});

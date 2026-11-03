@@ -18,6 +18,36 @@
     "boxes": [
       {
         "box": {
+          "id": "obj-phasecut",
+          "maxclass": "newobj",
+          "text": "mlr_phase_cut #1",
+          "numinlets": 7,
+          "numoutlets": 2,
+          "patching_rect": [
+            560,
+            650,
+            180,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
+          "id": "obj-phase-source",
+          "maxclass": "newobj",
+          "text": "sprintf %sfile",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "patching_rect": [
+            560,
+            620,
+            180,
+            22
+          ]
+        }
+      },
+      {
+        "box": {
           "fontsize": 10.0,
           "id": "obj-138",
           "linecount": 5,
@@ -4676,6 +4706,126 @@
     "lines": [
       {
         "patchline": {
+          "source": [
+            "obj-phasecut",
+            0
+          ],
+          "destination": [
+            "obj-1",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-phasecut",
+            1
+          ],
+          "destination": [
+            "obj-1",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-98",
+            2
+          ],
+          "destination": [
+            "obj-phasecut",
+            2
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-99",
+            0
+          ],
+          "destination": [
+            "obj-phase-source",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-phase-source",
+            0
+          ],
+          "destination": [
+            "obj-phasecut",
+            3
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-94",
+            1
+          ],
+          "destination": [
+            "obj-phasecut",
+            6
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-82",
+            0
+          ],
+          "destination": [
+            "obj-phasecut",
+            5
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-83",
+            0
+          ],
+          "destination": [
+            "obj-phasecut",
+            4
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-92",
+            0
+          ],
+          "destination": [
+            "obj-phasecut",
+            4
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-94",
+            1
+          ],
+          "destination": [
+            "obj-phasecut",
+            5
+          ]
+        }
+      },
+      {
+        "patchline": {
           "destination": [
             "obj-channel-strip",
             1
@@ -6683,7 +6833,7 @@
       {
         "patchline": {
           "destination": [
-            "obj-1",
+            "obj-phasecut",
             1
           ],
           "source": [
@@ -6695,7 +6845,7 @@
       {
         "patchline": {
           "destination": [
-            "obj-1",
+            "obj-phasecut",
             0
           ],
           "source": [

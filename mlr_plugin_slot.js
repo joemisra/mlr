@@ -49,8 +49,14 @@ function pluginIdentifier(format, uri) {
 }
 
 var disableTask = new Task(function () {
-	if (!state.loaded || state.bypassed) outlet(0, "disable", 1);
+	if (!state.loaded || (state.bypassed && !keepCaptureRunning())) outlet(0, "disable", 1);
 }, this);
+
+// LiveCut's internal bypass also skips capture. Use only our external dry fade.
+function keepCaptureRunning() {
+	return /(?:^|[\/\\])livecut(?:\.vst3|\.component)?$/i.test(String(state.uri || "")) ||
+		/^livecut$/i.test(String(state.name || ""));
+}
 
 var clearTask = new Task(function () {
 	outlet(0, "drop");
@@ -105,7 +111,7 @@ var finalizeTask = new Task(function () {
 	}
 	state.bypassed = pendingBypass ? 1 : 0;
 	wetDry(!state.bypassed);
-	if (state.bypassed) disableTask.schedule(FADE_MS + 2);
+	if (state.bypassed && !keepCaptureRunning()) disableTask.schedule(FADE_MS + 2);
 	report();
 }, this);
 
@@ -207,7 +213,8 @@ function bypass(value) {
 	disableTask.cancel();
 	if (state.bypassed) {
 		wetDry(false);
-		disableTask.schedule(FADE_MS + 2);
+		if (!keepCaptureRunning()) disableTask.schedule(FADE_MS + 2);
+		else outlet(0, "disable", 0);
 	} else {
 		outlet(0, "disable", 0);
 		wetDry(true);

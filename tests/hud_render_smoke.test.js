@@ -10,7 +10,7 @@ const Model = require('../hud_model.js');
 function createHarness() {
 	const commands = [];
 	const tasks = [];
-	const metrics = { redraws: 0, schedules: [] };
+	const metrics = { redraws: 0, schedules: [], calls: {} };
 	function Task(callback, owner) {
 		this.callback = callback;
 		this.owner = owner;
@@ -25,7 +25,9 @@ function createHarness() {
 	const mgraphics = { size: [720, 480] };
 	for (const method of ['init', 'redraw', 'set_source_rgba', 'rectangle', 'fill',
 		'set_line_width', 'stroke', 'move_to', 'line_to', 'select_font_face',
-		'set_font_size', 'show_text']) mgraphics[method] = function () {};
+		'set_font_size', 'show_text']) mgraphics[method] = function () {
+		metrics.calls[method] = (metrics.calls[method] || 0) + 1;
+	};
 	mgraphics.redraw = function () { metrics.redraws++; };
 	const context = vm.createContext({
 		autowatch: 0, inlets: 0, outlets: 0, mgraphics, Task,
@@ -326,4 +328,184 @@ test('parameter banner reserves space, shows name value and layer, and clears wi
  assert.ok(drawn.includes('SWEEP DECAY'));assert.ok(drawn.includes('32 ms'));
  assert.ok(drawn.some(t=>String(t).includes('Group override')));
  h.context.parameter_focus('{"active":false}');assert.equal(h.context.pageLayout().contentY,60);
+});
+
+test('plugin scrollbar jumps to the last page and dragging cannot load a plugin', () => {
+ const h=createHarness(),c=h.context;
+ c.state.rackInventory.vst3=Array.from({length:100},(_,i)=>({name:'Plugin '+i,uri:'C74_VST3:/Plugin '+i,format:'vst3'}));
+ c.page('strip');c.state.stripView='rack';c.state.rackChooser.active=1;c.paint();h.commands.length=0;
+ const bar=c.hitRegions.find(r=>r.id==='rack_scrollbar');assert.ok(bar);
+ c.onpointerdown({clientX:bar.x+7,clientY:bar.y+2});
+ c.onpointermove({clientX:bar.x-80,clientY:bar.y+bar.height+100});
+ c.onpointerup({clientX:bar.x-80,clientY:bar.y+bar.height+100});
+ assert.equal(c.state.rackChooser.page,c.listPageCount('rack')-1);
+ assert.equal(c.scrollbarDrag,null);assert.equal(h.commands.length,0);
+ c.paint();const row=c.hitRegions.find(r=>r.payload.action==='rack_plugin');
+ assert.ok(row.payload.entry.name.startsWith('Plugin 9'));
+ c.onpointerdown({clientX:bar.x+7,clientY:bar.y});c.onpointerup({clientX:bar.x+7,clientY:bar.y});
+ assert.equal(c.state.rackChooser.page,0);assert.equal(h.commands.length,0);
+});
+
+test('sample scrollbar uses the active folder and clamps when its list shrinks', () => {
+ const h=createHarness(),c=h.context;
+ c.state.bank.folders=[{id:'a',name:'A'},{id:'b',name:'B'}];c.state.bank.activeFolder=0;c.state.bank.activeFolderId='a';
+ c.state.bank.samples=Array.from({length:112},(_,i)=>({id:i,name:'Sample '+i,folderId:i<80?'a':'b'}));
+ c.page('samples');c.paint();h.commands.length=0;
+ const bar=c.hitRegions.find(r=>r.id==='samples_scrollbar');assert.ok(bar);
+ c.onpointerdown({clientX:bar.x+7,clientY:bar.y+bar.height-1});
+ c.onpointerup({clientX:bar.x+7,clientY:bar.y+bar.height-1});
+ assert.equal(c.state.samplePage,4);assert.equal(h.commands.length,0);
+ c.paint();assert.ok(c.hitRegions.find(r=>r.id==='sample:64'));
+ c.state.bank.samples=c.state.bank.samples.slice(0,3);c.paint();
+ assert.equal(c.state.samplePage,0);
+ assert.equal(c.hitRegions.some(r=>r.id==='samples_scrollbar'),false);
+});
+
+test('scrollbar hit areas stay bounded and separate from rows in compact and large HUDs', () => {
+ const h=createHarness(),c=h.context;
+ c.state.bank.samples=Array.from({length:100},(_,id)=>({id,name:'Sample '+id}));
+ c.state.rackInventory.vst3=Array.from({length:100},(_,id)=>({id,name:'Plugin '+id}));
+ for(const size of [[480,320],[720,480],[1100,700]]) {
+  h.mgraphics.size=size;
+  for(const target of ['rack','samples']) {
+   c.page(target==='rack'?'strip':'samples');c.state.stripView='rack';c.state.rackChooser.active=1;c.paint();
+   const bar=c.hitRegions.find(r=>r.id===target+'_scrollbar');assert.ok(bar);
+   assert.ok(bar.x+bar.width<=size[0]);assert.ok(bar.y+bar.height<=size[1]);
+   const rows=c.hitRegions.filter(r=>r.payload.action===(target==='rack'?'rack_plugin':'sample'));
+   assert.ok(rows.every(r=>r.x+r.width<bar.x));
+   assert.ok(rows.every(r=>r.y+r.height<=bar.y+bar.height+0.01));
+  }
+ }
+});
+
+
+test('hover stays stable across repaint and still updates when entering another control', () => {
+ const h=createHarness();h.context.paint();
+ const cell=h.context.hitRegions.find(r=>r.id==='grid:2:3');
+ h.context.updatePointer(cell.x+2,cell.y+2);h.runScheduled();h.context.paint();
+ h.context.updatePointer(cell.x+3,cell.y+3);
+ assert.equal(h.metrics.schedules.length,0,'rebuilt region must not trigger another frame');
+ const other=h.context.hitRegions.find(r=>r.id==='grid:3:3');
+ h.context.updatePointer(other.x+2,other.y+2);
+ assert.equal(h.metrics.schedules.length,1);
+});
+
+test('unrelated playhead and rack messages update state without scheduling frames', () => {
+ const h=createHarness();h.context.page('pattern');h.metrics.schedules.length=0;
+ h.context.pattern_playhead('track',15,0,3);
+ assert.equal(h.metrics.schedules.length,0);
+ h.context.pattern_playhead(h.context.state.pattern.targetType,h.context.state.pattern.targetId,0,3);
+ assert.equal(h.metrics.schedules.length,1);
+ h.context.page('strip');h.context.state.stripView='rack';h.metrics.schedules.length=0;
+ h.context.rack_state(3,0,JSON.stringify({name:'Delay',status:'ready'}));
+ assert.equal(h.context.state.pluginRacks[3].slots[0].name,'Delay');
+ assert.equal(h.metrics.schedules.length,0);
+ h.context.rack_state(0,0,JSON.stringify({name:'Echo',status:'ready'}));
+ assert.equal(h.metrics.schedules.length,1);
+ h.runScheduled();
+ h.context.rack_latency(3,128,2.67,1);
+ assert.equal(h.metrics.schedules.length,1,'global latency warning remains visible');
+});
+
+test('grid and stereo waveform batch matching geometry into a small number of draws', () => {
+ const h=createHarness();h.context.hitRegions=[];
+ h.context.drawGrid(10,10,300,true);
+ assert.equal(h.context.hitRegions.length,256);
+ assert.equal(h.metrics.calls.rectangle,514,'all cell fill and border rectangles remain');
+ assert.equal(h.metrics.calls.fill,2);assert.equal(h.metrics.calls.stroke,2);
+ h.metrics.calls={};
+ const bins=Array.from({length:256},()=>[-0.5,0.5]);
+ h.context.drawWaveform(10,10,300,100,{channels:[bins,bins]});
+ assert.equal(h.metrics.calls.stroke,4,'border, center line and one path per channel');
+ assert.equal(h.metrics.calls.line_to,513,'all waveform bins remain');
+});
+
+test('overlapping gate tails expire at the right step without wrapping', () => {
+ const h=createHarness();const p={steps:[]};
+ p.steps[0]={cut:1,gateLength:4};p.steps[2]={cut:1,gateLength:5};p.steps[8]={cut:0,gateLength:64};
+ p.steps[62]={cut:1,gateLength:8};const tails=h.context.gateTails(p);
+ assert.equal(tails[0],false);assert.equal(tails[1],true);assert.equal(tails[6],true);
+ assert.equal(tails[7],false);assert.equal(tails[9],false);assert.equal(tails[63],true);
+});
+
+
+test('a preview waveform reaches the selected sample inspector', () => {
+ const h=createHarness();h.context.sample(0,14,'Kick','/samples/kick.wav','WAVE',1,500,48000);
+ h.context.state.selectedSample=0;h.context.page('samples');h.metrics.schedules.length=0;
+ h.context.waveform(14,JSON.stringify({buffer:14,frames:24000,channels:[Array.from({length:256},()=>[-0.5,0.5])]}));
+ assert.equal(h.metrics.schedules.length,1);
+ h.context.paint();
+ assert.ok(h.metrics.calls.line_to>=257,'selected sample waveform is painted');
+});
+
+
+test('phase page requests current state, edits only the selected group and stores presets', () => {
+ const h=createHarness();h.context.paint();
+ h.context.activateRegion(h.context.hitRegions.find(r=>r.id==='tab:phase'),false);h.context.paint();
+ assert.ok(h.commands.some(m=>m[1]==='phase_snapshot'));
+ h.context.activateRegion(h.context.hitRegions.find(r=>r.id==='phase_group:3'),false);h.context.paint();
+ h.context.activateRegion(h.context.hitRegions.find(r=>r.id==='phase:chance:0.75'),false);
+ for(const division of [3,6,12,16]) h.context.activateRegion(h.context.hitRegions.find(r=>r.id==='phase:division:'+division),false);
+ h.context.activateRegion(h.context.hitRegions.find(r=>r.id==='phase:ramp:2'),false);
+ h.context.activateRegion(h.context.hitRegions.find(r=>r.id==='phase_store:1'),false);
+ assert.ok(h.commands.some(m=>m[1]==='phase_set'&&m[2]===3&&m[3]==='chance'&&m[4]===0.75));
+ assert.ok(h.commands.some(m=>m[1]==='phase_set'&&m[2]===3&&m[3]==='ramp'&&m[4]===2));
+ for(const division of [3,6,12,16]) assert.ok(h.commands.some(m=>m[1]==='phase_set'&&m[3]==='division'&&m[4]===division));
+ assert.ok(h.commands.some(m=>m[1]==='phase_preset'&&m[2]===3&&m[3]==='store'&&m[4]===1));
+ h.metrics.schedules.length=0;
+ h.context.phase_cut(0,JSON.stringify({enabled:1,chance:1}));
+ assert.equal(h.metrics.schedules.length,0);
+ h.context.phase_cut(3,JSON.stringify({enabled:1,chance:0.75}));
+ assert.equal(h.metrics.schedules.length,1);assert.equal(h.context.state.phaseCuts[3].chance,0.75);
+ for(const size of [[480,320],[720,480],[1100,700]]){
+  h.mgraphics.size=size;h.context.state.parameterFocus.active=true;h.context.paint();
+  for(const r of h.context.hitRegions){assert.ok(r.width>0&&r.height>0,r.id);assert.ok(r.y+r.height<=size[1],r.id);}
+ }
+});
+
+test('a remote peer slows only desktop telemetry redraws; local gestures remain immediate', () => {
+ const harness = createHarness();
+ harness.context.remote_peer(1);
+ assert.equal(harness.metrics.schedules.at(-1).delay,150);
+ harness.runScheduled();
+ harness.context.clock(132,16);
+ assert.equal(harness.metrics.schedules.at(-1).delay,150);
+ const before = harness.metrics.redraws;
+ harness.context.page('help');
+ assert.equal(harness.metrics.redraws,before+1);
+ harness.context.remote_peer(0);
+ assert.equal(harness.metrics.schedules.at(-1).delay,33);
+});
+
+test('sample folder dropdown selects a named folder and removal sends its stable ID', () => {
+	const h = createHarness();
+	h.context.page('samples');
+	h.context.sample_folders(JSON.stringify({ activeFolder: 0, activeFolderId: 'folder:0', folders: [
+		{ id: 'folder:0', name: 'Drums', count: 3 }, { id: 'folder:4', name: 'Textures', count: 2 }
+	] }));
+	h.context.paint();
+	h.context.activateRegion(h.context.hitRegions.find(r => r.id === 'folder_menu'));
+	h.context.paint();
+	const option = h.context.hitRegions.find(r => r.id === 'folder_option:1');
+	assert.ok(option);
+	h.context.activateRegion(option);
+	assert.equal(h.context.state.bank.activeFolderId, 'folder:4');
+	assert.equal(h.context.folderMenuOpen, false);
+	h.context.paint();
+	h.context.activateRegion(h.context.hitRegions.find(r => r.id === 'folder_remove'));
+	assert.ok(h.commands.some(c => c[1] === 'sample_folder_remove' && c[2] === 'folder:4'));
+});
+
+test('native drop area follows the Samples page and hides on other pages', () => {
+	const h = createHarness();
+	const messages = [];
+	h.context.patcher = { getnamed(name) {
+		assert.equal(name, 'sample_drop_zone');
+		return { message(...args) { messages.push(args); } };
+	} };
+	h.context.page('samples'); h.context.paint();
+	assert.ok(messages.some(m => m[0] === 'hidden' && m[1] === 0));
+	assert.ok(messages.some(m => m[0] === 'presentation_rect' && m.length === 5));
+	h.context.page('live'); h.context.paint();
+	assert.deepEqual(messages[messages.length - 1], ['hidden', 1]);
 });

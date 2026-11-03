@@ -26,10 +26,16 @@ function createHarness(bufferOptions = {}) {
 	}
 	Buffer.prototype.framecount = () => bufferOptions.frames === undefined ? 512 : bufferOptions.frames;
 	Buffer.prototype.channelcount = () => bufferOptions.channels === undefined ? 2 : bufferOptions.channels;
-	Buffer.prototype.samplerate = () => bufferOptions.sampleRate === undefined ? 48000 : bufferOptions.sampleRate;
+	// Match Max's documented API; deliberately do not provide samplerate().
+	Buffer.prototype.length = () => {
+		const frames = bufferOptions.frames === undefined ? 512 : bufferOptions.frames;
+		const rate = bufferOptions.sampleRate === undefined ? 48000 : bufferOptions.sampleRate;
+		return rate ? frames * 1000 / rate : 0;
+	};
 	Buffer.prototype.peek = (channel, frame) => {
 		peekCalls++;
-		return Math.sin(frame / 17) * (channel === 1 ? 1 : 0.5);
+		return bufferOptions.sampleValue === undefined ?
+			Math.sin(frame / 17) * (channel === 1 ? 1 : 0.5) : bufferOptions.sampleValue;
 	};
 	const context = vm.createContext({
 		Buffer, Task,
@@ -142,6 +148,9 @@ test('waveform adapter reads existing mono/stereo buffers into 256 min/max bins'
 	assert.equal(waveform.channels.length, 2);
 	assert.equal(waveform.channels[0].length, 256);
 	assert.equal(waveform.frames, 1024);
+	assert.equal(waveform.sampleRate, 44100);
+	assert.equal(waveform.durationMs, 1024 * 1000 / 44100);
+	assert.ok(waveform.channels[0].some(pair => pair[0] < -0.5 && pair[1] > -0.5));
 	const firstReadCount = harness.peekCalls();
 	harness.context.waveform_request(8);
 	assert.equal(harness.peekCalls(), firstReadCount);
@@ -153,7 +162,7 @@ test('waveform adapter reads existing mono/stereo buffers into 256 min/max bins'
 test('preview waveform reads the private audition buffer but retains the bank buffer ID', () => {
 	const harness = createHarness({ frames: 240, channels: 1 });
 	harness.context.previewWaveform(14);
-	assert.equal(harness.bufferNames.at(-1), 'mlr_sample_preview');
+	assert.equal(harness.bufferNames.at(-1), 'mlr_sample_preview_audio');
 	const message = harness.named.find((candidate) =>
 		candidate[0] === 'mlr_hud_state' && candidate[1] === 'waveform');
 	assert.ok(message);
@@ -198,4 +207,28 @@ test('HUD mixer commands use the router state owner', () => {
  const h=createHarness();
  h.context.group_volume(2,110);h.context.group_mute(2,1);
  assert.deepEqual(h.named,[['gridrouter','hudGroupVolume',2,110],['gridrouter','hudGroupMute',2,1]]);
+});
+
+
+test('replacing audition audio at the same buffer ID and dimensions refreshes waveform bins', () => {
+ const audio={frames:512,channels:1,sampleRate:48000,sampleValue:0.2};
+ const h=createHarness(audio);h.context.previewWaveform(14);
+ const before=JSON.parse(h.named.at(-1)[3]);assert.equal(before.channels[0][0][0],0.2);
+ audio.sampleValue=-0.7;h.context.previewWaveform(14);
+ const after=JSON.parse(h.named.at(-1)[3]);assert.equal(after.channels[0][0][0],-0.7);
+ assert.equal(Object.keys(h.context.waveformCache).length,1);
+});
+
+
+test('phase controls use the shared router and never the plugin rack', () => {
+ const h=createHarness();h.context.phase_set(3,'repeat',0.5);h.context.phase_preset(3,'store',1);h.context.phase_snapshot();
+ assert.deepEqual(h.named,[['gridrouter','phaseCutSet',3,'repeat',0.5],['gridrouter','phaseCutPreset',3,'store',1],['gridrouter','phaseCutSnapshot']]);
+});
+
+test('sample drops preserve spaced paths and folder removal uses a stable ID', () => {
+	const h = createHarness();
+	h.context.bank_drop('/Volumes/Sample Library/Air.wav');
+	h.context.sample_folder_remove('folder:4');
+	assert.ok(h.named.some(m => m[0] === 'sample_bank' && m[1] === 'importFile' && m[2] === '/Volumes/Sample Library/Air.wav'));
+	assert.ok(h.named.some(m => m[0] === 'sample_bank' && m[1] === 'removeFolder' && m[2] === 'folder:4'));
 });

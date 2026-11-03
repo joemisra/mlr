@@ -272,3 +272,35 @@ test('recording assets may use any distinct physical file buffer through 250', (
 	document.recordings[1].bufferName = '251file';
 	assert.equal(Core.validateDocument(document).valid, false);
 });
+
+
+test('phase cut controls and user presets survive session save, while invalid DSP state fails preflight', () => {
+ const Phase=require('../phase_cut_model.js');const f=fixture();
+ const cut=Phase.sanitize({enabled:1,range:8,chance:0.75,division:12,ramp:2});
+ cut.presets[1]=Phase.parameters({division:16,repeat:1,range:0,ramp:1});
+ f.router.groups[3].phaseCut=cut;const doc=Core.buildDocument(f);
+ assert.deepEqual(Core.validateDocument(doc),{valid:true,errors:[]});
+ assert.deepEqual(doc.groups[3].phaseCut,cut);
+ const imported=Core.migrateDocument(JSON.parse(JSON.stringify(doc)));
+ assert.deepEqual(imported.groups[3].phaseCut,cut);
+ delete doc.groups[3].phaseCut.ramp;delete doc.groups[3].phaseCut.presets[1].ramp;
+ assert.equal(Core.validateDocument(doc).valid,true,'initial trial sessions and presets without ramp remain valid');
+ doc.groups[3].phaseCut.head=0.4;
+ assert.equal(Core.validateDocument(doc).valid,false);
+ delete doc.groups[3].phaseCut.head;doc.groups[3].phaseCut.chance=NaN;
+ assert.equal(Core.validateDocument(doc).valid,false);
+ delete doc.groups[3].phaseCut;
+ assert.equal(Core.validateDocument(doc).valid,true,'older sessions without phase controls remain valid');
+});
+
+test('samples detached from browser folders remain valid durable catalog entries', () => {
+	const fragments = fixture();
+	fragments.bank.folders = [];
+	fragments.bank.samples = [{ folderId: '', path: '/samples/Kit/Kick.wav', name: 'Kick.wav' }];
+	fragments.bank.assignments[0] = 0;
+	const document = Core.buildDocument(fragments);
+	assert.deepEqual(Core.validateDocument(document), { valid: true, errors: [] });
+	assert.equal(document.bank.samples[0].folderId, '');
+	assert.equal(document.bank.samples[0].path, '/samples/Kit/Kick.wav');
+	assert.equal(document.bank.assignments[0], 0);
+});

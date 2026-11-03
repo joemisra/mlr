@@ -3,6 +3,9 @@
 var Product;
 try { Product = require("mlr_product.js"); }
 catch (error) { Product = require("./mlr_product.js"); }
+var PhaseCut;
+try { PhaseCut = require("phase_cut_model.js"); }
+catch (error) { PhaseCut = require("./phase_cut_model.js"); }
 var FORMAT = Product.rta ? "mlr-session" : "mlr-base-session";
 var VERSION = Product.rta ? 4 : 1;
 var Modulation, Scenes;
@@ -234,6 +237,9 @@ function validateDocument(source) {
 	else if (source.version < 1) errors.push("Unsupported session version");
 	if (!Array.isArray(source.tracks) || source.tracks.length !== 16) errors.push("Session must contain 16 tracks");
 	if (!Array.isArray(source.groups) || source.groups.length !== 8) errors.push("Session must contain 8 groups");
+	ensureArray(source.groups).forEach(function(group, index) {
+		if (group && group.phaseCut !== undefined && !PhaseCut.valid(group.phaseCut)) errors.push("Invalid phase cut for group " + (index + 1));
+	});
 	if (!Array.isArray(source.channelStrips) || source.channelStrips.length !== 8) {
 		errors.push("Session must contain 8 channel strips");
 	}

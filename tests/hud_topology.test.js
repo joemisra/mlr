@@ -31,8 +31,8 @@ test('sample audition uses a private buffer and the existing stereo output buses
 	const patch = readPatch('sample_preview.maxpat');
 	const boxes = patch.boxes.map((entry) => entry.box);
 	assert.equal(boxes.some((box) => box.text === 'r mlr_sample_preview'), true);
-	assert.equal(boxes.some((box) => box.text === 'buffer~ mlr_sample_preview 1000 2'), true);
-	assert.equal(boxes.some((box) => box.text === 'play~ mlr_sample_preview 2'), true);
+	assert.equal(boxes.some((box) => box.text === 'buffer~ mlr_sample_preview_audio 1000 2'), true);
+	assert.equal(boxes.some((box) => box.text === 'play~ mlr_sample_preview_audio 2'), true);
 	assert.equal(boxes.some((box) => box.text === '*~ 0.2'), true);
 	assert.equal(boxes.some((box) => box.text === 'send~ dac1'), true);
 	assert.equal(boxes.some((box) => box.text === 'send~ dac2'), true);
@@ -189,4 +189,24 @@ test('channel-strip engine weights avoid the unsupported conditional expr form',
 	assert.equal(expressions.includes('expr 1. - $f2 * ($i1 != 0)'), true);
 	assert.equal(expressions.includes('expr $f2 * ($i1 == 1)'), true);
 	assert.equal(expressions.includes('expr $f2 * ($i1 == 2)'), true);
+});
+
+
+test('audition buffer name is distinct from message receivers and matches the waveform adapter', () => {
+ const boxes=readPatch('sample_preview.maxpat').boxes.map(e=>e.box);
+ const buffer=boxes.find(b=>(b.text||'').startsWith('buffer~ '));
+ const name=buffer.text.split(' ')[1];
+ assert.equal(boxes.some(b=>['r '+name,'receive '+name,'s '+name,'send '+name].includes(b.text)),false);
+ const bridge=fs.readFileSync(path.join(ROOT,'hud_bridge.js'),'utf8');
+ assert.ok(bridge.includes('buildWaveform(id, "'+name+'", true)'));
+});
+
+test('native audio drop area forwards a single path symbol to the HUD bank adapter', () => {
+	const patch = readPatch('hud.maxpat');
+	const zone = patch.boxes.find(({ box }) => box.varname === 'sample_drop_zone').box;
+	assert.equal(zone.maxclass, 'dropfile');
+	assert.equal(zone.presentation, 1);
+	const route = patch.boxes.find(({ box }) => box.text === 'prepend bank_drop').box;
+	assert.ok(patch.lines.some(({ patchline: l }) => l.source[0] === zone.id && l.source[1] === 0 && l.destination[0] === route.id));
+	assert.ok(patch.lines.some(({ patchline: l }) => l.source[0] === route.id && l.destination[0] === 'obj-hud-bridge'));
 });

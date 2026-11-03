@@ -9,6 +9,7 @@ outlets = 1;
 var Model = require("plugin_rack_model.js");
 var rackState = Model.createState();
 var inventorySeen = { vst3: {}, au: {} };
+var inventoryBlocked = { vst3: {}, au: {} };
 var inventoryTask = new Task(publishInventory, this);
 var inventoryPublishTask = new Task(publishInventoryChunk, this);
 var inventoryPublishQueue = [];
@@ -114,7 +115,7 @@ function addInventory(format, incoming) {
 	inventoryScanAtoms[normalized] += values.length;
 	var identifier = values.join(" ");
 	var entry = Model.normalizeInventoryEntry(normalized, identifier);
-	if (!entry) return;
+	if (!entry || inventoryBlocked[normalized][entry.uri]) return;
 	inventorySeen[normalized][entry.uri] = entry;
 	inventoryTask.cancel();
 	inventoryTask.schedule(80);
@@ -122,6 +123,19 @@ function addInventory(format, incoming) {
 
 function plug_vst3() { addInventory("vst3", arguments); }
 function plug_au() { addInventory("au", arguments); }
+
+// vstscan can report excluded cache records alongside ordinary entries.
+// Consume those selectors without offering blacklisted plug-ins for loading.
+function excludeInventory(format, incoming) {
+ var entry = Model.normalizeInventoryEntry(format, argsArray(incoming).join(" "));
+ if (!entry) return;
+ inventoryBlocked[format][entry.uri] = true;
+ delete inventorySeen[format][entry.uri];
+ inventoryTask.cancel(); inventoryTask.schedule(80);
+}
+function plug_au_blacklisted() { excludeInventory("au", arguments); }
+function plug_vst3_blacklisted() { excludeInventory("vst3", arguments); }
+
 
 function refresh() {
 	if (inventoryRequestActive) {
@@ -131,6 +145,7 @@ function refresh() {
 	}
 	inventoryRequestActive = 1;
 	inventorySeen = { vst3: {}, au: {} };
+	inventoryBlocked = { vst3: {}, au: {} };
 	inventoryScanMessages = { vst3: 0, au: 0 };
 	inventoryScanAtoms = { vst3: 0, au: 0 };
 	inventoryTask.cancel();
@@ -229,10 +244,10 @@ function slot_status(groupIndex, slotIndex, payload) {
 		source = { status: "error", error: String(error) };
 	}
 	var previous = rackState.groups[group].slots[slot];
-	if (!source.uri && previous.uri) source.uri = previous.uri;
-	if (!source.format && previous.format) source.format = previous.format;
-	if (!source.name && previous.name) source.name = previous.name;
-	if (!source.snapshot && previous.snapshot) source.snapshot = previous.snapshot;
+	if (source.uri === undefined) source.uri = previous.uri;
+	if (source.format === undefined) source.format = previous.format;
+	if (source.name === undefined) source.name = previous.name;
+	if (source.snapshot === undefined) source.snapshot = previous.snapshot;
 	Model.setSlot(rackState, group, slot, source);
 	publishSlot(group, slot);
 	if (source.status === "unsupported" || source.status === "missing" || source.status === "error") {

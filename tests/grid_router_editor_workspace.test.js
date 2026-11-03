@@ -75,6 +75,7 @@ function createHarness(sharedGlobalStores, layoutMode = 'legacy', edition = 'rta
 			if (name === 'modulation_model.js') return require('../modulation_model.js');
 			if (name === 'scene_model.js') return require('../scene_model.js');
 			if (name === 'instrument_model.js') return require('../instrument_model.js');
+			if (name === 'phase_cut_model.js') return require('../phase_cut_model.js');
 			if (name === 'knob_controller_model.js') return require('../knob_controller_model.js');
 			if (name === 'clap_instrument_model.js') return require('../clap_instrument_model.js');
 			if (name === 'tom_instrument_model.js') return require('../tom_instrument_model.js');
@@ -5379,4 +5380,25 @@ test('disabling hardware color neutralizes the retained palette before blocking 
   h.clearLog();r.mechatrellis(0);
   assert.equal(h.outlets.some(m=>m[1]==='colorall'),false,'ordinary-grid startup must not issue a private reset');
  }
+});
+
+for (const edition of ['mlr','rta']) test(`${edition} native phase cut toggle, presets and compact grid`, () => {
+ const h=createHarness(undefined,'legacy',edition);const c=h.context;h.clearLog();
+ c.dispatch(2,5,1);c.dispatch(2,5,0);
+ assert.equal(c.phaseCutState(2).enabled,1);
+ assert.equal(h.namedMessages.some(m=>m[0]==='mlr_rack_cmd'),false);
+ assert.equal(h.namedMessages.filter(m=>m[0]==='3[phasecut]'&&m[1]==='enabled').length,1);
+ c.phaseCutSet(2,'chance',0.75);c.phaseCutSet(2,'division',6);c.phaseCutSet(2,'ramp',2);c.phaseCutPreset(2,'store',0);
+ c.phaseCutPreset(2,'factory',0);assert.equal(c.phaseCutState(2).chance,0.25);
+ c.phaseCutPreset(2,'recall',0);assert.equal(c.phaseCutState(2).chance,0.75);
+ assert.equal(c.phaseCutState(2).division,6);assert.equal(c.phaseCutState(2).ramp,2);
+ c.s.gridHeight=8;h.clearLog();c.drawInsertFxBlock();
+ assert.ok(h.outlets.some(m=>m[1]==='setcell'&&m[2]===2&&m[3]===5&&m[4]===15));
+ c.phaseCutToggle(2);assert.equal(c.phaseCutState(2).enabled,0);
+ const saved=JSON.parse(JSON.stringify(c.sessionRouterSnapshotObject()));
+ assert.equal(saved.groups[2].phaseCut.presets[0].chance,0.75);
+ c.phaseCutSet(2,'chance',0.1);c.sessionApply(JSON.stringify(saved));
+ assert.equal(c.phaseCutState(2).chance,0.75);assert.equal(c.phaseCutState(2).enabled,0);
+ assert.equal(c.phaseCutState(2).division,6);assert.equal(c.phaseCutState(2).ramp,2);
+ assert.equal(c.phaseCutToggle(9),false);
 });

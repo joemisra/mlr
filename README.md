@@ -467,6 +467,16 @@ Mode-2 row 5, columns 1–8 toggle Run/Stop for group patterns 1–8. These
 buttons replace the older channel short-loop latch row. A running group key
 briefly dips on each audio trigger, then returns to its bright latched state.
 
+Mode-2 **row 6, columns 1–8** toggle native **Phase Cut** for each group.
+Bright = on, dim = off. Open **HUD → Phase** for rhythmic jump, repeat and
+reverse settings, four factory presets and four user slots per group. The
+additional read head follows the active sample loop while the original playhead
+keeps advancing; bypass fades back to the original playback position. No plugin
+installation or rack slot is required. Settings and user presets save in sessions.
+This first version processes looping sample playback; one-shot and stretched
+playback pass through dry. The per-track random-position toggle remains separate.
+See [Phase Cut controls and checks](docs/phase-cut.md).
+
 Mode-2 physical column 9 retains the old Max randomizer while also opening the
 sample browser: tap a track row to browse for that track, or hold it for about
 450 ms to send the original `N[box]rnd` message. The top-row Randomize All key
@@ -580,6 +590,8 @@ In Max 9, press **HUD** near the upper-right of MLR to open the responsive
   paced atomic chunks, so the last complete list remains usable while it
   refreshes. Use Max's Plug-in Browser **Full Scan** only when a newly installed
   effect is absent from that cache.
+  The chooser and sample bank have draggable scrollbars for jumping through
+  pages; clicking a scrollbar track jumps directly to that part of the list.
 - **Samples** — sixteen runtime track assignments, a paged bank browser,
   metadata, and cached mono/stereo waveforms read from existing named buffers.
   A click selects and auditions through a private preview player; **Assign** or

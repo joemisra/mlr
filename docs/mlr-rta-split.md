@@ -76,7 +76,7 @@ smoke test do not establish hardware or complete live session behavior.
 
 ## Remaining live smoke test
 
-1. Start MLR alone. Confirm its five HUD pages, group volume/mute, sample
+1. Start MLR alone. Confirm its six HUD pages (including Phase), group volume/mute, sample
    assignment/cutting, capture, original pattern recorders and Mod controls.
 2. Save a base session, change state, reopen it and confirm restored state with
    transport stopped. Try a full ṛta session and confirm rejection without

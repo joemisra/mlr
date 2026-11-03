@@ -84,7 +84,7 @@
                     "numoutlets": 2,
                     "outlettype": [ "float", "bang" ],
                     "patching_rect": [ 82.0, 238.0, 205.0, 22.0 ],
-                    "text": "buffer~ mlr_sample_preview 1000 2"
+                    "text": "buffer~ mlr_sample_preview_audio 1000 2"
                 }
             },
             {
@@ -160,7 +160,7 @@
                     "numoutlets": 3,
                     "outlettype": [ "signal", "signal", "bang" ],
                     "patching_rect": [ 430.0, 238.0, 157.0, 22.0 ],
-                    "text": "play~ mlr_sample_preview 2"
+                    "text": "play~ mlr_sample_preview_audio 2"
                 }
             },
             {

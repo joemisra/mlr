@@ -8,13 +8,24 @@ assign rows, raise group/master levels, and enable audio when ready.
 Main, Mod, Groups, and the four original pattern recorders remain. The sample
 browser, sample folders, capture/export, channel strips/plugin racks, session
 save/open, and grid recovery improvements are retained. HUD opens a companion
-window for Live, Strip, Samples, Session, and Help.
+window for Live, Strip, Phase, Samples, Session, and Help.
 
 On Mod, row 5 columns 1–8 toggle group gate latches; column 12 cycles each
 track's loop division. Column 9 opens the sample browser on a tap or randomizes
 on a hold. Column 10 controls track capture. Grid coordinates are one-based.
 There are no sequencer view buttons, phrase launches, instrument engines, or
 sequencer modulation in this edition. `extendedEditors 1` cannot enable them.
+
+Mod row 6 columns 1–8 toggle native Phase Cut per group. Bright means on;
+dim means off. HUD → Phase has rhythmic jumps, repeats, reverse probability,
+dry/wet and crossfade controls, plus four factory presets and four user slots
+per group. Settings and user slots save in sessions. Try NUDGE for subtle changes
+or SHUFFLE for more obvious cutting, then turn it on. It needs no plugin or rack
+slot. Looping samples are supported; stretched and one-shot playback pass dry.
+The original playhead keeps advancing while the additional read head cuts.
+
+The rack plugin chooser and Samples bank include draggable scrollbars for
+quick page jumps, alongside their previous/next buttons.
 
 Save and open modern sessions from HUD → Session. New bundles use the
 `mlr-base-session` format inside the existing `.mlr-session` folder extension.

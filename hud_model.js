@@ -11,7 +11,11 @@ var Product;
 try { Product = require("mlr_product.js"); }
 catch (error) { Product = require("./mlr_product.js"); }
 
-var HUD_PAGES = !Product.rta ? ["live", "strip", "samples", "session", "help"] : ["live", "pattern", "strip", "samples", "colors", "session", "help"];
+var PhaseCut;
+try { PhaseCut = require("phase_cut_model.js"); }
+catch (error) { PhaseCut = require("./phase_cut_model.js"); }
+
+var HUD_PAGES = !Product.rta ? ["live", "strip", "phase", "samples", "session", "help"] : ["live", "pattern", "strip", "phase", "samples", "colors", "session", "help"];
 var GRID_SIZE = 16;
 var TRACK_COUNT = 16;
 var CHANNEL_COUNT = 8;
@@ -233,6 +237,7 @@ function createState() {
 		waveforms: {},
 		selectedTrack: 0,
 		selectedChannelStrip: 0,
+		phaseCuts: Array.from({length:8}, function(){return PhaseCut.sanitize();}),
 		selectedSample: -1,
 		samplePage: 0,
 		sampleBrowserActive: 0,
@@ -468,6 +473,11 @@ function applyEvent(state, topic, incomingArgs) {
 				channelState.lastActiveTrack = integer(args[6], -1);
 				channelState.running = args[7] ? 1 : 0;
 			}
+			break;
+		}
+		case "phase_cut": {
+			var cutGroup = integer(args[0], -1);
+			if (cutGroup >= 0 && cutGroup < 8) state.phaseCuts[cutGroup] = PhaseCut.sanitize(parseJson(args[1], {}));
 			break;
 		}
 		case "channel_strip": {
@@ -714,7 +724,7 @@ function applyEvent(state, topic, incomingArgs) {
 						clamp(integer(args[11], COLORS.cyan[1]), 0, 255),
 						clamp(integer(args[12], COLORS.cyan[2]), 0, 255)
 					],
-					folderId: String(args[13] || "folder:0")
+					folderId: String(args[13] === undefined ? "folder:0" : args[13])
 				};
 				state.bank.count = Math.max(state.bank.count, sampleId + 1);
 			}
@@ -824,7 +834,7 @@ function activeFolderSampleIndices(state) {
 	var indices = [];
 	for (var index = 0; index < state.bank.samples.length; index++) {
 		var sample = state.bank.samples[index];
-		if (sample && (!state.bank.folders.length || sample.folderId === folderId)) {
+		if (sample && sample.folderId !== "" && (!state.bank.folders.length || sample.folderId === folderId)) {
 			indices.push(index);
 		}
 	}
@@ -911,6 +921,10 @@ function describeCell(mode, x, y, editor, helpTopic) {
 			detail = Product.rta ? "Run or open group pattern " + (x + 1) : "Latch group " + (x + 1);
 			gesture = Product.rta ? "Tap Run · hold Open" : "Tap to toggle";
 			colorMeaning = "Red family identifies pattern transport";
+		} else if (y === 5 && x < 8) {
+			detail = "Phase Cut for group " + (x + 1);
+			gesture = "Tap to toggle · settings in HUD Phase";
+			colorMeaning = "Bright = on · dim = off";
 		} else if (x === 11 && y > 0) {
 			detail = Product.rta ? "Preview or open track phrase " + y : "Loop division for track " + y;
 			gesture = Product.rta ? "Tap Preview · hold Open" : "Tap to cycle";
@@ -996,6 +1010,7 @@ function describeCell(mode, x, y, editor, helpTopic) {
 
 module.exports = {
 	HUD_PAGES: HUD_PAGES,
+	PhaseCut: PhaseCut,
 	Product: Product,
 	GRID_SIZE: GRID_SIZE,
 	TRACK_COUNT: TRACK_COUNT,

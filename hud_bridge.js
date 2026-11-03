@@ -217,7 +217,7 @@ function bufferValue(buffer, channel, frame) {
 	return isFinite(value) ? value : 0;
 }
 
-function buildWaveform(bufferIndex, requestedBufferName) {
+function buildWaveform(bufferIndex, requestedBufferName, refresh) {
 	var bufferName = requestedBufferName || (String(bufferIndex) + "file");
 	var buffer;
 	try {
@@ -229,10 +229,13 @@ function buildWaveform(bufferIndex, requestedBufferName) {
 	var frames = 0;
 	var channels = 0;
 	var sampleRate = 0;
+	var durationMs = 0;
 	try {
 		frames = Math.max(0, parseInt(buffer.framecount(), 10) || 0);
 		channels = Math.max(0, parseInt(buffer.channelcount(), 10) || 0);
-		sampleRate = Math.max(0, Number(buffer.samplerate()) || 0);
+		// Max Buffer exposes duration in milliseconds, not a samplerate() method.
+		durationMs = Math.max(0, Number(buffer.length()) || 0);
+		sampleRate = durationMs ? frames * 1000 / durationMs : 0;
 	} catch (metadataError) {
 		publish("notice", "warn", "Buffer " + bufferName + " is unavailable");
 		return { buffer: bufferIndex, frames: 0, sampleRate: 0, channels: [] };
@@ -242,12 +245,18 @@ function buildWaveform(bufferIndex, requestedBufferName) {
 		return { buffer: bufferIndex, frames: frames, sampleRate: sampleRate, channels: [] };
 	}
 	var cacheKey = bufferName + ":" + bufferIndex + ":" + frames + ":" + channels + ":" + sampleRate;
+	if (refresh) {
+		// The audition buffer can contain different audio with identical dimensions.
+		Object.keys(waveformCache).forEach(function(key) {
+			if (key.indexOf(bufferName + ":") === 0) delete waveformCache[key];
+		});
+	}
 	if (waveformCache[cacheKey]) return waveformCache[cacheKey];
 	var result = {
 		buffer: bufferIndex,
 		frames: frames,
 		sampleRate: sampleRate,
-		durationMs: sampleRate ? frames * 1000 / sampleRate : 0,
+		durationMs: durationMs,
 		channels: []
 	};
 	var drawnChannels = Math.min(2, channels);
@@ -283,7 +292,7 @@ function waveform_request(bufferIndex) {
 function previewWaveform(bufferIndex) {
 	var id = parseInt(bufferIndex, 10);
 	if (!isFinite(id) || id < 0) return;
-	var waveform = buildWaveform(id, "mlr_sample_preview");
+	var waveform = buildWaveform(id, "mlr_sample_preview_audio", true);
 	if (waveform) publish("waveform", id, JSON.stringify(waveform));
 }
 
@@ -315,4 +324,18 @@ function clearWaveformCache() {
 function loadbang() {
 	var task = new Task(snapshot, this);
 	task.schedule(150);
+}
+
+function phase_set(group, key, value) { messnamed("gridrouter", "phaseCutSet", group, key, value); }
+function phase_preset(group, action, slot) { messnamed("gridrouter", "phaseCutPreset", group, action, slot); }
+
+function phase_snapshot() { messnamed("gridrouter", "phaseCutSnapshot"); }
+
+function bank_drop() {
+	var path = Array.prototype.slice.call(arguments).join(" ");
+	if (path) messnamed("sample_bank", "importFile", path);
+}
+
+function sample_folder_remove(folderId) {
+	messnamed("sample_bank", "removeFolder", String(folderId || ""));
 }

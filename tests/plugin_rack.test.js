@@ -186,3 +186,53 @@ test('plugin slot defers construction and polls until the host reports readiness
 	assert.equal(named.some((message) => message[0] === 'mlr_rack_status' &&
 		message[1] === 'slot_status'), true);
 });
+
+test('rack clear removes stale plugin identity', () => {
+ const named=[]; function Task() {};
+ Task.prototype.cancel=Task.prototype.schedule=Task.prototype.repeat=function(){};
+ const c=vm.createContext({autowatch:0,inlets:1,outlets:1,Task,require:()=>Rack,messnamed:(...a)=>named.push(a),outlet(){}});
+ vm.runInContext(fs.readFileSync(path.join(ROOT,'mlr_plugin_rack_controller.js'),'utf8'),c);
+ c.slot_status(0,1,JSON.stringify({format:'vst3',uri:'Livecut',name:'Livecut',loaded:1,status:'ready',snapshot:'old'}));
+ c.slot_status(0,1,JSON.stringify({format:'',uri:'',name:'Empty',loaded:0,status:'empty',snapshot:''}));
+ assert.equal(c.rackState.groups[0].slots[1].uri,'');
+ assert.equal(c.rackState.groups[0].slots[1].snapshot,'');
+ assert.equal(named.some(m=>m[0]==='gridrouter'),false);
+});
+
+test('LiveCut dry bypass keeps processing while ordinary plugin bypass suspends', () => {
+ const output = [];
+ function Task(callback) { this.callback=callback; this.scheduled=false; }
+ Task.prototype.cancel=function(){this.scheduled=false;};
+ Task.prototype.schedule=Task.prototype.repeat=function(){this.scheduled=true;};
+ const c=vm.createContext({Task,jsarguments:['mlr_plugin_slot.js',1,1],
+  arrayfromargs: args => Array.from(args), messnamed(){}, outlet:(...args)=>output.push(args)});
+ vm.runInContext(fs.readFileSync(path.join(ROOT,'mlr_plugin_slot.js'),'utf8'),c);
+ c.state={loaded:1,uri:'C74_VST3:/Livecut',name:'Livecut',bypassed:0};
+ c.bypass(1);
+ assert.equal(c.disableTask.scheduled,false);
+ c.disableTask.callback();
+ assert.equal(output.some(m=>m[1]==='disable'&&m[2]===1),false);
+ assert.ok(output.some(m=>m[0]===1&&m[1]===1));
+ assert.ok(output.some(m=>m[0]===2&&m[1]===0));
+ c.bypass(0);
+ assert.equal(c.state.bypassed,0);
+ c.state.name='Delay';c.state.uri='C74_VST3:/Delay';
+ c.bypass(1);
+ assert.equal(c.disableTask.scheduled,true);
+ c.disableTask.callback();
+ assert.ok(output.some(m=>m[1]==='disable'&&m[2]===1));
+});
+
+test('blacklisted AU and VST3 scan replies are handled and excluded in either order', () => {
+ function Task(){};Task.prototype.cancel=Task.prototype.schedule=Task.prototype.repeat=function(){};
+ const c=vm.createContext({autowatch:0,inlets:1,outlets:1,Task,require:()=>Rack,messnamed(){},outlet(){}});
+ vm.runInContext(fs.readFileSync(path.join(ROOT,'mlr_plugin_rack_controller.js'),'utf8'),c);
+ c.plug_au('Vendor/Bad AU');c.plug_au_blacklisted('Vendor/Bad AU');
+ c.plug_vst3_blacklisted('Vendor/Bad VST3');c.plug_vst3('Vendor/Bad VST3');
+ c.plug_au('Vendor/Good AU');c.publishInventory();
+ assert.equal(c.rackState.inventory.au.length,1);
+ assert.equal(c.rackState.inventory.au[0].uri,'C74_AU:/Vendor/Good AU');
+ assert.equal(c.rackState.inventory.vst3.length,0);
+ c.refresh();c.plug_au('Vendor/Bad AU');c.publishInventory();
+ assert.equal(c.rackState.inventory.au.length,1,'a fresh cache listing clears prior blacklist bookkeeping');
+});

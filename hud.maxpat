@@ -13,6 +13,9 @@
         "bglocked": 1,
         "openinpresentation": 1,
         "boxes": [
+            { "box": { "id": "obj-sample-drop", "varname": "sample_drop_zone", "maxclass": "dropfile", "numinlets": 1, "numoutlets": 2, "outlettype": [ "", "" ], "hidden": 1, "ignoreclick": 1, "border": 1.0, "presentation": 1, "presentation_rect": [ 570.0, 440.0, 140.0, 24.0 ], "patching_rect": [ 570.0, 440.0, 140.0, 24.0 ] } },
+            { "box": { "id": "obj-sample-drop-prepend", "maxclass": "newobj", "text": "prepend bank_drop", "numinlets": 1, "numoutlets": 1, "outlettype": [ "" ], "patching_rect": [ 570.0, 730.0, 120.0, 22.0 ] } },
+            { "box": { "id": "obj-remote-command", "maxclass": "newobj", "text": "r mlr_remote_hud_command", "patching_rect": [ 20.0, 700.0, 180.0, 22.0 ], "numinlets": 0, "numoutlets": 1, "outlettype": [ "" ] } },
             {
                 "box": {
                     "comment": "dummy inlet for pcontrol",
@@ -300,6 +303,9 @@
             }
         ],
         "lines": [
+            { "patchline": { "source": [ "obj-sample-drop", 0 ], "destination": [ "obj-sample-drop-prepend", 0 ] } },
+            { "patchline": { "source": [ "obj-sample-drop-prepend", 0 ], "destination": [ "obj-hud-bridge", 0 ] } },
+            { "patchline": { "source": [ "obj-remote-command", 0 ], "destination": [ "obj-hud-bridge", 0 ] } },
             {
                 "patchline": {
                     "destination": [ "obj-bank-read", 0 ],

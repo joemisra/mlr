@@ -105,7 +105,7 @@ test('base sessions round-trip without sequencer fields; rta imports them and ML
 
 test('generated MLR HUD renders every available page without rta navigation',()=>{
  const Model=require(path.join(temp,'mlr','hud_model.js'));
- assert.deepEqual(Model.HUD_PAGES,['live','strip','samples','session','help']);
+ assert.deepEqual(Model.HUD_PAGES,['live','strip','phase','samples','session','help']);
  const labels=[];
  const graphics={size:[936,550],show_text(text){labels.push(text);}};
  for(const name of ['init','redraw','set_source_rgba','rectangle','fill','set_line_width','stroke','move_to','line_to','select_font_face','set_font_size'])graphics[name]=()=>{};

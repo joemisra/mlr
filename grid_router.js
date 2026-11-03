@@ -2,6 +2,7 @@ autowatch = 1;
 inlets = 4;
 outlets = 4;
 
+var PhaseCut = require("phase_cut_model.js");
 var Product = require("mlr_product.js");
 var Modulation = Product.rta ? require("modulation_model.js") : {
 	createState: function () { return { sources: {}, routes: [] }; },
@@ -431,7 +432,7 @@ function instrumentPresetAction(trackIdx, slot, storeSound) {
  *   This replaces the old [p switcher] path (r mlrpageled → constrain → setcell).
  *
  * Mod page (kmod 2), cols 0–7: row 0 mutes, rows 1–2 vol up/down (brightness = level),
- * row 3 timestretch, row 4 per-group Sequence64 Run, rows 5+ insert-FX placeholders.
+ * row 3 timestretch, row 4 per-group Sequence64 Run, row 5 Phase Cut, rows 6+ reserved.
  * The old bottom-row VU overlay is retired; row 15 cols 0–2 remain the persistent
  * Sequence / Setup / Scene workspace switcher whenever mode 2 is visible.
  * Col 8: row 0 randomizes all channels. Rows 1+ tap open that track in the
@@ -711,7 +712,55 @@ var playbackDispatching = false;
 
 /** Insert FX placeholder: cols 0–7 × rows 4–15 (96 cells). */
 var insert_fx = new Array(8 * 12).fill(0);
-
+function phaseCutState(group) {
+ if (!s.phaseCuts) s.phaseCuts = [];
+ s.phaseCuts[group] = PhaseCut.sanitize(s.phaseCuts[group]);
+ return s.phaseCuts[group];
+}
+function phaseCutSnapshot() {
+ for (var group = 0; group < 8; group++) publishPhaseCut(group);
+}
+function publishPhaseCut(group) {
+ var cut = phaseCutState(group);
+ Object.keys(PhaseCut.DEFAULTS).forEach(function(key) {
+  messnamed((group + 1) + "[phasecut]", key, cut[key]);
+ });
+ publishHud("phase_cut", group, JSON.stringify(cut));
+}
+function phaseCutSet(group, key, value) {
+ group = Number(group);
+ if (!Number.isInteger(group) || group < 0 || group >= 8 ||
+  !Object.prototype.hasOwnProperty.call(PhaseCut.DEFAULTS, key) || !isFinite(Number(value))) return false;
+ var cut = phaseCutState(group); cut[key] = Number(value);
+ s.phaseCuts[group] = PhaseCut.sanitize(cut);
+ publishPhaseCut(group); markSessionDirty("phase cut");
+ if (s.kmod === 2) renderCompletePage(2, false);
+ return true;
+}
+function phaseCutToggle(group) {
+ group = Number(group);
+ if (!Number.isInteger(group) || group < 0 || group >= 8) return false;
+ return phaseCutSet(group, "enabled", phaseCutState(group).enabled ? 0 : 1);
+}
+function phaseCutPreset(group, action, slot) {
+ group = Number(group); slot = Number(slot);
+ if (!Number.isInteger(group) || group < 0 || group >= 8 || !Number.isInteger(slot) || slot < 0 || slot >= 4) return false;
+ var cut = phaseCutState(group), values;
+ if (action === "store") cut.presets[slot] = PhaseCut.parameters(cut);
+ else if (action === "factory") values = PhaseCut.FACTORIES[slot].values;
+ else if (action === "recall") values = cut.presets[slot];
+ else return false;
+ if (action !== "store") {
+  if (!values) return false;
+  var enabled = cut.enabled;
+  Object.keys(PhaseCut.DEFAULTS).forEach(function(key) { if (values[key] !== undefined) cut[key] = values[key]; });
+  cut.enabled = enabled;
+ }
+ s.phaseCuts[group] = PhaseCut.sanitize(cut);
+ publishPhaseCut(group); markSessionDirty("phase cut preset");
+ if (s.kmod === 2) renderCompletePage(2, false);
+ return true;
+}
 function insertFxIndex(col, row) {
 	return col * 12 + (row - 4);
 }
@@ -2067,6 +2116,7 @@ function publishHudAfterGridAction(state, col, row) {
 }
 
 function hudSnapshot() {
+	for (var cutGroup = 0; cutGroup < 8; cutGroup++) publishPhaseCut(cutGroup);
 	var workspace = ensureEditorWorkspaceDefaults();
 	publishHud("mode", s.kmod);
 	publishHud("hardware_colors", s.mechaTrellisExtensions ? 1 : 0);
@@ -9634,7 +9684,7 @@ function sessionRouterSnapshotObject() {
 		var channel = getChannelStateByIndex(groupIndex);
 		groups.push({ id: groupIndex, volume: channel.volume,
 			muted: channel.muted ? 1 : 0, timestretch: channel.timestretch ? 1 : 0,
-			gateLatch: channel.gateLatch ? 1 : 0 });
+			gateLatch: channel.gateLatch ? 1 : 0, phaseCut: phaseCutState(groupIndex) });
 	}
 	return {
 		tracks: tracks,
@@ -9815,6 +9865,9 @@ function sessionApply(payload) {
 			setEditorMute(group, savedGroup.muted, false);
 			setEditorTimestretch(group, savedGroup.timestretch, false);
 			setEditorChannelLatch(group, savedGroup.gateLatch, false);
+			s.phaseCuts = s.phaseCuts || [];
+			s.phaseCuts[group] = PhaseCut.sanitize(savedGroup.phaseCut);
+			publishPhaseCut(group);
 		}
 		var tracks = source.tracks || [];
 		for (var track = 0; track < s.NUM_TRACKS; track++) sessionApplyTrack(track, tracks[track] || {});
@@ -9888,6 +9941,7 @@ function sessionNew() {
 // ─── Entry Points ───────────────────────────────────────────────────────
 
 function loadbang() {
+	for (var cutGroup = 0; cutGroup < 8; cutGroup++) publishPhaseCut(cutGroup);
 	releaseNativeSequence64("load", true);
 	// This project is one logical 16x16 surface. It may be backed by one physical
 	// 256 or split by grid_composite_2x128, but the router/matrix/HUD must never
@@ -10788,6 +10842,10 @@ function handleTimestretchToggle(col) {
 }
 
 function handleModPage(col, row, state) {
+	if (col < 8 && row === 5) {
+		if (state === 1) phaseCutToggle(col);
+		return;
+	}
 	if (!Product.rta && row === 4 && col < 8) {
 		if (state === 1) { handleChannelGateLatchToggle(col); drawSequence64GroupRunRow(); }
 		return;
@@ -11207,6 +11265,7 @@ function drawInsertFxBlock() {
 		for (var y = 5; y < vuTop; y++) {
 			led(x, y, insert_fx[insertFxIndex(x, y)] ? 12 : 0);
 		}
+		led(x, 5, phaseCutState(x).enabled ? 15 : 3);
 	}
 }
 

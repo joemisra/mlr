@@ -16,6 +16,17 @@ Bass, Bell, Rim, Tom, Clap, Hat, Snare, Kick. Sample-track defaults are retained
 Saved sessions restore their own assignments. Group patterns remember the last
 track you chose for newly inserted steps, including after save/open.
 
+Mod row 6 columns 1–8 toggle native Phase Cut per group. Bright means on;
+dim means off. HUD → Phase has rhythmic jumps, repeats, reverse probability,
+dry/wet and crossfade controls, plus four factory presets and four user slots
+per group. Settings and user slots save in sessions. Try NUDGE for subtle changes
+or SHUFFLE for more obvious cutting, then turn it on. It needs no plugin or rack
+slot. Looping samples are supported; stretched and one-shot playback pass dry.
+The original playhead keeps advancing while the additional read head cuts.
+
+The rack plugin chooser and Samples bank include draggable scrollbars for
+quick page jumps, alongside their previous/next buttons.
+
 Use **GRID COLOR ON/OFF** on Live or Colors to enable MechaTrellis hardware
 colors. The choice is saved in `mlr.local.json` beside the patch and applies at
 next startup. Turning it off restores a neutral palette and standard brightness.
@@ -52,3 +63,17 @@ See `SPLIT-NOTES.md` for validation results and the remaining live smoke test.
 See `sequence64_editor_reference.md` for the grid gestures. MLR GPL v2
 provenance remains in `license_mlr.txt` and `mlr_info.txt`; RNBO remains subject
 to its own installed runtime/export licensing.
+
+### Sample browser
+
+On Samples, use the folder-name dropdown to jump to a loaded folder. REMOVE
+removes that folder from browsing and frees its folder slot. Existing sample
+buffers are retained so tracks and scenes keep working; files on disk are not
+deleted. Retained samples still count toward the catalog capacity.
+
+Drag WAV or AIFF files from an external browser such as Sononym onto the
+**DROP WAV / AIFF** area in the desktop HUD. Files are grouped by parent folder;
+dropping an existing file does not duplicate its catalog entry. Select a sample
+and use ASSIGN (or double-click it) to assign it to the selected track. Import
+uses the existing bank loader, which stops playback while loading buffers.
+The native Sononym drag gesture still needs live Max verification.

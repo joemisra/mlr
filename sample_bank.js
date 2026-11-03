@@ -22,6 +22,7 @@ var sampleFolders = [];
 var activeFolderId = "";
 var runtimeAssignments = makeFilledArray(16, -1);
 var loadIndex = 0;
+var bankLoading = false;
 var loadTask = null;
 var FIRST_MENU_INDEX = 8;
 var FIRST_BANK_BUFFER = FIRST_MENU_INDEX + 1;
@@ -251,7 +252,7 @@ function publishSample(index) {
 	publishHud("sample", index, sample.buffer, sample.name, sample.path,
 		sample.mediaType, sample.channels || 0, sample.durationMs || 0,
 		sample.sampleRate || 0, sample.category || "other", sample.family || "other",
-		sample.color[0], sample.color[1], sample.color[2], sample.folderId || "folder:0");
+		sample.color[0], sample.color[1], sample.color[2], sample.folderId === undefined ? "folder:0" : sample.folderId);
 }
 
 function sampleReference(index) {
@@ -260,6 +261,7 @@ function sampleReference(index) {
 	if (sample.kind === "recording" && sample.recordingId) {
 		return { folderId: "recording", path: String(sample.recordingId) };
 	}
+	if (sample.folderId === "") return { folderId: "file", path: sample.path };
 	var folderId = sample.folderId || (sampleFolders[0] ? sampleFolders[0].id : "folder:0");
 	var folderIndex = folderIndexById(folderId);
 	var root = folderIndex >= 0 ? String(sampleFolders[folderIndex].path || "") : "";
@@ -375,6 +377,7 @@ function assignmentIndex(value, sampleCount, fallback) {
 }
 
 function finishLoad() {
+	bankLoading = false;
 	var count = pendingSamples.length;
 	if (count > 0) messnamed("[samplebank]count", count);
 	var assignments = bank && Array.isArray(bank.trackAssignments) ?
@@ -400,6 +403,7 @@ function finishLoad() {
 }
 
 function startBankLoad(path, loadedBank, sourceType) {
+	bankLoading = true;
 	messnamed("gridrouter", "sampleBrowserClose");
 	messnamed("mlr_sample_preview", "stop");
 	stopPlaybackForBufferMutation();
@@ -417,7 +421,9 @@ function startBankLoad(path, loadedBank, sourceType) {
 	}
 	var root = joinPath(manifestDirectory,
 		typeof bank.root === "string" ? bank.root : "");
-	if (!sampleFolders.length) {
+	if (!sampleFolders.length && !(bank.version === 2 && bank.samples.every(function (entry) {
+		return entry && typeof entry === "object" && entry.folderId === "";
+	}))) {
 		sampleFolders.push(cloneFolder({
 			id: "folder:0",
 			name: basename(root || path) || "Samples",
@@ -425,8 +431,8 @@ function startBankLoad(path, loadedBank, sourceType) {
 			source: bankSource
 		}, "folder:0"));
 	}
-	activeFolderId = String(bank.activeFolderId || sampleFolders[0].id);
-	if (folderIndexById(activeFolderId) < 0) activeFolderId = sampleFolders[0].id;
+	activeFolderId = String(bank.activeFolderId || (sampleFolders[0] ? sampleFolders[0].id : ""));
+	if (folderIndexById(activeFolderId) < 0) activeFolderId = sampleFolders[0] ? sampleFolders[0].id : "";
 	pendingSamples = [];
 	sampleRecords = [];
 	runtimeAssignments = makeFilledArray(TRACK_COUNT, -1);
@@ -454,14 +460,14 @@ function startBankLoad(path, loadedBank, sourceType) {
 			(recordingDescriptor.resolvedPath || recordingDescriptor.temporaryPath) || "") :
 			normalizeSampleEntry(entry);
 		if (relative) {
-			var entryFolderId = entry && typeof entry === "object" && entry.folderId ?
-				String(entry.folderId) : sampleFolders[0].id;
+			var entryFolderId = entry && typeof entry === "object" && entry.folderId !== undefined ?
+				String(entry.folderId) : (sampleFolders[0] ? sampleFolders[0].id : "");
 			var entryFolderIndex = folderIndexById(entryFolderId);
-			if (entryFolderIndex < 0) {
+			if (entryFolderIndex < 0 && entryFolderId && sampleFolders.length) {
 				entryFolderIndex = 0;
 				entryFolderId = sampleFolders[0].id;
 			}
-			var entryRoot = sampleFolders[entryFolderIndex].path || root;
+			var entryRoot = entryFolderIndex >= 0 ? sampleFolders[entryFolderIndex].path || root : root;
 			var absolute = joinPath(entryRoot, relative);
 			var details = smartSampleDetails(absolute);
 			if (entry && typeof entry === "object") {
@@ -491,7 +497,7 @@ function startBankLoad(path, loadedBank, sourceType) {
 				recordingSource: isRecording && recordingDescriptor ?
 					String(recordingDescriptor.source || "input") : ""
 			});
-			sampleFolders[entryFolderIndex].sampleIndices.push(sampleRecords.length - 1);
+			if (entryFolderIndex >= 0) sampleFolders[entryFolderIndex].sampleIndices.push(sampleRecords.length - 1);
 			if (isRecording && recordingDescriptor) {
 				var runtimeBuffer = FIRST_BANK_BUFFER + sampleRecords.length - 1;
 				messnamed("gridrouter", "recordingRegistered", String(entry.recordingId),
@@ -562,7 +568,7 @@ function sampleEntryFromRecord(sample) {
 		category: sample.category || "other",
 		family: sample.family || "other",
 		color: sample.color ? sample.color.slice() : [0, 210, 255],
-		folderId: sample.folderId || (sampleFolders[0] ? sampleFolders[0].id : "folder:0")
+		folderId: sample.folderId === undefined ? (sampleFolders[0] ? sampleFolders[0].id : "folder:0") : sample.folderId
 	};
 	if (sample.kind === "recording" && sample.recordingId) {
 		entry.kind = "recording";
@@ -586,6 +592,7 @@ function folderSnapshots() {
 
 function finishSmartScan() {
 	closeScanFolder();
+	scanQueue = [];
 	if (scanTask) scanTask.cancel();
 	var entries = [];
 	for (var index = 0; index < scanCandidates.length; index++) {
@@ -725,6 +732,89 @@ function scanFolder() {
 	publishHud("notice", "info", "Smart sorting up to " + scanLimit + " samples…");
 	scanTask.schedule(0);
 	return true;
+}
+
+// Removing a browser root never compacts the catalog: scene/slot buffers stay stable.
+function removeFolder(folderId) {
+	var index = folderIndexById(String(folderId));
+	if (index < 0) return false;
+	if (bankLoading || scanCurrent || scanQueue.length || pendingCapture) {
+		publishHud("notice", "warn", "Wait for sample loading or capture to finish");
+		return false;
+	}
+	previewStop();
+	browserClose();
+	var removed = sampleFolders.splice(index, 1)[0];
+	for (var sample = 0; sample < sampleRecords.length; sample++) {
+		if (sampleRecords[sample].folderId === removed.id) {
+			sampleRecords[sample].folderId = "";
+			publishSample(sample);
+		}
+	}
+	activeFolderId = sampleFolders[Math.min(index, sampleFolders.length - 1)] ?
+		sampleFolders[Math.min(index, sampleFolders.length - 1)].id : "";
+	publishFolders();
+	markSessionDirty("remove sample folder");
+	publishHud("notice", "info", "Removed " + removed.name + " from browser; existing samples retained");
+	return true;
+}
+
+var droppedPaths = [];
+var dropTask = null;
+function importFile() {
+	var path = arrayfromargs(arguments).join(" ");
+	if (!supportedAudioPath(path)) {
+		publishHud("notice", "warn", "Drop a WAV or AIFF audio file");
+		return false;
+	}
+	droppedPaths.push(path);
+	if (!dropTask) dropTask = new Task(importDroppedFiles, this);
+	dropTask.cancel();
+	dropTask.schedule(100);
+	return true;
+}
+
+function importDroppedFiles() {
+	if (bankLoading || scanCurrent || scanQueue.length || pendingCapture) {
+		dropTask.schedule(100);
+		return;
+	}
+	var paths = droppedPaths;
+	droppedPaths = [];
+	var folders = folderSnapshots();
+	var merged = sampleRecords.map(sampleEntryFromRecord);
+	var selectedFolder = activeFolderId;
+	var skipped = 0;
+	for (var i = 0; i < paths.length; i++) {
+		var path = paths[i];
+		var parent = directoryOf(path);
+		var existing = -1;
+		for (var j = 0; j < merged.length; j++) {
+			if (pathKey(merged[j].path) === pathKey(path)) { existing = j; break; }
+		}
+		if (existing < 0 && merged.length >= SMART_SCAN_LIMIT) { skipped++; continue; }
+		var folder = null;
+		if (existing >= 0 && merged[existing].folderId) {
+			selectedFolder = merged[existing].folderId;
+			continue;
+		}
+		for (var f = 0; f < folders.length; f++) {
+			if (pathKey(folders[f].path) === pathKey(parent)) { folder = folders[f]; break; }
+		}
+		if (!folder) {
+			if (folders.length >= MAX_SAMPLE_FOLDERS) { skipped++; continue; }
+			folder = { id: nextFolderId(folders), name: basename(parent), path: parent, source: "drop" };
+			folders.push(folder);
+		}
+		selectedFolder = folder.id;
+		if (existing >= 0) merged[existing].folderId = folder.id;
+		else merged.push({ path: path, folderId: folder.id });
+	}
+	if (paths.length > skipped) startBankLoad("folder-library", {
+		version: 2, root: "", folders: folders, activeFolderId: selectedFolder,
+		samples: merged, trackAssignments: runtimeAssignments.slice()
+	}, "folder-library");
+	if (skipped) publishHud("notice", "warn", "Some drops were skipped: sample or folder slots are full");
 }
 
 function preview(sampleIndex) {
@@ -1019,6 +1109,8 @@ function sessionApplyDict(dictName) {
 }
 
 function sessionApply(payload) {
+	droppedPaths = [];
+	if (dropTask) dropTask.cancel();
 	var source;
 	try { source = JSON.parse(String(payload || "{}")); }
 	catch (error) {
@@ -1047,6 +1139,8 @@ function sessionApply(payload) {
 }
 
 function sessionNew() {
+	droppedPaths = [];
+	if (dropTask) dropTask.cancel();
 	sessionStateApplying = true;
 	for (var track = 0; track < TRACK_COUNT; track++) {
 		runtimeAssignments[track] = -1;

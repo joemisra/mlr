@@ -9,11 +9,20 @@ var state = Model.createState();
 var hitRegions = [];
 var hoveredRegion = null;
 var redrawPending = false;
+var remotePeerConnected = false;
 var lastPointerX = -1;
 var lastPointerY = -1;
 var lastClickRegionId = "";
 var lastClickTime = 0;
 var visibleEventSignatures = {};
+var scrollbarDrag = null;
+var rackListPageSize = 6;
+var folderMenuOpen = false;
+var folderMenuBounds = null;
+var dropZoneRect = null;
+var nativeDropSignature = "";
+// Drawing attributes are cached only within a paint; Max owns the context between paints.
+var drawingStyle = {};
 
 mgraphics.init();
 mgraphics.autofill = 0;
@@ -35,10 +44,17 @@ function scheduleRedraw(immediate) {
 	}
 	if (redrawPending) return;
 	redrawPending = true;
-	redrawTask.schedule(33);
+	// The phone renders its own HUD; avoid painting a second fast display in Max.
+	redrawTask.schedule(remotePeerConnected ? 150 : 33);
 }
 
 function activeLiveTrack() {
+	if (!Model.Product.rta) {
+		for (var group = 0; group < state.channels.length; group++) {
+			if (state.channels[group].activeTrack >= 0) return state.channels[group].activeTrack;
+		}
+		return -1;
+	}
 	if (state.editor.targetType === "track") return state.editor.targetId;
 	if (state.editor.targetType === "group" && state.channels[state.editor.targetId]) {
 		return state.channels[state.editor.targetId].activeTrack;
@@ -55,8 +71,8 @@ function eventDisplayKey(topic, args) {
 	if (topic === "track" || topic === "channel" || topic === "sample" ||
 		topic === "assignment" || topic === "waveform" ||
 		topic === "track_capture" ||
-		topic === "channel_strip" || topic === "channel_strip_meter" ||
-		topic === "session_missing" || topic === "color_role") {
+		topic === "phase_cut" || topic === "channel_strip" || topic === "channel_strip_meter" ||
+		topic === "session_missing" || topic === "color_role" || topic === "rack_latency") {
 		return key + ":" + args[0];
 	}
 	if (topic === "pattern_summary" || topic === "pattern_playhead") {
@@ -67,6 +83,8 @@ function eventDisplayKey(topic, args) {
 }
 
 function eventSignature(args) {
+	// JSON payloads already arrive serialized; avoid allocating another escaped copy.
+	if (args.length === 1 && typeof args[0] === "string") return args[0];
 	try {
 		return JSON.stringify(args);
 	} catch (error) {
@@ -76,6 +94,7 @@ function eventSignature(args) {
 
 function eventAffectsVisiblePage(topic, args) {
 	var page = state.page;
+	if (topic === "phase_cut") return page === "phase" && Number(args[0]) === state.selectedChannelStrip;
 	if (topic === "parameter_focus" || topic === "mode" || topic === "clock" || topic === "editor" ||
 		topic === "pattern_snapshot" || topic === "scene_state" || topic === "notice") return true;
 	if (topic === "grid_level_map" || topic === "grid_color_map" ||
@@ -97,7 +116,8 @@ function eventAffectsVisiblePage(topic, args) {
 			(page === "live" && (!Model.Product.rta || (state.editor.targetType === "group" &&
 			parseInt(args[0], 10) === state.editor.targetId)));
 	}
-	if (topic === "pattern_playhead") return page === "live" || page === "pattern";
+	if (topic === "pattern_playhead") return (page === "live" || page === "pattern") &&
+		String(args[0]) === state.pattern.targetType && Number(args[1]) === state.pattern.targetId;
 	if (topic === "pattern_summary") return false;
 	if (topic === "capture_source" || topic === "track_capture") return page === "live";
 	if (topic === "modulation_state") return page === "strip" && state.stripView === "builtin";
@@ -115,9 +135,13 @@ function eventAffectsVisiblePage(topic, args) {
 		return page === "strip" && state.stripView === "builtin" &&
 			parseInt(args[0], 10) === state.selectedChannelStrip;
 	}
+	if (topic === "rack_state") return page === "strip" &&
+		state.stripView === "rack" && Number(args[0]) === state.selectedChannelStrip;
+	if (topic === "rack_latency") return page === "strip" && state.stripView === "rack" &&
+		(Number(args[0]) === state.selectedChannelStrip || (args[3] ? 1 : 0) !== state.rackLatencyMismatch);
 	if (topic === "rack_inventory" || topic === "rack_inventory_begin" ||
 		topic === "rack_inventory_item" || topic === "rack_inventory_end" ||
-		topic === "rack_inventory_status" || topic === "rack_state" || topic === "rack_latency") {
+		topic === "rack_inventory_status") {
 		return page === "strip" && state.stripView === "rack";
 	}
 	if (topic === "session_state" || topic === "session_missing") return page === "session";
@@ -132,15 +156,21 @@ function visibleEventChanged(topic, args) {
 	return true;
 }
 
-function rgb(source, alpha) {
-	var color = source || [255, 255, 255];
-	return [color[0] / 255, color[1] / 255, color[2] / 255,
-		alpha === undefined ? 1 : alpha];
-}
-
 function setColor(color, alpha) {
-	var value = rgb(color, alpha);
-	mgraphics.set_source_rgba(value[0], value[1], value[2], value[3]);
+ var c = color || Model.COLORS.white, a = alpha === undefined ? 1 : alpha;
+ if (drawingStyle.r === c[0] && drawingStyle.g === c[1] && drawingStyle.b === c[2] && drawingStyle.a === a) return;
+ drawingStyle.r = c[0]; drawingStyle.g = c[1]; drawingStyle.b = c[2]; drawingStyle.a = a;
+ mgraphics.set_source_rgba(c[0] / 255, c[1] / 255, c[2] / 255, a);
+}
+function setLineWidth(width) {
+ width = width || 1;
+ if (drawingStyle.lineWidth === width) return;
+ drawingStyle.lineWidth = width;
+ mgraphics.set_line_width(width);
+}
+function setFont(face, size) {
+ if (drawingStyle.face !== face) { mgraphics.select_font_face(face); drawingStyle.face = face; }
+ if (drawingStyle.size !== size) { mgraphics.set_font_size(size); drawingStyle.size = size; }
 }
 
 function fillRect(x, y, width, height, color, alpha) {
@@ -151,14 +181,14 @@ function fillRect(x, y, width, height, color, alpha) {
 
 function strokeRect(x, y, width, height, color, lineWidth, alpha) {
 	setColor(color, alpha);
-	mgraphics.set_line_width(lineWidth || 1);
+	setLineWidth(lineWidth);
 	mgraphics.rectangle(x + 0.5, y + 0.5, Math.max(0, width - 1), Math.max(0, height - 1));
 	mgraphics.stroke();
 }
 
 function line(x1, y1, x2, y2, color, lineWidth, alpha) {
 	setColor(color, alpha);
-	mgraphics.set_line_width(lineWidth || 1);
+	setLineWidth(lineWidth);
 	mgraphics.move_to(x1, y1);
 	mgraphics.line_to(x2, y2);
 	mgraphics.stroke();
@@ -166,16 +196,14 @@ function line(x1, y1, x2, y2, color, lineWidth, alpha) {
 
 function text(value, x, y, size, color, bold) {
 	setColor(color || Model.COLORS.text);
-	mgraphics.select_font_face(bold ? "Arial Bold" : "Arial");
-	mgraphics.set_font_size(size || 12);
+	setFont(bold ? "Arial Bold" : "Arial", size || 12);
 	mgraphics.move_to(x, y);
 	mgraphics.show_text(String(value));
 }
 
 function mono(value, x, y, size, color, bold) {
 	setColor(color || Model.COLORS.text);
-	mgraphics.select_font_face(bold ? "Menlo Bold" : "Menlo");
-	mgraphics.set_font_size(size || 11);
+	setFont(bold ? "Menlo Bold" : "Menlo", size || 11);
 	mgraphics.move_to(x, y);
 	mgraphics.show_text(String(value));
 }
@@ -207,11 +235,54 @@ function button(id, title, x, y, width, height, active, color, payload) {
 	addHit(id, x, y, width, height, payload);
 }
 
+function listPageCount(target) {
+	var count = target === "rack" ?
+		(state.rackInventory[state.rackChooser.format] || []).length :
+		Model.activeFolderSampleIndices(state).length;
+	return Math.max(1, Math.ceil(count / (target === "rack" ? rackListPageSize : 16)));
+}
+
+function drawListScrollbar(target, x, y, height) {
+	var pageCount = listPageCount(target);
+	var page = target === "rack" ? state.rackChooser.page : state.samplePage;
+	page = Model.clamp(page, 0, pageCount - 1);
+	if (target === "rack") state.rackChooser.page = page;
+	else state.samplePage = page;
+	var thumbHeight = Math.min(height, Math.max(22, height / pageCount));
+	var thumbY = y + (height - thumbHeight) * (pageCount > 1 ? page / (pageCount - 1) : 0);
+	fillRect(x, y, 14, height, Model.COLORS.background);
+	strokeRect(x, y, 14, height, Model.COLORS.line, 1);
+	fillRect(x + 2, thumbY + 1, 10, Math.max(0, thumbHeight - 2),
+		pageCount > 1 ? Model.COLORS.cyan : Model.COLORS.line, 0.85);
+	if (pageCount > 1) addHit(target + "_scrollbar", x, y, 14, height,
+		{ action: "list_scroll", target: target, thumbY: thumbY, thumbHeight: thumbHeight });
+}
+
+function scrollListToPointer(drag, y) {
+	var travel = drag.height - drag.thumbHeight;
+	var page = travel > 0 ? Math.round(Model.clamp((y - drag.y - drag.anchor) / travel,
+		0, 1) * (listPageCount(drag.target) - 1)) : 0;
+	var previous = drag.target === "rack" ? state.rackChooser.page : state.samplePage;
+	if (drag.target === "rack") state.rackChooser.page = page;
+	else state.samplePage = page;
+	if (page !== previous) scheduleRedraw(false);
+}
+
+function beginListScroll(region, y) {
+	if (!region || !region.payload || region.payload.action !== "list_scroll") return false;
+	var payload = region.payload;
+	var onThumb = y >= payload.thumbY && y <= payload.thumbY + payload.thumbHeight;
+	scrollbarDrag = {target: payload.target, y: region.y, height: region.height,
+		thumbHeight: payload.thumbHeight, anchor: onThumb ? y - payload.thumbY : payload.thumbHeight / 2};
+	scrollListToPointer(scrollbarDrag, y);
+	return true;
+}
+
 function pageLayout() {
 	var size = mgraphics.size;
 	var width = Math.max(480, size[0]);
 	var height = Math.max(320, size[1]);
-	var focusHeight = state.parameterFocus.active ? (height < 420 ? 52 : 96) : 0;
+	var focusHeight = state.page !== "phase" && state.parameterFocus.active ? (height < 420 ? 52 : 96) : 0;
 	return {
 		width: width,
 		height: height,
@@ -273,28 +344,36 @@ function drawHeader(layout) {
 }
 
 function drawGrid(x, y, size, interactiveHelp) {
-	var gap = Math.max(1, Math.floor(size / 120));
-	var cell = (size - gap * 15) / 16;
-	fillRect(x - 6, y - 6, size + 12, size + 12, Model.COLORS.panel);
-	strokeRect(x - 6, y - 6, size + 12, size + 12, Model.COLORS.line, 1);
-	for (var row = 0; row < 16; row++) {
-		for (var col = 0; col < 16; col++) {
-			var index = Model.gridIndex(col, row);
-			var level = state.grid.levels[index] / 15;
-			var color = state.grid.colors[index] || Model.COLORS.cyan;
-			var alpha = 0.08 + level * 0.92;
-			var px = x + col * (cell + gap);
-			var py = y + row * (cell + gap);
-			fillRect(px, py, cell, cell, color, alpha);
-			strokeRect(px, py, cell, cell, color, 1, 0.18 + level * 0.5);
-			if (state.grid.pressed[col + ":" + row]) {
-				strokeRect(px - 1, py - 1, cell + 2, cell + 2, Model.COLORS.white, 2, 1);
-			}
-			if (interactiveHelp) addHit("grid:" + col + ":" + row, px, py, cell, cell,
-				{ action: "grid_hover", x: col, y: row });
-		}
-	}
-	return { cell: cell, gap: gap };
+ var gap = Math.max(1, Math.floor(size / 120));
+ var cell = (size - gap * 15) / 16;
+ fillRect(x - 6, y - 6, size + 12, size + 12, Model.COLORS.panel);
+ strokeRect(x - 6, y - 6, size + 12, size + 12, Model.COLORS.line, 1);
+ var batches = {}, pressed = [];
+ for (var row = 0; row < 16; row++) {
+  for (var col = 0; col < 16; col++) {
+   var index = Model.gridIndex(col, row), level = state.grid.levels[index] / 15;
+   var color = state.grid.colors[index] || Model.COLORS.cyan;
+   var key = color[0] + ":" + color[1] + ":" + color[2] + ":" + level;
+   var batch = batches[key] || (batches[key] = {color:color,level:level,cells:[]});
+   var px = x + col * (cell + gap), py = y + row * (cell + gap);
+   batch.cells.push([px,py]);
+   if (state.grid.pressed[col + ":" + row]) pressed.push([px,py]);
+   if (interactiveHelp) addHit("grid:" + col + ":" + row, px, py, cell, cell,
+    {action:"grid_hover",x:col,y:row});
+  }
+ }
+ // Non-overlapping cells with identical appearance share one fill and stroke.
+ Object.keys(batches).forEach(function(key) {
+  var batch = batches[key];
+  setColor(batch.color, 0.08 + batch.level * 0.92);
+  batch.cells.forEach(function(p) { mgraphics.rectangle(p[0],p[1],cell,cell); });
+  mgraphics.fill();
+  setColor(batch.color, 0.18 + batch.level * 0.5); setLineWidth(1);
+  batch.cells.forEach(function(p) { mgraphics.rectangle(p[0]+0.5,p[1]+0.5,Math.max(0,cell-1),Math.max(0,cell-1)); });
+  mgraphics.stroke();
+ });
+ pressed.forEach(function(p) { strokeRect(p[0]-1,p[1]-1,cell+2,cell+2,Model.COLORS.white,2,1); });
+ return {cell:cell,gap:gap};
 }
 
 function drawLivePage(layout) {
@@ -402,12 +481,14 @@ function decisionOutcomeLabel(outcome) {
 	return "";
 }
 
-function gateTailAt(pattern, stepIndex) {
-	for (var sourceIndex = Math.max(0, stepIndex - 63); sourceIndex < stepIndex; sourceIndex++) {
-		var source = pattern.steps[sourceIndex];
-		if (source && source.cut && source.gateLength > stepIndex - sourceIndex) return true;
-	}
-	return false;
+function gateTails(pattern) {
+ var tails = [], end = 0;
+ for (var index = 0; index < 64; index++) {
+  tails[index] = index < end;
+  var step = pattern.steps[index];
+  if (step && step.cut) end = Math.max(end, index + step.gateLength);
+ }
+ return tails;
 }
 
 function drawPatternPage(layout) {
@@ -437,6 +518,7 @@ function drawPatternPage(layout) {
 
 	var controlY = y + selectorH + 8;
 	var pattern = state.pattern;
+	var tails = gateTails(pattern);
 	mono("ṛta · ऋत  " + Model.targetLabel(pattern.targetType, pattern.targetId),
 		x, controlY + 17, 14,
 		Model.COLORS.white, true);
@@ -467,7 +549,7 @@ function drawPatternPage(layout) {
 			var sx = x + col * (stepW + gap);
 			var sy = stepsY + row * (stepH + gap);
 			var color = stepColor(step);
-			var tail = gateTailAt(pattern, stepIndex);
+			var tail = tails[stepIndex];
 			var available = stepIndex < pattern.length;
 			if (tail && step && !step.cut) color = Model.COLORS.blue;
 			var probabilityAlpha = step ? 0.3 + 0.42 * step.probability / 15 : 0.3;
@@ -535,14 +617,17 @@ function drawWaveform(x, y, width, height, waveform) {
 		var laneTop = y + channel * laneHeight;
 		var center = laneTop + laneHeight / 2;
 		var color = channel === 0 ? Model.COLORS.cyan : Model.COLORS.purple;
+		setColor(color, 0.9);
+		setLineWidth(1);
 		for (var index = 0; index < bins.length; index++) {
 			var pair = bins[index];
 			var px = x + 1 + index * (width - 2) / Math.max(1, bins.length - 1);
 			var minimum = Array.isArray(pair) ? Number(pair[0]) || 0 : 0;
 			var maximum = Array.isArray(pair) ? Number(pair[1]) || 0 : 0;
-			line(px, center - maximum * laneHeight * 0.45, px,
-				center - minimum * laneHeight * 0.45, color, 1, 0.9);
+			mgraphics.move_to(px, center - maximum * laneHeight * 0.45);
+			mgraphics.line_to(px, center - minimum * laneHeight * 0.45);
 		}
+		mgraphics.stroke();
 	}
 }
 
@@ -609,7 +694,8 @@ function drawRackChooser(x, y, width, height) {
 	button("rack_close", "CLOSE", x + width - 66, y + 27, 56, 24, false,
 		Model.COLORS.red, { action: "rack_close" });
 	var entries = state.rackInventory[state.rackChooser.format] || [];
-	var pageSize = height < 330 ? 6 : 8;
+	var pageSize = Math.max(1, Math.min(height < 330 ? 6 : 8, Math.floor((height - 98) / 24)));
+	rackListPageSize = pageSize;
 	var pageCount = Math.max(1, Math.ceil(entries.length / pageSize));
 	state.rackChooser.page = Model.clamp(state.rackChooser.page, 0, pageCount - 1);
 	var start = state.rackChooser.page * pageSize;
@@ -628,9 +714,10 @@ function drawRackChooser(x, y, width, height) {
 		var entry = entries[start + index];
 		if (!entry) continue;
 		button("rack_plugin:" + (start + index), ellipsis(entry.name || entry.id, 58),
-			x + 10, listY + index * rowHeight, width - 20, rowHeight - 3, false,
+			x + 10, listY + index * rowHeight, width - 40, rowHeight - 3, false,
 			Model.COLORS.green, { action: "rack_plugin", entry: entry });
 	}
+	drawListScrollbar("rack", x + width - 24, listY, pageSize * rowHeight - 3);
 	button("rack_prev", "PREV", x + 10, y + height - 30, 58, 22,
 		state.rackChooser.page > 0, Model.COLORS.purple,
 		{ action: "rack_page", delta: -1 });
@@ -684,6 +771,48 @@ function drawRackBody(layout, x, y, width, height) {
 		button("rack_down:" + slotIndex, "↓", controlsX + 206, controlY, 27, 27,
 			false, Model.COLORS.purple, { action: "rack_move", slot: slotIndex, target: slotIndex + 1 });
 	}
+}
+
+
+
+function drawPhasePage(layout) {
+ var x = layout.contentX, y = layout.contentY, width = layout.contentWidth;
+ var group = state.selectedChannelStrip, cut = state.phaseCuts[group];
+ var cell = (width - 8 * 4) / 8;
+ for (var i = 0; i < 8; i++) button("phase_group:" + i, "G" + (i + 1), x + i * (cell + 4), y,
+  cell, 25, group === i, Model.GROUP_COLORS[i], {action:"strip_select",channel:i});
+ y += 33;
+ button("phase_enabled", cut.enabled ? "ON" : "OFF", x, y, 60, 25, !!cut.enabled, Model.COLORS.green,
+  {action:"phase_set",key:"enabled",value:cut.enabled ? 0 : 1});
+ mono("PHASE CUT · GROUP " + (group + 1), x + 70, y + 17, 12, Model.COLORS.cyan, true);
+ var rowHeight = Math.min(34, (layout.contentHeight - 138) / 8);
+ var keys = ["division","chance","range","repeat","reverse","wet","fade_ms","ramp"];
+ var names = ["RATE","CHANCE","JUMP /16","REPEAT","REVERSE","MIX","FADE MS","SLICE RAMP"];
+ keys.forEach(function(key, row) {
+  var top = y + 32 + row * rowHeight, choices = Model.PhaseCut.CHOICES[key];
+  label(names[row], x + 2, top + rowHeight * 0.65);
+  var start = x + 86, bw = (width - 86 - 3 * (choices.length - 1)) / choices.length;
+  choices.forEach(function(value, index) {
+   var title = key === "division" ? Model.PhaseCut.rateLabel(value) :
+    key === "ramp" ? ["FLAT","FADE IN","FADE OUT"][value] :
+    (key === "chance" || key === "repeat" || key === "reverse" || key === "wet") ? Math.round(value * 100) + "%" : String(value);
+   button("phase:" + key + ":" + value, title, start + index * (bw + 3), top, bw, rowHeight - 4,
+    cut[key] === value, Model.COLORS.cyan, {action:"phase_set",key:key,value:value});
+  });
+ });
+ var py = y + 34 + keys.length * rowHeight, pw = (width - 9) / 4;
+ Model.PhaseCut.FACTORIES.forEach(function(preset,i) {
+  button("phase_factory:"+i, preset.name, x+i*(pw+3), py, pw, 23, false, Model.COLORS.purple,
+   {action:"phase_preset",mode:"factory",slot:i});
+ });
+ for (var slot=0; slot<4; slot++) {
+  var sx=x+slot*(pw+3);
+  button("phase_recall:"+slot, "USER "+(slot+1), sx, py+28, pw*0.62, 23, !!cut.presets[slot], Model.COLORS.amber,
+   {action:"phase_preset",mode:"recall",slot:slot});
+  button("phase_store:"+slot, "SAVE", sx+pw*0.64, py+28, pw*0.36, 23, false, Model.COLORS.green,
+   {action:"phase_preset",mode:"store",slot:slot});
+ }
+ mono("Saved in sessions. Looping samples only; stretch / one-shot use dry playback.", x, py+68, 9, Model.COLORS.dimText);
 }
 
 function drawStripPage(layout) {
@@ -853,7 +982,7 @@ function drawSamplesPage(layout) {
 	var rowHeight = Math.max(9,
 		(listBottom - listTop - rowGap * 15) / 16);
 	var trackCharacters = Math.max(10, Math.floor((trackW - 16) / 5.8));
-	var sampleCharacters = Math.max(12, Math.floor((bankW - 16) / 5.8));
+	var sampleCharacters = Math.max(9, Math.floor((bankW - 36) / 5.8));
 
 	label("Tracks", x, y + 12, Model.COLORS.green);
 	for (var track = 0; track < 16; track++) {
@@ -866,16 +995,17 @@ function drawSamplesPage(layout) {
 			{ action: "sample_track", id: track });
 	}
 	var activeFolder = state.bank.folders[state.bank.activeFolder];
-	var folderName = activeFolder ? activeFolder.name : "All samples";
-	label("Bank · " + state.bank.status + " · " + ellipsis(folderName,
-		Math.max(8, Math.floor((bankW - 52) / 6))), bankX, y + 12,
-		state.bank.status === "ready" ? Model.COLORS.cyan : Model.COLORS.amber);
-	if (state.bank.folders.length > 1) {
-		button("folder_prev", "‹", bankX + bankW - 42, y, 18, 18,
-			false, Model.COLORS.purple, { action: "sample_folder", delta: -1 });
-		button("folder_next", "›", bankX + bankW - 20, y, 18, 18,
-			false, Model.COLORS.purple, { action: "sample_folder", delta: 1 });
-	}
+	var folderName = activeFolder ? activeFolder.name : "No folders";
+	button("folder_menu", ellipsis(folderName, Math.max(8, Math.floor((bankW - 78) / 6))) + " ▾",
+		bankX, y, bankW - 59, 18, folderMenuOpen, Model.COLORS.purple,
+		{ action: "folder_menu" });
+	button("folder_remove", "REMOVE", bankX + bankW - 56, y, 56, 18,
+		false, Model.COLORS.red, { action: "folder_remove", id: activeFolder ? activeFolder.id : "" });
+	folderMenuBounds = { x: bankX, y: listTop, width: bankW };
+	dropZoneRect = [rightX, controlsY, rightWidth, controlsHeight];
+	strokeRect(rightX, controlsY, rightWidth, controlsHeight, Model.COLORS.purple, 1);
+	text("DROP WAV / AIFF", rightX + 5, controlsY + controlsHeight * 0.7, 9, Model.COLORS.purple);
+	state.samplePage = Model.clamp(state.samplePage, 0, listPageCount("samples") - 1);
 	var pageSamples = Model.pageSamples(state);
 	for (var sampleOffset = 0; sampleOffset < 16; sampleOffset++) {
 		var sample = pageSamples[sampleOffset];
@@ -883,11 +1013,12 @@ function drawSamplesPage(layout) {
 		var sy = listTop + sampleOffset * (rowHeight + rowGap);
 		button("sample:" + (sampleId >= 0 ? sampleId : ("empty:" + sampleOffset)),
 			sample ? ellipsis((sampleId + 1) + " · " + sample.name,
-			sampleCharacters) : "—", bankX, sy, bankW, rowHeight,
+			sampleCharacters) : "—", bankX, sy, bankW - 20, rowHeight,
 			sampleId === state.selectedSample,
 			sample && sample.color ? sample.color : Model.COLORS.cyan,
 			{ action: "sample", id: sampleId, enabled: !!sample });
 	}
+	drawListScrollbar("samples", bankX + bankW - 14, listTop, listBottom - listTop);
 	var controlGap = layout.compact ? 3 : 5;
 	var scanWidth = layout.compact ? 78 : 100;
 	var openWidth = layout.compact ? 55 : 75;
@@ -1192,6 +1323,7 @@ function drawHelpPage(layout) {
 }
 
 function drawParameterFocus(layout) {
+ if (state.page === "phase") return;
  var f=state.parameterFocus;
  if(!f.active) return;
  fillRect(12,56,layout.width-24,layout.focusHeight-4,Model.COLORS.panelRaised);
@@ -1207,7 +1339,9 @@ function drawParameterFocus(layout) {
 }
 
 function paint() {
+	drawingStyle = {};
 	var layout = pageLayout();
+	dropZoneRect = null;
 	hitRegions = [];
 	fillRect(0, 0, layout.width, layout.height, Model.COLORS.background);
 	drawHeader(layout);
@@ -1215,10 +1349,38 @@ function paint() {
 	if (state.page === "live") drawLivePage(layout);
 	else if (state.page === "pattern") drawPatternPage(layout);
 	else if (state.page === "strip") drawStripPage(layout);
+	else if (state.page === "phase") drawPhasePage(layout);
 	else if (state.page === "samples") drawSamplesPage(layout);
 	else if (state.page === "colors") drawColorsPage(layout);
 	else if (state.page === "session") drawSessionPage(layout);
 	else drawHelpPage(layout);
+	if (state.page === "samples" && folderMenuOpen && folderMenuBounds) {
+		var bounds = folderMenuBounds;
+		fillRect(bounds.x, bounds.y, bounds.width, state.bank.folders.length * 23, Model.COLORS.background);
+		for (var folder = 0; folder < state.bank.folders.length; folder++) {
+			var item = state.bank.folders[folder];
+			button("folder_option:" + folder, ellipsis(item.name, Math.floor((bounds.width - 45) / 6)) +
+				" (" + item.count + ")", bounds.x, bounds.y + folder * 23, bounds.width, 23,
+				folder === state.bank.activeFolder, Model.COLORS.purple,
+				{ action: "sample_folder", index: folder });
+		}
+	}
+	updateNativeDropZone();
+	// Rebind after region reconstruction without creating a hover/redraw loop.
+	hoveredRegion = regionAt(lastPointerX, lastPointerY);
+	state.hover = hoveredRegion ? hoveredRegion.payload : null;
+}
+
+// The native dropfile receives OS file drags; the HUD draws its label underneath.
+function updateNativeDropZone() {
+	if (typeof patcher === "undefined" || !patcher.getnamed) return;
+	var signature = JSON.stringify(dropZoneRect);
+	if (signature === nativeDropSignature) return;
+	var zone = patcher.getnamed("sample_drop_zone");
+	if (!zone) return;
+	zone.message("hidden", dropZoneRect ? 0 : 1);
+	if (dropZoneRect) zone.message.apply(zone, ["presentation_rect"].concat(dropZoneRect));
+	nativeDropSignature = signature;
 }
 
 function sendCommand() {
@@ -1233,11 +1395,20 @@ function requestColorSnapshot() {
 }
 
 function activateRegion(region, doubleClick) {
-	if (!region || !region.payload) return;
+	if (!region || !region.payload) {
+		if (folderMenuOpen) { folderMenuOpen = false; scheduleRedraw(false); }
+		return;
+	}
 	var payload = region.payload;
-	if (payload.action === "page") {
+	if (payload.action !== "folder_menu") folderMenuOpen = false;
+	if (payload.action === "folder_menu") {
+		folderMenuOpen = !folderMenuOpen;
+	} else if (payload.action === "folder_remove") {
+		if (payload.id) sendCommand("sample_folder_remove", payload.id);
+	} else if (payload.action === "page") {
 		Model.setPage(state, payload.page);
 		if (payload.page === "colors") requestColorSnapshot();
+		if (payload.page === "phase") sendCommand("phase_snapshot");
 		if (payload.page === "strip") {
 			sendCommand("strip_snapshot");
 			sendCommand("strip_select", state.selectedChannelStrip);
@@ -1254,6 +1425,10 @@ function activateRegion(region, doubleClick) {
 	} else if (payload.action === "strip_select") {
 		Model.selectChannelStrip(state, payload.channel);
 		sendCommand("strip_select", state.selectedChannelStrip);
+	} else if (payload.action === "phase_set") {
+		sendCommand("phase_set", state.selectedChannelStrip, payload.key, payload.value);
+	} else if (payload.action === "phase_preset") {
+		sendCommand("phase_preset", state.selectedChannelStrip, payload.mode, payload.slot);
 	} else if (payload.action === "strip_tab") {
 		Model.setStripView(state, payload.view);
 	} else if (payload.action === "strip_set") {
@@ -1271,8 +1446,7 @@ function activateRegion(region, doubleClick) {
 		state.rackChooser.format = payload.format === "au" ? "au" : "vst3";
 		state.rackChooser.page = 0;
 	} else if (payload.action === "rack_page") {
-		var rackEntries = state.rackInventory[state.rackChooser.format] || [];
-		var rackPages = Math.max(1, Math.ceil(rackEntries.length / (pageLayout().contentHeight < 330 ? 6 : 8)));
+		var rackPages = listPageCount("rack");
 		state.rackChooser.page = Model.clamp(state.rackChooser.page + payload.delta, 0, rackPages - 1);
 	} else if (payload.action === "rack_refresh") {
 		sendCommand("rack_refresh");
@@ -1318,7 +1492,7 @@ function activateRegion(region, doubleClick) {
 	} else if (payload.action === "sample_folder") {
 		var folderCount = state.bank.folders.length;
 		if (folderCount) {
-			state.bank.activeFolder = Model.clamp(state.bank.activeFolder + payload.delta,
+			state.bank.activeFolder = Model.clamp(payload.index === undefined ? state.bank.activeFolder + payload.delta : payload.index,
 				0, folderCount - 1);
 			state.bank.activeFolderId = state.bank.folders[state.bank.activeFolder].id;
 			state.samplePage = 0;
@@ -1356,23 +1530,37 @@ function updatePointer(x, y) {
 	lastPointerX = x;
 	lastPointerY = y;
 	var next = regionAt(x, y);
-	if (next === hoveredRegion) return;
+	var changed = (next ? next.id : "") !== (hoveredRegion ? hoveredRegion.id : "");
 	hoveredRegion = next;
 	state.hover = next ? next.payload : null;
-	scheduleRedraw(false);
+	if (changed) scheduleRedraw(false);
 }
 
 function onpointermove(event) {
+	if (scrollbarDrag) {
+		scrollListToPointer(scrollbarDrag, event.clientY);
+		return;
+	}
 	updatePointer(event.clientX, event.clientY);
 }
 onpointermove.local = 1;
 
 function onpointerdown(event) {
+	scrollbarDrag = null;
 	updatePointer(event.clientX, event.clientY);
+	beginListScroll(regionAt(event.clientX, event.clientY), event.clientY);
 }
 onpointerdown.local = 1;
 
 function onpointerup(event) {
+	if (scrollbarDrag) {
+		scrollListToPointer(scrollbarDrag, event.clientY);
+		scrollbarDrag = null;
+		lastClickRegionId = "";
+		updatePointer(event.clientX, event.clientY);
+		scheduleRedraw(true);
+		return;
+	}
 	updatePointer(event.clientX, event.clientY);
 	var region = regionAt(event.clientX, event.clientY);
 	var now = Date.now();
@@ -1392,6 +1580,10 @@ onpointerleave.local = 1;
 
 function onclick(x, y) {
 	updatePointer(x, y);
+	if (beginListScroll(regionAt(x, y), y)) {
+		scrollbarDrag = null;
+		return;
+	}
 	activateRegion(regionAt(x, y), false);
 }
 onclick.local = 1;
@@ -1403,6 +1595,7 @@ function ondblclick(x, y) {
 ondblclick.local = 1;
 
 function onresize() {
+	scrollbarDrag = null;
 	scheduleRedraw(false);
 }
 onresize.local = 1;
@@ -1457,6 +1650,7 @@ function session_missing() { receive("session_missing", arguments); }
 function page(value) {
 	var requested = Model.setPage(state, String(value || ""));
 	if (requested === "colors") requestColorSnapshot();
+	if (requested === "phase") sendCommand("phase_snapshot");
 	if (requested === "strip") {
 		sendCommand("strip_snapshot");
 		sendCommand("strip_select", state.selectedChannelStrip);
@@ -1483,3 +1677,11 @@ function notifydeleted() {
 }
 
 function parameter_focus() { receive("parameter_focus", arguments); }
+
+function phase_cut() { receive("phase_cut", arguments); }
+
+// Transient display load policy, never durable/session state.
+function remote_peer(value) {
+	remotePeerConnected = !!Number(value);
+	scheduleRedraw(false);
+}
